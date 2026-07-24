@@ -70,7 +70,11 @@ Essencial/Balanceado/Premium é só uma etiqueta por item. Regra good/better/bes
   **cenários** Essencial/Balanceado/Premium por item; `tools/relatorio.js` gera o
   Relatório Executivo (HTML→PDF) com diagnóstico, lista técnica por zona, cenários
   e resumo financeiro.
-- **Fase 3 (roadmap)** — UI de cotações/fornecedores e comparativo (04/10); matriz
-  de priorização editável no app (05); checklist de infraestrutura guiado (09).
-- **Fase 4 (roadmap)** — editor de paredes (blueprint), 3D (three-gltf-viewer),
-  módulo de viabilidade/ROI, import RoomPlan; export DOCX/PPTX além do HTML/PDF.
+- **Fase 3 (feita)** — leitor unificado de documentos `tools/ler.js`: ingere
+  **PDF, CSV, planilha (.xlsx) e DXF/DWG** e normaliza para `equipamentos` ou
+  `cotacoes` (com `--sql`). Alimenta os entregáveis 03/04 (lista técnica e
+  cotações) a partir dos materiais que o cliente/fornecedor envia.
+- **Fase 4 (roadmap)** — UI de cotações/fornecedores e comparativo no app (04/10);
+  matriz de priorização editável no app (05); checklist de infraestrutura guiado
+  (09); editor de paredes (blueprint), 3D (three-gltf-viewer), viabilidade/ROI,
+  import RoomPlan; export DOCX/PPTX além do HTML/PDF.

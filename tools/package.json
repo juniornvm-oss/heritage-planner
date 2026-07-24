@@ -10,6 +10,8 @@
     "importar": "node importar.js"
   },
   "dependencies": {
-    "dxf-parser": "^1.1.2"
+    "dxf-parser": "^1.1.2",
+    "pdf-parse": "^2.4.5",
+    "xlsx": "^0.18.5"
   }
 }

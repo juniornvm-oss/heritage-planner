@@ -295,4 +295,10 @@ function main() {
   }
 }
 
-main();
+// Helpers reutilizados por tools/ler.js (leitor unificado).
+module.exports = {
+  parseArgs, computeBounds, unitToCm, importDxf, importCsv,
+  splitCsvLine, normalizeRow, toInsertSql, sqlLiteral, ZONAS_VALIDAS,
+};
+
+if (require.main === module) main();

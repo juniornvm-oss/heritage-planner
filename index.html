@@ -33,6 +33,10 @@
 </head>
 <body>
 <div id="root"></div>
+<script>
+  // Carrega libs de parsing sob demanda (ESM via CDN), fora do alcance do Babel.
+  window.dynImport = (u) => import(u);
+</script>
 <script type="text/babel" data-presets="react">
 const { useState, useRef, useCallback, useMemo, useEffect } = React;
 
@@ -143,6 +147,156 @@ const NOVA_CONFIG_TEMPLATE = JSON.stringify({
   paredes: { top: "", bottom: "", left: "", right: "" },
 }, null, 2);
 
+// ── Leitor de documentos no app (Fase 4) ─────────────────────────────────────
+const CDN = {
+  xlsx: "https://cdn.jsdelivr.net/npm/xlsx@0.18.5/+esm",
+  pdf: "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.7.76/build/pdf.min.mjs",
+  pdfWorker: "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.7.76/build/pdf.worker.min.mjs",
+  dxf: "https://cdn.jsdelivr.net/npm/dxf-parser@1.1.2/+esm",
+  dwg: "https://cdn.jsdelivr.net/npm/@mlightcad/libredwg-web/+esm",
+};
+const ZONAS_VALIDAS = ["ergo", "forca", "livre", "prep"];
+const normHdr = (s) => String(s == null ? "" : s).trim().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+function pickField(obj, aliases) {
+  const keys = Object.keys(obj);
+  for (const a of aliases) { const k = keys.find((k) => normHdr(k) === a); if (k != null && obj[k] !== "") return obj[k]; }
+  return undefined;
+}
+function parseNum(v) {
+  if (v == null || v === "") return null;
+  let s = String(v).replace(/[^\d.,-]/g, ""); if (!s) return null;
+  const hasC = s.includes(","), hasD = s.includes(".");
+  if (hasC && hasD) s = s.lastIndexOf(",") > s.lastIndexOf(".") ? s.replace(/\./g, "").replace(",", ".") : s.replace(/,/g, "");
+  else if (hasC) s = /,\d{2}$/.test(s) ? s.replace(",", ".") : s.replace(/,/g, "");
+  else if (hasD && /^\d{1,3}(\.\d{3})+$/.test(s)) s = s.replace(/\./g, "");
+  const n = Number(s); return Number.isFinite(n) ? n : null;
+}
+function parseDims(text) {
+  const m = String(text).match(/(\d{2,3})\s*[x×]\s*(\d{2,3})/i);
+  return m ? { w: Number(m[1]), h: Number(m[2]) } : {};
+}
+// bbox (min/max) sobre entidades DXF/DWG, resolvendo INSERT — espelha tools/ler.js
+function computeBounds(entities, blocks) {
+  let b = null;
+  const hit = (x, y) => { if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+    if (!b) b = { minX: x, maxX: x, minY: y, maxY: y };
+    else { if (x < b.minX) b.minX = x; else if (x > b.maxX) b.maxX = x; if (y < b.minY) b.minY = y; else if (y > b.maxY) b.maxY = y; } };
+  const acc = (ents, tf) => {
+    for (const e of ents || []) {
+      const t = (e.type || "").toUpperCase();
+      if (t === "LINE" || t === "LWPOLYLINE" || t === "POLYLINE") for (const v of e.vertices || []) tf(v.x, v.y);
+      else if (t === "POINT" && e.position) tf(e.position.x, e.position.y);
+      else if (t === "CIRCLE" && e.center) { tf(e.center.x - e.radius, e.center.y - e.radius); tf(e.center.x + e.radius, e.center.y + e.radius); }
+      else if (t === "ARC" && e.center) { let a0 = e.startAngle, a1 = e.endAngle; if (a1 < a0) a1 += 2 * Math.PI;
+        for (let i = 0; i <= 24; i++) { const a = a0 + (a1 - a0) * i / 24; tf(e.center.x + e.radius * Math.cos(a), e.center.y + e.radius * Math.sin(a)); } }
+      else if (t === "INSERT" && blocks && blocks[e.name] && blocks[e.name].entities) {
+        const p = e.position || { x: 0, y: 0 }, xs = e.xScale || 1, ys = e.yScale || 1;
+        const r = -((e.rotation || 0) * Math.PI) / 180, s = Math.sin(r), c = Math.cos(r);
+        acc(blocks[e.name].entities, (bx, by) => tf(p.x + bx * xs * c - by * ys * s, p.y + bx * xs * s + by * ys * c));
+      }
+    }
+  };
+  acc(entities, hit);
+  return b;
+}
+function boundsToCm(b, unit) {
+  if (!b) return null;
+  const k = ({ 1: 2.54, 4: 0.1, 5: 1, 6: 100, 0: 0.1 })[unit] != null ? ({ 1: 2.54, 4: 0.1, 5: 1, 6: 100, 0: 0.1 })[unit] : 0.1;
+  return { w: Math.max(1, Math.round((b.maxX - b.minX) * k)), h: Math.max(1, Math.round((b.maxY - b.minY) * k)) };
+}
+
+// Cada parser devolve { modo: "linhas"|"geometria", linhas?, blocos?, resumo }
+async function parseArquivo(file) {
+  const nome = file.name, ext = (nome.split(".").pop() || "").toLowerCase();
+  if (ext === "csv") {
+    const txt = await file.text();
+    return { modo: "linhas", linhas: csvParaObjetos(txt), resumo: `${nome}: CSV` };
+  }
+  if (ext === "xlsx" || ext === "xls") {
+    const XLSX = await window.dynImport(CDN.xlsx);
+    const wb = XLSX.read(await file.arrayBuffer(), { type: "array" });
+    const linhas = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: "" });
+    return { modo: "linhas", linhas, resumo: `${nome}: planilha (${linhas.length} linhas)` };
+  }
+  if (ext === "pdf") {
+    const pdfjs = await window.dynImport(CDN.pdf);
+    pdfjs.GlobalWorkerOptions.workerSrc = CDN.pdfWorker;
+    const doc = await pdfjs.getDocument({ data: await file.arrayBuffer() }).promise;
+    let texto = "";
+    for (let i = 1; i <= doc.numPages; i++) {
+      const c = await (await doc.getPage(i)).getTextContent();
+      const linhasPag = {};
+      c.items.forEach((it) => { const y = Math.round(it.transform[5]); (linhasPag[y] = linhasPag[y] || []).push(it.str); });
+      texto += Object.keys(linhasPag).sort((a, b) => b - a).map((y) => linhasPag[y].join(" ")).join("\n") + "\n";
+    }
+    return { modo: "linhas", linhas: pdfTextoParaLinhas(texto), resumo: `${nome}: PDF (${doc.numPages} pág.)` };
+  }
+  if (ext === "dxf") {
+    const mod = await window.dynImport(CDN.dxf);
+    const DxfParser = mod.default || mod.DxfParser || mod;
+    const parsed = new DxfParser().parseSync(await file.text());
+    const unit = parsed.header && parsed.header["$INSUNITS"] != null ? parsed.header["$INSUNITS"] : 4;
+    const dim = boundsToCm(computeBounds(parsed.entities, parsed.blocks), unit);
+    const bn = (parsed.blocks && Object.keys(parsed.blocks).find((n) => n && !n.startsWith("*"))) || nome.replace(/\.[^.]+$/, "");
+    if (!dim) throw new Error("Sem geometria no DXF.");
+    return { modo: "geometria", blocos: [{ nome: bn, w: dim.w, h: dim.h }], resumo: `${nome}: DXF → ${dim.w}×${dim.h} cm` };
+  }
+  if (ext === "dwg") {
+    const { LibreDwg, Dwg_File_Type } = await window.dynImport(CDN.dwg);
+    const lib = await LibreDwg.create();
+    const dwg = lib.dwg_read_data(new Uint8Array(await file.arrayBuffer()), Dwg_File_Type.DWG);
+    const db = lib.convert(dwg);
+    const ents = db.entities || db.blocks && db.blocks.model_space || [];
+    const blocks = {};
+    (db.blocks || []).forEach((bl) => { if (bl && bl.name) blocks[bl.name] = { entities: bl.entities || [] }; });
+    const dim = boundsToCm(computeBounds(ents, blocks), 4);
+    try { lib.dwg_free(dwg); } catch (e) {}
+    if (!dim) throw new Error("DWG lido, mas sem geometria reconhecida. Me mande o arquivo para calibrar.");
+    return { modo: "geometria", blocos: [{ nome: nome.replace(/\.[^.]+$/, ""), w: dim.w, h: dim.h }], resumo: `${nome}: DWG → ${dim.w}×${dim.h} cm` };
+  }
+  throw new Error("Formato não suportado: ." + ext + " (use csv, xlsx, pdf, dxf, dwg)");
+}
+function csvParaObjetos(txt) {
+  const linhas = txt.replace(/^﻿/, "").split(/\r?\n/).filter((l) => l.trim() !== "");
+  if (linhas.length < 2) return [];
+  const split = (l) => { const o = []; let c = "", q = false;
+    for (let i = 0; i < l.length; i++) { const ch = l[i];
+      if (q) { if (ch === '"' && l[i + 1] === '"') { c += '"'; i++; } else if (ch === '"') q = false; else c += ch; }
+      else if (ch === '"') q = true; else if (ch === ",") { o.push(c); c = ""; } else c += ch; } o.push(c); return o.map((s) => s.trim()); };
+  const hdr = split(linhas[0]);
+  return linhas.slice(1).map((l) => { const cs = split(l), o = {}; hdr.forEach((h, i) => { o[h] = cs[i] != null ? cs[i] : ""; }); return o; });
+}
+function pdfTextoParaLinhas(texto) {
+  const out = [];
+  for (const raw of texto.split(/\r?\n/)) { const l = raw.trim(); if (!l) continue;
+    const m = l.match(/(?:R\$\s*)?(\d[\d.,]*\d)\s*$/); if (!m) continue;
+    const valor = parseNum(m[1]); if (valor == null || valor < 1) continue;
+    const nm = l.slice(0, l.length - m[0].length).replace(/[.\s]+$/, "").trim(); if (!nm) continue;
+    out.push({ nome: nm, valor, ...parseDims(l) }); }
+  return out;
+}
+function mapEquip(o) {
+  const d = parseDims([pickField(o, ["dimensoes", "medidas"]) || "", pickField(o, ["nome", "equipamento", "descricao"]) || ""].join(" "));
+  let zona = pickField(o, ["zona"]); if (zona && !ZONAS_VALIDAS.includes(String(zona).toLowerCase())) zona = null;
+  return {
+    nome: (pickField(o, ["nome", "equipamento", "descricao", "item", "produto"]) || "").toString().trim(),
+    marca: pickField(o, ["marca", "fabricante"]) || null, modelo: pickField(o, ["modelo"]) || null,
+    largura_cm: parseNum(pickField(o, ["largura_cm", "largura", "larg"])) || d.w || null,
+    profundidade_cm: parseNum(pickField(o, ["profundidade_cm", "profundidade", "comprimento", "prof"])) || d.h || null,
+    zona: zona ? String(zona).toLowerCase() : null, preco: parseNum(pickField(o, ["preco", "valor", "price"])) || 0, fonte_arquivo: "import-app",
+  };
+}
+function mapCot(o, projetoId) {
+  return {
+    projeto_id: isUuid(projetoId) ? projetoId : null, categoria: pickField(o, ["categoria", "zona"]) || null,
+    equipamento: (pickField(o, ["equipamento", "nome", "item", "descricao"]) || "").toString().trim() || null,
+    fornecedorNome: (pickField(o, ["fornecedor", "fabricante"]) || "").toString().trim() || null,
+    marca: pickField(o, ["marca"]) || null, modelo: pickField(o, ["modelo"]) || null,
+    valor: parseNum(pickField(o, ["valor", "preco", "price"])), garantia: pickField(o, ["garantia"]) || null,
+    assistencia: pickField(o, ["assistencia", "suporte"]) || null, prazo: pickField(o, ["prazo", "entrega"]) || null,
+  };
+}
+
 function App() {
   const [catalogo, setCatalogo] = useState(CATALOGO_LOCAL);
   const [salas, setSalas] = useState(SALAS_LOCAL);
@@ -155,6 +309,7 @@ function App() {
   const [projetos, setProjetos] = useState([]);
   const [projetoId, setProjetoId] = useState("");
   const [novoProj, setNovoProj] = useState(null); // form de novo projeto
+  const [imp, setImp] = useState(null); // leitor de documentos: {loading,error,resumo,modo,linhas,blocos,destino}
   const svgRef = useRef(null);
   const drag = useRef(null);
 
@@ -281,6 +436,53 @@ function App() {
     setStatus(`Projeto "${nome}" criado · assessoria ${BRL(data.taxa_assessoria)}`);
   };
 
+  const onArquivoImport = async (file) => {
+    if (!file) return;
+    setImp({ loading: true, nomeArquivo: file.name });
+    try {
+      const r = await parseArquivo(file);
+      const destino = r.modo === "geometria" ? "planta" : "catalogo";
+      setImp({ loading: false, ...r, destino });
+    } catch (e) {
+      setImp({ loading: false, error: e.message });
+    }
+  };
+
+  const aplicarImport = async () => {
+    if (!imp) return;
+    const dest = imp.destino;
+    if (imp.modo === "geometria" || dest === "planta") {
+      // Adiciona blocos à planta em escala real (proporção travada).
+      const blocos = imp.blocos || (imp.linhas || []).map((o) => {
+        const m = mapEquip(o); return m.largura_cm && m.profundidade_cm ? { nome: m.nome, w: m.largura_cm, h: m.profundidade_cm, zona: m.zona, preco: m.preco } : null;
+      }).filter(Boolean);
+      if (!blocos.length) { setStatus("Nada com dimensões para adicionar à planta."); return; }
+      let id = nextId, x = 20, y = 20;
+      const novos = blocos.map((b) => { const it = { id: id++, nome: b.nome, x, y, w: b.w, h: b.h, zona: b.zona || "livre", preco: b.preco || 0 };
+        x += (b.w || 100) + 20; if (x > ROOM.w - 100) { x = 20; y += 260; } return it; });
+      setNextId(id); setItens((its) => [...its, ...novos]); setImp(null);
+      setStatus(`${novos.length} item(ns) adicionados à planta (proporção travada)`); return;
+    }
+    if (!sb) { setStatus("Configure o Supabase para importar"); return; }
+    if (dest === "catalogo") {
+      const rows = (imp.linhas || []).map(mapEquip).filter((r) => r.nome);
+      if (!rows.length) { setStatus("Nenhuma linha reconhecida (verifique as colunas)."); return; }
+      const { error } = await sb.from("equipamentos").insert(rows);
+      if (error) { setStatus("Erro ao importar catálogo: " + error.message); return; }
+      setCatalogo((c) => [...c, ...rows.map((r) => ({ nome: r.nome, w: r.largura_cm, h: r.profundidade_cm, zona: r.zona || "livre", preco: r.preco || 0, marca: r.marca, modelo: r.modelo }))]);
+      setImp(null); setStatus(`${rows.length} equipamento(s) importados ao catálogo`); return;
+    }
+    if (dest === "cotacoes") {
+      if (!isUuid(projetoId)) { setStatus("Selecione um projeto para importar cotações."); return; }
+      const mapped = (imp.linhas || []).map((o) => mapCot(o, projetoId)).filter((r) => r.equipamento);
+      if (!mapped.length) { setStatus("Nenhuma cotação reconhecida."); return; }
+      const rows = mapped.map(({ fornecedorNome, ...r }) => r);
+      const { error } = await sb.from("cotacoes").insert(rows);
+      if (error) { setStatus("Erro ao importar cotações: " + error.message); return; }
+      setImp(null); setStatus(`${rows.length} cotação(ões) importadas ao projeto`); return;
+    }
+  };
+
   const problemas = useMemo(() => {
     const p = {};
     itens.forEach((a) => {
@@ -343,9 +545,11 @@ function App() {
           {salas.map((s) => <option key={s.id} value={s.id}>{s.nome} · {s.largura_cm}×{s.profundidade_cm}</option>)}
         </select>
         <button className="act" onClick={() => setNova({ nome: "", largura: "", profundidade: "", config: NOVA_CONFIG_TEMPLATE })}>+ Nova sala</button>
+        <span style={{ width: 1, height: 22, background: "#33343A" }} />
+        <button className="act" onClick={() => setImp({})} style={{ borderColor: "#4A90C4", color: "#8Fc3e8" }}>⭱ Importar documento</button>
       </div>
       <span style={{ fontSize: 12, color: "#8A8A8F", letterSpacing: ".18em", textTransform: "uppercase" }}>
-        escala real · validação ao vivo</span>
+        escala real · validação ao vivo · proporção travada</span>
       <span style={{ fontSize: 12, color: "#5FBF7A", marginLeft: "auto" }} className="no-print">{status}</span>
     </header>
 
@@ -435,6 +639,70 @@ function App() {
         {orcTeto > 0 && <Chip gold txt={`Assessoria 0,5% ${BRL(Math.round(assessoria))}`} />}
         <Chip neutro txt={`Layout ${BRL(subtotal)}`} />
         {orcTeto > 0 && <Chip ok={saldo >= 0} warn={saldo < 0} txt={`Saldo ${BRL(saldo)}`} />}
+      </div>
+    )}
+
+    {imp && (
+      <div className="no-print" onClick={() => setImp(null)} style={{ position: "fixed", inset: 0, zIndex: 50,
+        background: "rgba(0,0,0,.6)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+        <div onClick={(e) => e.stopPropagation()} style={{ background: "#111214", border: "1px solid #33343A",
+          borderRadius: 12, width: 620, maxWidth: "100%", maxHeight: "88vh", overflow: "auto", padding: 20 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+            <span style={{ fontFamily: "'Bebas Neue'", fontSize: 22, color: "#8Fc3e8", letterSpacing: ".04em" }}>IMPORTAR DOCUMENTO</span>
+            <button className="act" onClick={() => setImp(null)}>Fechar</button>
+          </div>
+
+          {!imp.modo && !imp.loading && !imp.error && (
+            <div>
+              <p style={{ fontSize: 13, color: "#B9B9B4", marginBottom: 12 }}>
+                Selecione um arquivo. O app lê no navegador e você escolhe o destino.</p>
+              <input type="file" accept=".csv,.xlsx,.xls,.pdf,.dxf,.dwg" className="fld"
+                onChange={(e) => onArquivoImport(e.target.files && e.target.files[0])} />
+              <p style={{ fontSize: 11.5, color: "#6E6E73", marginTop: 10 }}>
+                Planilha e CSV → catálogo/cotações · PDF → orçamentos/listas · DXF/DWG → planta (escala real).
+                A leitura de DWG usa WebAssembly e pode levar alguns segundos.</p>
+            </div>
+          )}
+
+          {imp.loading && <p style={{ color: "#C9A227", fontSize: 14 }}>Lendo {imp.nomeArquivo || "arquivo"}…</p>}
+
+          {imp.error && (
+            <div>
+              <p style={{ color: "#E04545", fontSize: 13.5, marginBottom: 12 }}>{imp.error}</p>
+              <button className="act" onClick={() => setImp({})}>Escolher outro arquivo</button>
+            </div>
+          )}
+
+          {imp.modo && (
+            <div>
+              <p style={{ fontSize: 13, color: "#5FBF7A", marginBottom: 12 }}>✓ {imp.resumo}</p>
+              <div style={{ fontSize: 11, color: "#8A8A8F", letterSpacing: ".08em", marginBottom: 6 }}>DESTINO</div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
+                {(imp.modo === "geometria" ? [["planta", "Adicionar à planta"]]
+                  : [["catalogo", "Catálogo"], ["cotacoes", "Cotações do projeto"], ["planta", "Adicionar à planta"]]
+                ).map(([k, lbl]) => (
+                  <button key={k} className="act" onClick={() => setImp({ ...imp, destino: k })}
+                    style={{ borderColor: imp.destino === k ? "#C9A227" : "#33343A", color: imp.destino === k ? "#C9A227" : "#B9B9B4" }}>{lbl}</button>
+                ))}
+              </div>
+              {imp.destino === "cotacoes" && !isUuid(projetoId) && (
+                <p style={{ color: "#E09A45", fontSize: 12, marginBottom: 10 }}>Selecione um projeto no topo para importar cotações.</p>)}
+              <div style={{ maxHeight: 200, overflow: "auto", border: "1px solid #26272B", borderRadius: 8, padding: 10, marginBottom: 14 }}>
+                {(imp.blocos || imp.linhas || []).slice(0, 12).map((r, i) => (
+                  <div key={i} style={{ fontSize: 12, color: "#C9C9C4", padding: "2px 0", fontFamily: "ui-monospace, monospace" }}>
+                    {imp.blocos ? `${r.nome} — ${r.w}×${r.h} cm`
+                      : Object.values(r).filter((v) => v !== "" && v != null).slice(0, 6).join(" · ")}
+                  </div>
+                ))}
+                {((imp.blocos || imp.linhas || []).length > 12) && <div style={{ fontSize: 11, color: "#6E6E73" }}>… +{(imp.blocos || imp.linhas).length - 12}</div>}
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button className="act" onClick={aplicarImport} style={{ borderColor: "#C9A227", color: "#C9A227" }}>Aplicar</button>
+                <button className="act" onClick={() => setImp({})}>Trocar arquivo</button>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     )}
 

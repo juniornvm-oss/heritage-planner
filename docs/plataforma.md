@@ -74,7 +74,14 @@ Essencial/Balanceado/Premium é só uma etiqueta por item. Regra good/better/bes
   **PDF, CSV, planilha (.xlsx) e DXF/DWG** e normaliza para `equipamentos` ou
   `cotacoes` (com `--sql`). Alimenta os entregáveis 03/04 (lista técnica e
   cotações) a partir dos materiais que o cliente/fornecedor envia.
-- **Fase 4 (roadmap)** — UI de cotações/fornecedores e comparativo no app (04/10);
+- **Fase 4 (em andamento)** — **leitor de documentos no app**: botão "Importar
+  documento" abre um modal onde o usuário sobe um arquivo (CSV, planilha .xlsx,
+  PDF, DXF, **DWG**), o app lê no navegador (SheetJS / pdf.js / dxf-parser /
+  libredwg-web via WASM) e o usuário escolhe o destino — **Catálogo**, **Cotações**
+  do projeto, ou **adicionar à planta** em escala real. A tela principal é a
+  **Projeto Visual**: planta + equipamentos manipuláveis (mover, girar 90°) com a
+  **proporção travada** (sem redimensionar — o girar só troca largura↔profundidade).
+- **Fase 5 (roadmap)** — UI de cotações/fornecedores e comparativo no app (04/10);
   matriz de priorização editável no app (05); checklist de infraestrutura guiado
   (09); editor de paredes (blueprint), 3D (three-gltf-viewer), viabilidade/ROI,
   import RoomPlan; export DOCX/PPTX além do HTML/PDF.

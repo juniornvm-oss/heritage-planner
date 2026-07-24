@@ -27,13 +27,32 @@ embutidos como fallback, sem persistência.
 
 `config.js` fica fora do git (veja `.gitignore`) e é injetado no deploy.
 
+## Plataforma de assessoria (Fase 2)
+
+Além do planner, a ferramenta modela o **serviço de assessoria** descrito na proposta
+comercial (veja [`docs/plataforma.md`](./docs/plataforma.md) para a análise completa
+da proposta → arquitetura):
+
+- **Projetos**: cada engajamento com um condomínio (síndico, contato, **orçamento-teto**
+  com honorário de **0,5%** calculado ao vivo, diagnóstico de perfil/infraestrutura),
+  vinculado a uma sala. Seletor de projeto + "Novo projeto" no header.
+- **Cenários de investimento**: cada equipamento do layout recebe uma etiqueta
+  Essencial / Balanceado / Premium (cumulativo); a UI mostra o total de cada cenário
+  e o saldo vs. orçamento-teto.
+- **Relatório Executivo**: `tools/relatorio.js` gera o documento de entrega
+  (diagnóstico, lista técnica por zona, matriz de priorização, cenários, resumo
+  financeiro) em HTML → PDF.
+
 ## Backend (Supabase — schema `planner`)
 
 | Tabela | Papel |
 |--------|-------|
 | `planner.equipamentos` | Catálogo (nome, marca, modelo, largura/profundidade cm, zona, preço). |
 | `planner.salas` | Salas: dimensões + `config` jsonb (pisos, pilar, corredor, paredes). |
-| `planner.layouts` | Arranjo salvo por sala (`dados` jsonb, `sala_id` → `salas`). |
+| `planner.layouts` | Arranjo salvo por sala (`dados` jsonb; item ganha `cenario`; `sala_id`). |
+| `planner.projetos` | Engajamento: condomínio, orçamento-teto, `taxa_assessoria` gerada (0,5%), diagnóstico. |
+| `planner.fornecedores` | Cadastro de fornecedores/marcas (entregável 10). |
+| `planner.cotacoes` | Cotações por projeto/categoria (entregáveis 03/04). |
 
 RLS habilitado em todas, com policies `select`/`insert`/`update`/`delete` para
 `anon` (MVP single-user). O SQL aplicado está versionado em [`db/`](./db).
@@ -59,8 +78,13 @@ Site estático. `vercel.json` desliga build/install e serve a raiz do diretório
 
 ## Roadmap (próximas fases)
 
-Itens deliberadamente **fora** desta fase, priorizados para depois. As referências
-vêm da análise dos repositórios-irmãos deste workspace:
+Mapeamento completo proposta → recursos em [`docs/plataforma.md`](./docs/plataforma.md).
+
+**Fase 3** — UI de cotações e fornecedores + comparativo (entregáveis 04/10);
+matriz de priorização editável no app (05); checklist guiado de infraestrutura (09).
+
+**Fase 4** — os itens abaixo. As referências vêm da análise dos repositórios-irmãos
+deste workspace:
 
 - **Editor de paredes estilo blueprint** — desenhar/editar paredes livres.
   Base: modelo de dados plano de `open3dFloorplan` (`src/lib/models/types.ts` —

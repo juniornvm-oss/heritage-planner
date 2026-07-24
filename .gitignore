@@ -1,0 +1,5 @@
+# Config com chave publishable — injetado no deploy, fora do git (use config.example.js)
+config.js
+
+# Node
+node_modules/

@@ -21,7 +21,13 @@
     font:700 12px 'DM Sans'; padding:9px 14px; cursor:pointer; letter-spacing:.05em; }
   .act:hover { border-color:#C9A227; }
   .act:disabled { opacity:.4; cursor:default; }
-  .act:focus-visible, .lib-btn:focus-visible { outline:2px solid #C9A227; outline-offset:2px; }
+  .act:focus-visible, .lib-btn:focus-visible, .sel:focus-visible { outline:2px solid #C9A227; outline-offset:2px; }
+  .sel { background:#131416; border:1px solid #33343A; border-radius:8px; color:#E9E9E6;
+    font:700 13px 'DM Sans'; padding:7px 12px; cursor:pointer; }
+  .fld { background:#0F1012; border:1px solid #33343A; border-radius:7px; color:#E9E9E6;
+    font:600 13px 'DM Sans'; padding:8px 10px; width:100%; }
+  .fld:focus-visible { outline:2px solid #C9A227; outline-offset:1px; }
+  textarea.fld { font-family:ui-monospace, Menlo, monospace; font-size:12px; }
   @media print { .no-print { display:none !important; } }
 </style>
 </head>
@@ -34,22 +40,32 @@ const sb = (window.HP_CONFIG && window.HP_CONFIG.SUPABASE_URL)
   ? supabase.createClient(window.HP_CONFIG.SUPABASE_URL, window.HP_CONFIG.SUPABASE_KEY, { db: { schema: "planner" } })
   : null;
 
-const ROOM = { w: 1100, h: 1120 };
-const PISO = [
-  { nome: "Vinílico 240", y0: 0, y1: 240, cor: "#241C12" },
-  { nome: "Borracha 480", y0: 240, y1: 720, cor: "#14161A" },
-  { nome: "Pista 100", y0: 720, y1: 820, cor: "#4A1E1E" },
-  { nome: "Vinílico 300", y0: 820, y1: 1120, cor: "#241C12" },
-];
-const PILAR = { x: 358, y: 302, w: 33, h: 47 };
-const CORREDOR = { x: 750, w: 100 };
 const ZONAS = {
   ergo: { label: "Ergometria", cor: "#4A90C4" },
   forca: { label: "Força guiada", cor: "#C9A227" },
   livre: { label: "Peso livre", cor: "#C07A3E" },
   prep: { label: "Preparação", cor: "#8B78BC" },
 };
-const CATALOGO = [
+
+// Camada de assessoria (Fase 2)
+const TAXA_ASSESSORIA = 0.005; // 0,5% do teto do condomínio
+// Cenários good/better/best: essencial ⊆ balanceado ⊆ premium (sem tag = balanceado).
+const CENARIOS = {
+  essencial: { label: "Essencial", cor: "#5FBF7A", ordem: 1 },
+  balanceado: { label: "Balanceado", cor: "#C9A227", ordem: 2 },
+  premium: { label: "Premium", cor: "#8B78BC", ordem: 3 },
+};
+const cenarioDe = (it) => (it && CENARIOS[it.cenario]) ? it.cenario : "balanceado";
+const BRL = (n) => "R$ " + (n || 0).toLocaleString("pt-BR");
+
+const DIAG_TEMPLATE = JSON.stringify({
+  perfil: { faixa_etaria: "", frequencia: "", uso: "assistido ou autônomo" },
+  infraestrutura: { eletrica: "", climatizacao: "", piso: "", acesso: "" },
+  observacoes: ""
+}, null, 2);
+
+// ── Fallbacks locais (usados offline / sem Supabase) ─────────────────────────
+const CATALOGO_LOCAL = [
   { nome: "Esteira", w: 90, h: 205, zona: "ergo", preco: 0 },
   { nome: "Escada", w: 86, h: 147, zona: "ergo", preco: 45000 },
   { nome: "Elíptico", w: 66, h: 165, zona: "ergo", preco: 15000 },
@@ -73,7 +89,26 @@ const CATALOGO = [
   { nome: "Espaldar", w: 120, h: 20, zona: "prep", preco: 0 },
   { nome: "Colchonetes", w: 80, h: 35, zona: "prep", preco: 0 },
 ];
-const LAYOUT_HERITAGE = [
+
+const HERITAGE_CONFIG = {
+  pisos: [
+    { nome: "Vinílico 240", y0: 0, y1: 240, cor: "#241C12" },
+    { nome: "Borracha 480", y0: 240, y1: 720, cor: "#14161A" },
+    { nome: "Pista 100", y0: 720, y1: 820, cor: "#4A1E1E" },
+    { nome: "Vinílico 300", y0: 820, y1: 1120, cor: "#241C12" },
+  ],
+  pilar: { x: 358, y: 302, w: 33, h: 47 },
+  corredor: { x: 750, w: 100 },
+  paredes: { top: "PAREDE PILAR · 1100", bottom: "PAREDE PORTA", left: "ESPELHO · 1120", right: "VIDRAÇA" },
+  pista_label: "PISTA · VIDRAÇA ↔ ESPELHO",
+};
+
+const SALAS_LOCAL = [
+  { id: "local-heritage", nome: "Heritage", largura_cm: 1100, profundidade_cm: 1120, config: HERITAGE_CONFIG },
+];
+
+// Layout Heritage default (posições) — resolvido contra o catálogo.
+const HERITAGE_POS = [
   ["Escada",70,20],["Elíptico",205,20],["Bike Horizontal",470,20],["Bike Spinning",580,20],
   ["Cross + Smith",881,20],["Squat Machine",876,240],["Elevação Pélvica",942,405],
   ["Leg Press 45°",854,562],["Impact Delt Raise",620,240],["Dual Leg Extension",608,391],
@@ -82,157 +117,412 @@ const LAYOUT_HERITAGE = [
   ["Banco Declinado",150,460],["Banco 0-90°",150,560],["Banco Supino",155,655],
   ["Esteira",20,905],["Esteira",133,905],["Esteira",246,905],["Esteira",359,905],
   ["Espaldar",510,1095],["Colchonetes",660,1080],
-].map(([nome,x,y],i)=>{const c=CATALOGO.find(m=>m.nome===nome);
-  return {id:i+1,nome,x,y,w:c.w,h:c.h,zona:c.zona,preco:c.preco};});
+];
 
-const colide=(a,b)=>a.x<b.x+b.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y;
+const slug = (s) => (s || "").toString().trim().toLowerCase()
+  .normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+const isUuid = (s) => typeof s === "string" && /^[0-9a-f-]{36}$/i.test(s);
+const colide = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
 
-function Chip({txt,ok,warn,gold,neutro}){
-  const cor=neutro?"#8A8A8F":gold?"#C9A227":ok?"#5FBF7A":warn?"#E09A45":"#E04545";
-  return <span style={{border:`1px solid ${cor}`,color:cor,borderRadius:999,
-    padding:"5px 13px",fontSize:12.5,fontWeight:700,letterSpacing:".04em"}}>{txt}</span>;
+function buildLayoutFromPos(pos, catalogo) {
+  return pos.map(([nome, x, y], i) => {
+    const c = catalogo.find((m) => m.nome === nome);
+    if (!c) return null;
+    return { id: i + 1, nome, x, y, w: c.w, h: c.h, zona: c.zona, preco: c.preco };
+  }).filter(Boolean);
 }
 
-function App(){
-  const [itens,setItens]=useState(LAYOUT_HERITAGE);
-  const [sel,setSel]=useState(null);
-  const [nextId,setNextId]=useState(100);
-  const [status,setStatus]=useState(sb?"Conectado ao Supabase":"Modo local (sem Supabase)");
-  const svgRef=useRef(null);
-  const drag=useRef(null);
+function Chip({ txt, ok, warn, gold, neutro }) {
+  const cor = neutro ? "#8A8A8F" : gold ? "#C9A227" : ok ? "#5FBF7A" : warn ? "#E09A45" : "#E04545";
+  return <span style={{ border: `1px solid ${cor}`, color: cor, borderRadius: 999,
+    padding: "5px 13px", fontSize: 12.5, fontWeight: 700, letterSpacing: ".04em" }}>{txt}</span>;
+}
 
-  useEffect(()=>{
-    if(!sb) return;
-    sb.from("layouts").select("dados").eq("nome","heritage").maybeSingle()
-      .then(({data,error})=>{
-        if(error){setStatus("Supabase: "+error.message);return;}
-        if(data&&data.dados){setItens(data.dados);setStatus("Layout carregado do Supabase");}
-      });
-  },[]);
+const NOVA_CONFIG_TEMPLATE = JSON.stringify({
+  pisos: [], pilar: null, corredor: null,
+  paredes: { top: "", bottom: "", left: "", right: "" },
+}, null, 2);
 
-  const salvar=async()=>{
-    if(!sb){setStatus("Configure o Supabase em config.js para salvar");return;}
+function App() {
+  const [catalogo, setCatalogo] = useState(CATALOGO_LOCAL);
+  const [salas, setSalas] = useState(SALAS_LOCAL);
+  const [salaId, setSalaId] = useState(SALAS_LOCAL[0].id);
+  const [itens, setItens] = useState([]);
+  const [sel, setSel] = useState(null);
+  const [nextId, setNextId] = useState(1000);
+  const [status, setStatus] = useState(sb ? "Conectando ao Supabase…" : "Modo local (sem Supabase)");
+  const [nova, setNova] = useState(null); // {nome,largura,profundidade,config} quando o form está aberto
+  const [projetos, setProjetos] = useState([]);
+  const [projetoId, setProjetoId] = useState("");
+  const [novoProj, setNovoProj] = useState(null); // form de novo projeto
+  const svgRef = useRef(null);
+  const drag = useRef(null);
+
+  const projetoAtual = projetos.find((p) => p.id === projetoId) || null;
+
+  const salaAtual = salas.find((s) => s.id === salaId) || salas[0];
+  const cfg = (salaAtual && salaAtual.config) || {};
+  const ROOM = { w: (salaAtual && salaAtual.largura_cm) || 1100, h: (salaAtual && salaAtual.profundidade_cm) || 1120 };
+  const PISO = cfg.pisos || [];
+  const PILAR = cfg.pilar || null;
+  const CORREDOR = cfg.corredor || null;
+  const paredes = cfg.paredes || {};
+
+  // ── Boot: carrega catálogo + salas do Supabase (fallback local) ────────────
+  useEffect(() => {
+    if (!sb) return;
+    (async () => {
+      let msg = [];
+      const cat = await sb.from("equipamentos").select("*").order("nome");
+      if (!cat.error && cat.data && cat.data.length) {
+        setCatalogo(cat.data.map((e) => ({
+          nome: e.nome, w: e.largura_cm, h: e.profundidade_cm,
+          zona: e.zona || "livre", preco: e.preco || 0, marca: e.marca, modelo: e.modelo,
+        })));
+        msg.push(`${cat.data.length} equipamentos`);
+      } else if (cat.error) {
+        msg.push("catálogo local");
+      }
+      const sl = await sb.from("salas").select("*").order("criado_em");
+      if (!sl.error && sl.data && sl.data.length) {
+        const rows = sl.data.map((s) => ({
+          id: s.id, nome: s.nome, largura_cm: s.largura_cm, profundidade_cm: s.profundidade_cm,
+          config: s.config || {},
+        }));
+        setSalas(rows);
+        setSalaId(rows[0].id);
+        msg.push(`${rows.length} sala(s)`);
+      }
+      const pj = await sb.from("projetos").select("*").order("criado_em");
+      if (!pj.error && pj.data && pj.data.length) {
+        setProjetos(pj.data);
+        msg.push(`${pj.data.length} projeto(s)`);
+      }
+      setStatus(msg.length ? "Supabase: " + msg.join(" · ") : "Conectado ao Supabase");
+    })();
+  }, []);
+
+  // Ao selecionar um projeto, carrega a sala vinculada a ele.
+  useEffect(() => {
+    if (projetoAtual && projetoAtual.sala_id && salas.some((s) => s.id === projetoAtual.sala_id)) {
+      setSalaId(projetoAtual.sala_id);
+    }
+    // eslint-disable-next-line
+  }, [projetoId]);
+
+  // ── Ao trocar de sala: carrega o layout dela ───────────────────────────────
+  useEffect(() => {
+    if (!salaAtual) return;
+    let cancel = false;
+    (async () => {
+      const fallback = salaAtual.nome === "Heritage" ? buildLayoutFromPos(HERITAGE_POS, catalogo) : [];
+      if (sb) {
+        const { data, error } = await sb.from("layouts").select("dados").eq("nome", slug(salaAtual.nome)).maybeSingle();
+        if (cancel) return;
+        if (!error && data && data.dados && data.dados.length) { setItens(data.dados); setSel(null); return; }
+      }
+      if (!cancel) { setItens(fallback); setSel(null); }
+    })();
+    return () => { cancel = true; };
+    // eslint-disable-next-line
+  }, [salaId, catalogo]);
+
+  const salvar = async () => {
+    if (!sb) { setStatus("Configure o Supabase em config.js para salvar"); return; }
     setStatus("Salvando…");
-    const {error}=await sb.from("layouts")
-      .upsert({nome:"heritage",dados:itens,atualizado_em:new Date().toISOString()},{onConflict:"nome"});
-    setStatus(error?"Erro: "+error.message:"Salvo ✓ "+new Date().toLocaleTimeString("pt-BR"));
+    const row = { nome: slug(salaAtual.nome), dados: itens, atualizado_em: new Date().toISOString() };
+    if (isUuid(salaAtual.id)) row.sala_id = salaAtual.id;
+    const { error } = await sb.from("layouts").upsert(row, { onConflict: "nome" });
+    setStatus(error ? "Erro: " + error.message : "Salvo ✓ " + new Date().toLocaleTimeString("pt-BR"));
   };
 
-  const problemas=useMemo(()=>{
-    const p={};
-    itens.forEach(a=>{
-      const fora=a.x<0||a.y<0||a.x+a.w>ROOM.w||a.y+a.h>ROOM.h;
-      const pil=colide(a,PILAR);
-      const outro=itens.some(b=>b.id!==a.id&&colide(a,b));
-      const corr=a.x<CORREDOR.x+CORREDOR.w&&a.x+a.w>CORREDOR.x;
-      if(fora||pil||outro)p[a.id]="colisão";else if(corr)p[a.id]="corredor";
+  const criarSala = async () => {
+    const nome = (nova.nome || "").trim();
+    const largura_cm = parseInt(nova.largura, 10);
+    const profundidade_cm = parseInt(nova.profundidade, 10);
+    if (!nome || !largura_cm || !profundidade_cm) { setStatus("Preencha nome e dimensões da sala"); return; }
+    let config;
+    try { config = nova.config ? JSON.parse(nova.config) : {}; }
+    catch (e) { setStatus("Config JSON inválido: " + e.message); return; }
+
+    let novaSala = { id: "local-" + slug(nome), nome, largura_cm, profundidade_cm, config };
+    if (sb) {
+      const { data, error } = await sb.from("salas")
+        .insert({ nome, largura_cm, profundidade_cm, config }).select().single();
+      if (error) { setStatus("Erro ao criar sala: " + error.message); return; }
+      novaSala = { id: data.id, nome: data.nome, largura_cm: data.largura_cm,
+        profundidade_cm: data.profundidade_cm, config: data.config || {} };
+    }
+    setSalas((s) => [...s, novaSala]);
+    setSalaId(novaSala.id);
+    setItens([]); setSel(null); setNova(null);
+    setStatus(`Sala "${nome}" criada`);
+  };
+
+  const criarProjeto = async () => {
+    const nome = (novoProj.nome || "").trim();
+    if (!nome) { setStatus("Preencha o nome do condomínio"); return; }
+    const orcamento_teto = novoProj.orcamento_teto ? Number(novoProj.orcamento_teto) : null;
+    let diag = {};
+    try { diag = novoProj.diagnostico ? JSON.parse(novoProj.diagnostico) : {}; }
+    catch (e) { setStatus("Diagnóstico JSON inválido: " + e.message); return; }
+    const rec = {
+      nome, sindico: novoProj.sindico || null, contato: novoProj.contato || null,
+      orcamento_teto, perfil: diag.perfil || null, infraestrutura: diag.infraestrutura || null,
+      observacoes: diag.observacoes || null,
+      sala_id: (novoProj.sala_id && isUuid(novoProj.sala_id)) ? novoProj.sala_id : null,
+    };
+    if (!sb) { setStatus("Configure o Supabase para salvar projetos"); return; }
+    const { data, error } = await sb.from("projetos").insert(rec).select().single();
+    if (error) { setStatus("Erro ao criar projeto: " + error.message); return; }
+    setProjetos((p) => [...p, data]);
+    setProjetoId(data.id);
+    setNovoProj(null);
+    setStatus(`Projeto "${nome}" criado · assessoria ${BRL(data.taxa_assessoria)}`);
+  };
+
+  const problemas = useMemo(() => {
+    const p = {};
+    itens.forEach((a) => {
+      const fora = a.x < 0 || a.y < 0 || a.x + a.w > ROOM.w || a.y + a.h > ROOM.h;
+      const pil = PILAR && colide(a, PILAR);
+      const outro = itens.some((b) => b.id !== a.id && colide(a, b));
+      const corr = CORREDOR && a.x < CORREDOR.x + CORREDOR.w && a.x + a.w > CORREDOR.x;
+      if (fora || pil || outro) p[a.id] = "colisão"; else if (corr) p[a.id] = "corredor";
     });
     return p;
-  },[itens]);
+  }, [itens, ROOM.w, ROOM.h, PILAR, CORREDOR]);
 
-  const nCol=Object.values(problemas).filter(v=>v==="colisão").length;
-  const nCor=Object.values(problemas).filter(v=>v==="corredor").length;
-  const ocup=((itens.reduce((s,i)=>s+i.w*i.h,0)/(ROOM.w*ROOM.h))*100).toFixed(0);
-  const subtotal=itens.reduce((s,i)=>s+(i.preco||0),0);
+  const nCol = Object.values(problemas).filter((v) => v === "colisão").length;
+  const nCor = Object.values(problemas).filter((v) => v === "corredor").length;
+  const ocup = ((itens.reduce((s, i) => s + i.w * i.h, 0) / (ROOM.w * ROOM.h)) * 100).toFixed(0);
+  const subtotal = itens.reduce((s, i) => s + (i.preco || 0), 0);
 
-  const toSVG=useCallback(e=>{
-    const svg=svgRef.current,pt=svg.createSVGPoint();
-    pt.x=e.clientX;pt.y=e.clientY;
+  // Cenários: soma cumulativa por tier (essencial ⊆ balanceado ⊆ premium).
+  const totalCenario = (tier) => itens.reduce((s, i) =>
+    CENARIOS[cenarioDe(i)].ordem <= CENARIOS[tier].ordem ? s + (i.preco || 0) : s, 0);
+  const cenTotais = { essencial: totalCenario("essencial"), balanceado: totalCenario("balanceado"), premium: totalCenario("premium") };
+  const orcTeto = projetoAtual && projetoAtual.orcamento_teto ? Number(projetoAtual.orcamento_teto) : 0;
+  const assessoria = orcTeto * TAXA_ASSESSORIA;
+  const saldo = orcTeto - subtotal;
+
+  const toSVG = useCallback((e) => {
+    const svg = svgRef.current, pt = svg.createSVGPoint();
+    pt.x = e.clientX; pt.y = e.clientY;
     return pt.matrixTransform(svg.getScreenCTM().inverse());
-  },[]);
-  const onDown=(e,item)=>{e.preventDefault();const p=toSVG(e);
-    drag.current={id:item.id,dx:p.x-item.x,dy:p.y-item.y};setSel(item.id);};
-  const onMove=e=>{if(!drag.current)return;const p=toSVG(e);
-    const{id,dx,dy}=drag.current;
-    setItens(its=>its.map(it=>it.id===id
-      ?{...it,x:Math.round((p.x-dx)/5)*5,y:Math.round((p.y-dy)/5)*5}:it));};
-  const onUp=()=>drag.current=null;
-  const girar=()=>sel&&setItens(its=>its.map(it=>it.id===sel?{...it,w:it.h,h:it.w}:it));
-  const remover=()=>{if(!sel)return;setItens(its=>its.filter(it=>it.id!==sel));setSel(null);};
-  const adicionar=m=>{const novo={id:nextId,nome:m.nome,x:460,y:460,w:m.w,h:m.h,zona:m.zona,preco:m.preco};
-    setNextId(n=>n+1);setItens(its=>[...its,novo]);setSel(novo.id);};
+  }, []);
+  const onDown = (e, item) => { e.preventDefault(); const p = toSVG(e);
+    drag.current = { id: item.id, dx: p.x - item.x, dy: p.y - item.y }; setSel(item.id); };
+  const onMove = (e) => { if (!drag.current) return; const p = toSVG(e);
+    const { id, dx, dy } = drag.current;
+    setItens((its) => its.map((it) => it.id === id
+      ? { ...it, x: Math.round((p.x - dx) / 5) * 5, y: Math.round((p.y - dy) / 5) * 5 } : it)); };
+  const onUp = () => drag.current = null;
+  const girar = () => sel && setItens((its) => its.map((it) => it.id === sel ? { ...it, w: it.h, h: it.w } : it));
+  const remover = () => { if (!sel) return; setItens((its) => its.filter((it) => it.id !== sel)); setSel(null); };
+  const setCenario = (tier) => sel && setItens((its) => its.map((it) => it.id === sel ? { ...it, cenario: tier } : it));
+  const adicionar = (m) => { const novo = { id: nextId, nome: m.nome, x: 460, y: 460, w: m.w, h: m.h, zona: m.zona, preco: m.preco };
+    setNextId((n) => n + 1); setItens((its) => [...its, novo]); setSel(novo.id); };
 
-  const M=60,selItem=itens.find(i=>i.id===sel);
+  const selItem = itens.find((i) => i.id === sel);
 
   return (
-  <div style={{minHeight:"100vh"}}>
-    <header style={{borderBottom:"2px solid #C9A227",padding:"18px 24px 14px",
-      display:"flex",alignItems:"baseline",gap:18,flexWrap:"wrap"}}>
-      <h1 style={{fontFamily:"'Bebas Neue'",fontSize:34,letterSpacing:".03em"}}>
-        HERITAGE <span style={{color:"#C9A227"}}>PLANNER</span></h1>
-      <span style={{fontSize:12,color:"#8A8A8F",letterSpacing:".18em",textTransform:"uppercase"}}>
+  <div style={{ minHeight: "100vh" }}>
+    <header style={{ borderBottom: "2px solid #C9A227", padding: "18px 24px 14px",
+      display: "flex", alignItems: "baseline", gap: 18, flexWrap: "wrap" }}>
+      <h1 style={{ fontFamily: "'Bebas Neue'", fontSize: 34, letterSpacing: ".03em" }}>
+        HERITAGE <span style={{ color: "#C9A227" }}>PLANNER</span></h1>
+      <div className="no-print" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <select className="sel" value={projetoId} onChange={(e) => setProjetoId(e.target.value)} aria-label="Selecionar projeto">
+          <option value="">— Sem projeto —</option>
+          {projetos.map((p) => <option key={p.id} value={p.id}>{p.nome}</option>)}
+        </select>
+        <button className="act" onClick={() => setNovoProj({ nome: "", sindico: "", contato: "", orcamento_teto: "", sala_id: salaId && isUuid(salaId) ? salaId : "", diagnostico: DIAG_TEMPLATE })}>+ Novo projeto</button>
+        <span style={{ width: 1, height: 22, background: "#33343A" }} />
+        <select className="sel" value={salaId} onChange={(e) => setSalaId(e.target.value)} aria-label="Selecionar sala">
+          {salas.map((s) => <option key={s.id} value={s.id}>{s.nome} · {s.largura_cm}×{s.profundidade_cm}</option>)}
+        </select>
+        <button className="act" onClick={() => setNova({ nome: "", largura: "", profundidade: "", config: NOVA_CONFIG_TEMPLATE })}>+ Nova sala</button>
+      </div>
+      <span style={{ fontSize: 12, color: "#8A8A8F", letterSpacing: ".18em", textTransform: "uppercase" }}>
         escala real · validação ao vivo</span>
-      <span style={{fontSize:12,color:"#5FBF7A",marginLeft:"auto"}} className="no-print">{status}</span>
+      <span style={{ fontSize: 12, color: "#5FBF7A", marginLeft: "auto" }} className="no-print">{status}</span>
     </header>
 
-    <div style={{display:"flex",gap:16,padding:16,alignItems:"flex-start",flexWrap:"wrap"}}>
-      <aside className="no-print" style={{width:228,flexShrink:0}}>
-        <div style={{fontFamily:"'Bebas Neue'",fontSize:19,color:"#C9A227",letterSpacing:".06em",marginBottom:8}}>BIBLIOTECA</div>
-        <div style={{display:"grid",gap:5,maxHeight:"56vh",overflowY:"auto",paddingRight:4}}>
-          {CATALOGO.map(m=>(
-            <button key={m.nome} className="lib-btn" onClick={()=>adicionar(m)}>
-              <span style={{display:"flex",alignItems:"center",gap:7}}>
-                <span style={{width:8,height:8,borderRadius:2,background:ZONAS[m.zona].cor}}/>{m.nome}</span>
-              <span style={{color:"#6E6E73",fontWeight:400}}>{m.w}×{m.h}</span>
+    {nova && (
+      <div className="no-print" style={{ padding: "14px 24px", borderBottom: "1px solid #232427",
+        display: "flex", gap: 12, alignItems: "flex-start", flexWrap: "wrap", background: "#0E0F11" }}>
+        <div style={{ display: "grid", gap: 6, width: 180 }}>
+          <label style={{ fontSize: 11, color: "#8A8A8F", letterSpacing: ".08em" }}>NOME</label>
+          <input className="fld" value={nova.nome} placeholder="Ex.: Condomínio X"
+            onChange={(e) => setNova({ ...nova, nome: e.target.value })} />
+        </div>
+        <div style={{ display: "grid", gap: 6, width: 110 }}>
+          <label style={{ fontSize: 11, color: "#8A8A8F", letterSpacing: ".08em" }}>LARGURA (cm)</label>
+          <input className="fld" type="number" value={nova.largura}
+            onChange={(e) => setNova({ ...nova, largura: e.target.value })} />
+        </div>
+        <div style={{ display: "grid", gap: 6, width: 130 }}>
+          <label style={{ fontSize: 11, color: "#8A8A8F", letterSpacing: ".08em" }}>PROFUNDIDADE (cm)</label>
+          <input className="fld" type="number" value={nova.profundidade}
+            onChange={(e) => setNova({ ...nova, profundidade: e.target.value })} />
+        </div>
+        <div style={{ display: "grid", gap: 6, flex: 1, minWidth: 260 }}>
+          <label style={{ fontSize: 11, color: "#8A8A8F", letterSpacing: ".08em" }}>
+            CONFIG (JSON — pisos, pilar, corredor, paredes)</label>
+          <textarea className="fld" rows={6} value={nova.config}
+            onChange={(e) => setNova({ ...nova, config: e.target.value })} />
+        </div>
+        <div style={{ display: "grid", gap: 6, marginTop: 22 }}>
+          <button className="act" onClick={criarSala} style={{ borderColor: "#C9A227", color: "#C9A227" }}>Criar sala</button>
+          <button className="act" onClick={() => setNova(null)}>Cancelar</button>
+        </div>
+      </div>
+    )}
+
+    {novoProj && (
+      <div className="no-print" style={{ padding: "14px 24px", borderBottom: "1px solid #232427",
+        display: "flex", gap: 12, alignItems: "flex-start", flexWrap: "wrap", background: "#0E0F11" }}>
+        <div style={{ display: "grid", gap: 6, width: 200 }}>
+          <label style={{ fontSize: 11, color: "#8A8A8F", letterSpacing: ".08em" }}>CONDOMÍNIO</label>
+          <input className="fld" value={novoProj.nome} placeholder="Ex.: Residencial Aurora"
+            onChange={(e) => setNovoProj({ ...novoProj, nome: e.target.value })} />
+        </div>
+        <div style={{ display: "grid", gap: 6, width: 150 }}>
+          <label style={{ fontSize: 11, color: "#8A8A8F", letterSpacing: ".08em" }}>SÍNDICO</label>
+          <input className="fld" value={novoProj.sindico}
+            onChange={(e) => setNovoProj({ ...novoProj, sindico: e.target.value })} />
+        </div>
+        <div style={{ display: "grid", gap: 6, width: 150 }}>
+          <label style={{ fontSize: 11, color: "#8A8A8F", letterSpacing: ".08em" }}>CONTATO</label>
+          <input className="fld" value={novoProj.contato}
+            onChange={(e) => setNovoProj({ ...novoProj, contato: e.target.value })} />
+        </div>
+        <div style={{ display: "grid", gap: 6, width: 150 }}>
+          <label style={{ fontSize: 11, color: "#8A8A8F", letterSpacing: ".08em" }}>ORÇAMENTO-TETO (R$)</label>
+          <input className="fld" type="number" value={novoProj.orcamento_teto}
+            onChange={(e) => setNovoProj({ ...novoProj, orcamento_teto: e.target.value })} />
+          <span style={{ fontSize: 11, color: "#C9A227" }}>
+            Assessoria 0,5%: {BRL(Math.round((Number(novoProj.orcamento_teto) || 0) * TAXA_ASSESSORIA))}</span>
+        </div>
+        <div style={{ display: "grid", gap: 6, width: 170 }}>
+          <label style={{ fontSize: 11, color: "#8A8A8F", letterSpacing: ".08em" }}>SALA VINCULADA</label>
+          <select className="sel" value={novoProj.sala_id}
+            onChange={(e) => setNovoProj({ ...novoProj, sala_id: e.target.value })}>
+            <option value="">— nenhuma —</option>
+            {salas.filter((s) => isUuid(s.id)).map((s) => <option key={s.id} value={s.id}>{s.nome}</option>)}
+          </select>
+        </div>
+        <div style={{ display: "grid", gap: 6, flex: 1, minWidth: 240 }}>
+          <label style={{ fontSize: 11, color: "#8A8A8F", letterSpacing: ".08em" }}>DIAGNÓSTICO (JSON — perfil, infraestrutura)</label>
+          <textarea className="fld" rows={6} value={novoProj.diagnostico}
+            onChange={(e) => setNovoProj({ ...novoProj, diagnostico: e.target.value })} />
+        </div>
+        <div style={{ display: "grid", gap: 6, marginTop: 22 }}>
+          <button className="act" onClick={criarProjeto} style={{ borderColor: "#C9A227", color: "#C9A227" }}>Criar projeto</button>
+          <button className="act" onClick={() => setNovoProj(null)}>Cancelar</button>
+        </div>
+      </div>
+    )}
+
+    {projetoAtual && (
+      <div style={{ padding: "10px 24px", borderBottom: "1px solid #232427", background: "#0C0D0F",
+        display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
+        <span style={{ fontFamily: "'Bebas Neue'", fontSize: 18, color: "#C9A227", letterSpacing: ".05em" }}>
+          {projetoAtual.nome}</span>
+        {projetoAtual.sindico && <span style={{ fontSize: 12, color: "#8A8A8F" }}>Síndico: {projetoAtual.sindico}</span>}
+        {orcTeto > 0 && <Chip neutro txt={`Teto ${BRL(orcTeto)}`} />}
+        {orcTeto > 0 && <Chip gold txt={`Assessoria 0,5% ${BRL(Math.round(assessoria))}`} />}
+        <Chip neutro txt={`Layout ${BRL(subtotal)}`} />
+        {orcTeto > 0 && <Chip ok={saldo >= 0} warn={saldo < 0} txt={`Saldo ${BRL(saldo)}`} />}
+      </div>
+    )}
+
+    <div style={{ display: "flex", gap: 16, padding: 16, alignItems: "flex-start", flexWrap: "wrap" }}>
+      <aside className="no-print" style={{ width: 228, flexShrink: 0 }}>
+        <div style={{ fontFamily: "'Bebas Neue'", fontSize: 19, color: "#C9A227", letterSpacing: ".06em", marginBottom: 8 }}>BIBLIOTECA</div>
+        <div style={{ display: "grid", gap: 5, maxHeight: "56vh", overflowY: "auto", paddingRight: 4 }}>
+          {catalogo.map((m) => (
+            <button key={m.nome} className="lib-btn" onClick={() => adicionar(m)}>
+              <span style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                <span style={{ width: 8, height: 8, borderRadius: 2, background: (ZONAS[m.zona] || ZONAS.livre).cor }} />{m.nome}</span>
+              <span style={{ color: "#6E6E73", fontWeight: 400 }}>{m.w}×{m.h}</span>
             </button>))}
         </div>
-        <div style={{marginTop:14,display:"grid",gap:6}}>
-          <button className="act" onClick={girar} disabled={!sel}>↻ Girar 90° {selItem?`(${selItem.nome})`:""}</button>
+        <div style={{ marginTop: 14, display: "grid", gap: 6 }}>
+          <button className="act" onClick={girar} disabled={!sel}>↻ Girar 90° {selItem ? `(${selItem.nome})` : ""}</button>
           <button className="act" onClick={remover} disabled={!sel}>✕ Remover selecionada</button>
-          <button className="act" onClick={salvar} style={{borderColor:"#C9A227",color:"#C9A227"}}>💾 Salvar layout</button>
-          <button className="act" onClick={()=>window.print()}>⎙ Imprimir / PDF</button>
+          {selItem && (
+            <div style={{ display: "flex", gap: 4 }}>
+              {Object.entries(CENARIOS).map(([k, c]) => (
+                <button key={k} className="act" onClick={() => setCenario(k)} title={`Cenário ${c.label}`}
+                  style={{ flex: 1, padding: "7px 4px", fontSize: 10.5,
+                    borderColor: cenarioDe(selItem) === k ? c.cor : "#33343A",
+                    color: cenarioDe(selItem) === k ? c.cor : "#8A8A8F" }}>{c.label}</button>
+              ))}
+            </div>
+          )}
+          <button className="act" onClick={salvar} style={{ borderColor: "#C9A227", color: "#C9A227" }}>💾 Salvar layout</button>
+          <button className="act" onClick={() => window.print()}>⎙ Imprimir / PDF</button>
         </div>
       </aside>
 
-      <main style={{flex:1,minWidth:340}}>
-        <div className="no-print" style={{display:"flex",gap:10,marginBottom:10,flexWrap:"wrap"}}>
-          <Chip ok={nCol===0} txt={nCol===0?"Sem colisões":`${nCol} colisão(ões)`}/>
-          <Chip ok={nCor===0} warn txt={nCor===0?"Corredor livre":`${nCor} no corredor`}/>
-          <Chip neutro txt={`Ocupação ${ocup}%`}/>
-          <Chip neutro txt={`Equipamentos: ${itens.length}`}/>
-          <Chip gold txt={`R$ ${subtotal.toLocaleString("pt-BR")}`}/>
+      <main style={{ flex: 1, minWidth: 340 }}>
+        <div className="no-print" style={{ display: "flex", gap: 10, marginBottom: 10, flexWrap: "wrap" }}>
+          <Chip ok={nCol === 0} txt={nCol === 0 ? "Sem colisões" : `${nCol} colisão(ões)`} />
+          <Chip ok={nCor === 0} warn txt={nCor === 0 ? "Corredor livre" : `${nCor} no corredor`} />
+          <Chip neutro txt={`Ocupação ${ocup}%`} />
+          <Chip neutro txt={`Equipamentos: ${itens.length}`} />
+          <Chip gold txt={`R$ ${subtotal.toLocaleString("pt-BR")}`} />
+        </div>
+        <div className="no-print" style={{ display: "flex", gap: 10, marginBottom: 10, flexWrap: "wrap", alignItems: "center" }}>
+          <span style={{ fontSize: 11, color: "#6E6E73", letterSpacing: ".1em", textTransform: "uppercase" }}>Cenários</span>
+          {Object.entries(CENARIOS).map(([k, c]) => (
+            <span key={k} style={{ border: `1px solid ${c.cor}`, color: c.cor, borderRadius: 999,
+              padding: "5px 13px", fontSize: 12.5, fontWeight: 700 }}>{c.label} {BRL(cenTotais[k])}</span>
+          ))}
         </div>
 
-        <svg ref={svgRef} viewBox={`${-60} ${-60} ${ROOM.w+120} ${ROOM.h+120}`}
-          style={{width:"100%",background:"#0C0C0E",borderRadius:12,border:"1px solid #232427",
-            touchAction:"none",userSelect:"none"}}
+        <svg ref={svgRef} viewBox={`${-60} ${-60} ${ROOM.w + 120} ${ROOM.h + 120}`}
+          style={{ width: "100%", background: "#0C0C0E", borderRadius: 12, border: "1px solid #232427",
+            touchAction: "none", userSelect: "none" }}
           onPointerMove={onMove} onPointerUp={onUp} onPointerLeave={onUp}>
-          {PISO.map(f=><rect key={f.nome} x={0} y={f.y0} width={ROOM.w} height={f.y1-f.y0} fill={f.cor}/>)}
-          <text x={ROOM.w/2} y={775} fill="#E8B4B4" fontSize={26} fontWeight={700}
-            letterSpacing={8} textAnchor="middle">PISTA · VIDRAÇA ↔ ESPELHO</text>
-          <rect x={CORREDOR.x} y={0} width={CORREDOR.w} height={ROOM.h} fill="#C9A227" opacity={0.06}/>
-          <line x1={CORREDOR.x+50} y1={20} x2={CORREDOR.x+50} y2={ROOM.h-20}
-            stroke="#C9A227" strokeWidth={2.5} strokeDasharray="14 12" opacity={0.5}/>
-          <rect x={-10} y={-10} width={ROOM.w+20} height={ROOM.h+20} fill="none" stroke="#3A3A3C" strokeWidth={20}/>
-          <line x1={ROOM.w+3} y1={-10} x2={ROOM.w+3} y2={ROOM.h+10} stroke="#5FC8E8" strokeWidth={8}/>
-          <line x1={-3} y1={0} x2={-3} y2={ROOM.h} stroke="#B9E2F5" strokeWidth={6}/>
-          <line x1={610} y1={-3} x2={ROOM.w} y2={-3} stroke="#B9E2F5" strokeWidth={6}/>
-          <text x={ROOM.w/2} y={-26} fill="#8A8A8F" fontSize={22} textAnchor="middle">PAREDE PILAR · 1100</text>
-          <text x={ROOM.w/2} y={ROOM.h+44} fill="#8A8A8F" fontSize={22} textAnchor="middle">PAREDE PORTA</text>
-          <text x={-30} y={ROOM.h/2} fill="#8A8A8F" fontSize={22} textAnchor="middle"
-            transform={`rotate(-90 -30 ${ROOM.h/2})`}>ESPELHO · 1120</text>
-          <text x={ROOM.w+34} y={ROOM.h/2} fill="#5FC8E8" fontSize={22} textAnchor="middle"
-            transform={`rotate(-90 ${ROOM.w+34} ${ROOM.h/2})`}>VIDRAÇA</text>
-          <rect x={PILAR.x} y={PILAR.y} width={PILAR.w} height={PILAR.h} fill="#2B2B2E" stroke="#8A8A8F" strokeWidth={3}/>
-          <text x={PILAR.x+17} y={PILAR.y-8} fill="#C9A227" fontSize={16} textAnchor="middle">33×47</text>
-          {itens.map(it=>{
-            const prob=problemas[it.id];
-            const cor=prob==="colisão"?"#E04545":prob==="corredor"?"#E09A45":ZONAS[it.zona].cor;
-            const vert=it.h>it.w*1.3,cx=it.x+it.w/2,cy=it.y+it.h/2;
+          {PISO.length
+            ? PISO.map((f) => <rect key={f.nome} x={0} y={f.y0} width={ROOM.w} height={f.y1 - f.y0} fill={f.cor} />)
+            : <rect x={0} y={0} width={ROOM.w} height={ROOM.h} fill="#141518" />}
+          {cfg.pista_label && (
+            <text x={ROOM.w / 2} y={775} fill="#E8B4B4" fontSize={26} fontWeight={700}
+              letterSpacing={8} textAnchor="middle">{cfg.pista_label}</text>)}
+          {CORREDOR && <rect x={CORREDOR.x} y={0} width={CORREDOR.w} height={ROOM.h} fill="#C9A227" opacity={0.06} />}
+          {CORREDOR && <line x1={CORREDOR.x + 50} y1={20} x2={CORREDOR.x + 50} y2={ROOM.h - 20}
+            stroke="#C9A227" strokeWidth={2.5} strokeDasharray="14 12" opacity={0.5} />}
+          <rect x={-10} y={-10} width={ROOM.w + 20} height={ROOM.h + 20} fill="none" stroke="#3A3A3C" strokeWidth={20} />
+          {paredes.top && <text x={ROOM.w / 2} y={-26} fill="#8A8A8F" fontSize={22} textAnchor="middle">{paredes.top}</text>}
+          {paredes.bottom && <text x={ROOM.w / 2} y={ROOM.h + 44} fill="#8A8A8F" fontSize={22} textAnchor="middle">{paredes.bottom}</text>}
+          {paredes.left && <text x={-30} y={ROOM.h / 2} fill="#8A8A8F" fontSize={22} textAnchor="middle"
+            transform={`rotate(-90 -30 ${ROOM.h / 2})`}>{paredes.left}</text>}
+          {paredes.right && <text x={ROOM.w + 34} y={ROOM.h / 2} fill="#5FC8E8" fontSize={22} textAnchor="middle"
+            transform={`rotate(-90 ${ROOM.w + 34} ${ROOM.h / 2})`}>{paredes.right}</text>}
+          {PILAR && <rect x={PILAR.x} y={PILAR.y} width={PILAR.w} height={PILAR.h} fill="#2B2B2E" stroke="#8A8A8F" strokeWidth={3} />}
+          {PILAR && <text x={PILAR.x + PILAR.w / 2} y={PILAR.y - 8} fill="#C9A227" fontSize={16} textAnchor="middle">{PILAR.w}×{PILAR.h}</text>}
+          {itens.map((it) => {
+            const prob = problemas[it.id];
+            const cor = prob === "colisão" ? "#E04545" : prob === "corredor" ? "#E09A45" : (ZONAS[it.zona] || ZONAS.livre).cor;
+            const vert = it.h > it.w * 1.3, cx = it.x + it.w / 2, cy = it.y + it.h / 2;
             return (
-              <g key={it.id} onPointerDown={e=>onDown(e,it)} style={{cursor:"grab"}}>
+              <g key={it.id} onPointerDown={(e) => onDown(e, it)} style={{ cursor: "grab" }}>
                 <rect x={it.x} y={it.y} width={it.w} height={it.h} rx={6}
-                  fill={sel===it.id?"#1E1F23":"#141518"} stroke={cor}
-                  strokeWidth={sel===it.id?7:4} strokeDasharray={prob?"10 7":"none"}/>
-                <text x={cx} y={cy-1} fill="#F2F2F0" fontSize={Math.min(it.w,it.h)>=85?22:17}
+                  fill={sel === it.id ? "#1E1F23" : "#141518"} stroke={cor}
+                  strokeWidth={sel === it.id ? 7 : 4} strokeDasharray={prob ? "10 7" : "none"} />
+                <text x={cx} y={cy - 1} fill="#F2F2F0" fontSize={Math.min(it.w, it.h) >= 85 ? 22 : 17}
                   fontWeight={600} textAnchor="middle"
-                  transform={vert?`rotate(-90 ${cx} ${cy})`:undefined}>{it.nome}</text>
-                <text x={cx} y={cy+18} fill="#9A9AA0" fontSize={14} textAnchor="middle"
-                  transform={vert?`rotate(-90 ${cx} ${cy})`:undefined}>{it.w}×{it.h}</text>
+                  transform={vert ? `rotate(-90 ${cx} ${cy})` : undefined}>{it.nome}</text>
+                <text x={cx} y={cy + 18} fill="#9A9AA0" fontSize={14} textAnchor="middle"
+                  transform={vert ? `rotate(-90 ${cx} ${cy})` : undefined}>{it.w}×{it.h}</text>
               </g>);
           })}
         </svg>
-        <p className="no-print" style={{color:"#6E6E73",fontSize:12.5,marginTop:8}}>
+        <p className="no-print" style={{ color: "#6E6E73", fontSize: 12.5, marginTop: 8 }}>
           Arraste as máquinas (grade 5 cm). Vermelho tracejado = colisão/fora da sala · laranja = corredor da porta.
           "Salvar layout" grava no Supabase quando configurado em config.js.
         </p>

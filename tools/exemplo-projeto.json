@@ -1,0 +1,31 @@
+{
+  "projeto": {
+    "nome": "Residencial Aurora",
+    "sindico": "Maria Silva",
+    "contato": "(11) 99999-0000",
+    "orcamento_teto": 250000,
+    "perfil": {
+      "faixa_etaria": "30–55 anos, predominante",
+      "frequencia": "estimada 40 usos/dia em pico",
+      "uso": "autônomo, sem professor no local",
+      "moradores": 320
+    },
+    "infraestrutura": {
+      "eletrica": "220V, quadro dedicado a revisar",
+      "climatizacao": "2 splits 12.000 BTU existentes",
+      "piso": "contrapiso nivelado, receber vinílico + borracha",
+      "acesso": "elevador de serviço até o 2º subsolo"
+    },
+    "observacoes": "Espelho em toda a parede oeste; pilar estrutural no centro."
+  },
+  "sala": { "nome": "Aurora Subsolo", "largura_cm": 1100, "profundidade_cm": 1120 },
+  "itens": [
+    { "nome": "Esteira", "marca": "Movement", "modelo": "LX Pro", "zona": "ergo", "preco": 18000, "cenario": "essencial", "impacto": 5, "valor_percebido": 5, "necessidade": 5 },
+    { "nome": "Bike Horizontal", "marca": "Movement", "modelo": "BH", "zona": "ergo", "preco": 14800, "cenario": "balanceado", "impacto": 4, "valor_percebido": 4, "necessidade": 3 },
+    { "nome": "Leg Press 45°", "marca": "Movement", "modelo": "LP45", "zona": "forca", "preco": 40600, "cenario": "balanceado", "impacto": 5, "valor_percebido": 4, "necessidade": 4 },
+    { "nome": "Puxada + Remada", "marca": "Movement", "modelo": "Dual", "zona": "forca", "preco": 21800, "cenario": "essencial", "impacto": 5, "valor_percebido": 4, "necessidade": 5 },
+    { "nome": "Cross Over Angular", "marca": "Movement", "modelo": "CO", "zona": "forca", "preco": 32000, "cenario": "premium", "impacto": 3, "valor_percebido": 5, "necessidade": 2 },
+    { "nome": "Banco 0-90°", "marca": "Movement", "modelo": "B90", "zona": "livre", "preco": 4600, "cenario": "essencial", "impacto": 4, "valor_percebido": 3, "necessidade": 4 },
+    { "nome": "Colchonetes", "marca": "—", "modelo": "kit 6", "zona": "prep", "preco": 1800, "cenario": "essencial", "impacto": 3, "valor_percebido": 3, "necessidade": 4 }
+  ]
+}

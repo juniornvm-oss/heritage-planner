@@ -1,0 +1,15 @@
+{
+  "name": "heritage-planner-tools",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Pipeline local de importação de equipamentos (DXF/CSV) para o Heritage Planner.",
+  "bin": {
+    "importar": "importar.js"
+  },
+  "scripts": {
+    "importar": "node importar.js"
+  },
+  "dependencies": {
+    "dxf-parser": "^1.1.2"
+  }
+}

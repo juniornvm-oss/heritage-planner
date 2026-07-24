@@ -47,6 +47,23 @@ const ZONAS = {
   prep: { label: "Preparação", cor: "#8B78BC" },
 };
 
+// Camada de assessoria (Fase 2)
+const TAXA_ASSESSORIA = 0.005; // 0,5% do teto do condomínio
+// Cenários good/better/best: essencial ⊆ balanceado ⊆ premium (sem tag = balanceado).
+const CENARIOS = {
+  essencial: { label: "Essencial", cor: "#5FBF7A", ordem: 1 },
+  balanceado: { label: "Balanceado", cor: "#C9A227", ordem: 2 },
+  premium: { label: "Premium", cor: "#8B78BC", ordem: 3 },
+};
+const cenarioDe = (it) => (it && CENARIOS[it.cenario]) ? it.cenario : "balanceado";
+const BRL = (n) => "R$ " + (n || 0).toLocaleString("pt-BR");
+
+const DIAG_TEMPLATE = JSON.stringify({
+  perfil: { faixa_etaria: "", frequencia: "", uso: "assistido ou autônomo" },
+  infraestrutura: { eletrica: "", climatizacao: "", piso: "", acesso: "" },
+  observacoes: ""
+}, null, 2);
+
 // ── Fallbacks locais (usados offline / sem Supabase) ─────────────────────────
 const CATALOGO_LOCAL = [
   { nome: "Esteira", w: 90, h: 205, zona: "ergo", preco: 0 },
@@ -135,8 +152,13 @@ function App() {
   const [nextId, setNextId] = useState(1000);
   const [status, setStatus] = useState(sb ? "Conectando ao Supabase…" : "Modo local (sem Supabase)");
   const [nova, setNova] = useState(null); // {nome,largura,profundidade,config} quando o form está aberto
+  const [projetos, setProjetos] = useState([]);
+  const [projetoId, setProjetoId] = useState("");
+  const [novoProj, setNovoProj] = useState(null); // form de novo projeto
   const svgRef = useRef(null);
   const drag = useRef(null);
+
+  const projetoAtual = projetos.find((p) => p.id === projetoId) || null;
 
   const salaAtual = salas.find((s) => s.id === salaId) || salas[0];
   const cfg = (salaAtual && salaAtual.config) || {};
@@ -171,9 +193,22 @@ function App() {
         setSalaId(rows[0].id);
         msg.push(`${rows.length} sala(s)`);
       }
+      const pj = await sb.from("projetos").select("*").order("criado_em");
+      if (!pj.error && pj.data && pj.data.length) {
+        setProjetos(pj.data);
+        msg.push(`${pj.data.length} projeto(s)`);
+      }
       setStatus(msg.length ? "Supabase: " + msg.join(" · ") : "Conectado ao Supabase");
     })();
   }, []);
+
+  // Ao selecionar um projeto, carrega a sala vinculada a ele.
+  useEffect(() => {
+    if (projetoAtual && projetoAtual.sala_id && salas.some((s) => s.id === projetoAtual.sala_id)) {
+      setSalaId(projetoAtual.sala_id);
+    }
+    // eslint-disable-next-line
+  }, [projetoId]);
 
   // ── Ao trocar de sala: carrega o layout dela ───────────────────────────────
   useEffect(() => {
@@ -224,6 +259,28 @@ function App() {
     setStatus(`Sala "${nome}" criada`);
   };
 
+  const criarProjeto = async () => {
+    const nome = (novoProj.nome || "").trim();
+    if (!nome) { setStatus("Preencha o nome do condomínio"); return; }
+    const orcamento_teto = novoProj.orcamento_teto ? Number(novoProj.orcamento_teto) : null;
+    let diag = {};
+    try { diag = novoProj.diagnostico ? JSON.parse(novoProj.diagnostico) : {}; }
+    catch (e) { setStatus("Diagnóstico JSON inválido: " + e.message); return; }
+    const rec = {
+      nome, sindico: novoProj.sindico || null, contato: novoProj.contato || null,
+      orcamento_teto, perfil: diag.perfil || null, infraestrutura: diag.infraestrutura || null,
+      observacoes: diag.observacoes || null,
+      sala_id: (novoProj.sala_id && isUuid(novoProj.sala_id)) ? novoProj.sala_id : null,
+    };
+    if (!sb) { setStatus("Configure o Supabase para salvar projetos"); return; }
+    const { data, error } = await sb.from("projetos").insert(rec).select().single();
+    if (error) { setStatus("Erro ao criar projeto: " + error.message); return; }
+    setProjetos((p) => [...p, data]);
+    setProjetoId(data.id);
+    setNovoProj(null);
+    setStatus(`Projeto "${nome}" criado · assessoria ${BRL(data.taxa_assessoria)}`);
+  };
+
   const problemas = useMemo(() => {
     const p = {};
     itens.forEach((a) => {
@@ -241,6 +298,14 @@ function App() {
   const ocup = ((itens.reduce((s, i) => s + i.w * i.h, 0) / (ROOM.w * ROOM.h)) * 100).toFixed(0);
   const subtotal = itens.reduce((s, i) => s + (i.preco || 0), 0);
 
+  // Cenários: soma cumulativa por tier (essencial ⊆ balanceado ⊆ premium).
+  const totalCenario = (tier) => itens.reduce((s, i) =>
+    CENARIOS[cenarioDe(i)].ordem <= CENARIOS[tier].ordem ? s + (i.preco || 0) : s, 0);
+  const cenTotais = { essencial: totalCenario("essencial"), balanceado: totalCenario("balanceado"), premium: totalCenario("premium") };
+  const orcTeto = projetoAtual && projetoAtual.orcamento_teto ? Number(projetoAtual.orcamento_teto) : 0;
+  const assessoria = orcTeto * TAXA_ASSESSORIA;
+  const saldo = orcTeto - subtotal;
+
   const toSVG = useCallback((e) => {
     const svg = svgRef.current, pt = svg.createSVGPoint();
     pt.x = e.clientX; pt.y = e.clientY;
@@ -255,6 +320,7 @@ function App() {
   const onUp = () => drag.current = null;
   const girar = () => sel && setItens((its) => its.map((it) => it.id === sel ? { ...it, w: it.h, h: it.w } : it));
   const remover = () => { if (!sel) return; setItens((its) => its.filter((it) => it.id !== sel)); setSel(null); };
+  const setCenario = (tier) => sel && setItens((its) => its.map((it) => it.id === sel ? { ...it, cenario: tier } : it));
   const adicionar = (m) => { const novo = { id: nextId, nome: m.nome, x: 460, y: 460, w: m.w, h: m.h, zona: m.zona, preco: m.preco };
     setNextId((n) => n + 1); setItens((its) => [...its, novo]); setSel(novo.id); };
 
@@ -266,7 +332,13 @@ function App() {
       display: "flex", alignItems: "baseline", gap: 18, flexWrap: "wrap" }}>
       <h1 style={{ fontFamily: "'Bebas Neue'", fontSize: 34, letterSpacing: ".03em" }}>
         HERITAGE <span style={{ color: "#C9A227" }}>PLANNER</span></h1>
-      <div className="no-print" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <div className="no-print" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <select className="sel" value={projetoId} onChange={(e) => setProjetoId(e.target.value)} aria-label="Selecionar projeto">
+          <option value="">— Sem projeto —</option>
+          {projetos.map((p) => <option key={p.id} value={p.id}>{p.nome}</option>)}
+        </select>
+        <button className="act" onClick={() => setNovoProj({ nome: "", sindico: "", contato: "", orcamento_teto: "", sala_id: salaId && isUuid(salaId) ? salaId : "", diagnostico: DIAG_TEMPLATE })}>+ Novo projeto</button>
+        <span style={{ width: 1, height: 22, background: "#33343A" }} />
         <select className="sel" value={salaId} onChange={(e) => setSalaId(e.target.value)} aria-label="Selecionar sala">
           {salas.map((s) => <option key={s.id} value={s.id}>{s.nome} · {s.largura_cm}×{s.profundidade_cm}</option>)}
         </select>
@@ -308,6 +380,64 @@ function App() {
       </div>
     )}
 
+    {novoProj && (
+      <div className="no-print" style={{ padding: "14px 24px", borderBottom: "1px solid #232427",
+        display: "flex", gap: 12, alignItems: "flex-start", flexWrap: "wrap", background: "#0E0F11" }}>
+        <div style={{ display: "grid", gap: 6, width: 200 }}>
+          <label style={{ fontSize: 11, color: "#8A8A8F", letterSpacing: ".08em" }}>CONDOMÍNIO</label>
+          <input className="fld" value={novoProj.nome} placeholder="Ex.: Residencial Aurora"
+            onChange={(e) => setNovoProj({ ...novoProj, nome: e.target.value })} />
+        </div>
+        <div style={{ display: "grid", gap: 6, width: 150 }}>
+          <label style={{ fontSize: 11, color: "#8A8A8F", letterSpacing: ".08em" }}>SÍNDICO</label>
+          <input className="fld" value={novoProj.sindico}
+            onChange={(e) => setNovoProj({ ...novoProj, sindico: e.target.value })} />
+        </div>
+        <div style={{ display: "grid", gap: 6, width: 150 }}>
+          <label style={{ fontSize: 11, color: "#8A8A8F", letterSpacing: ".08em" }}>CONTATO</label>
+          <input className="fld" value={novoProj.contato}
+            onChange={(e) => setNovoProj({ ...novoProj, contato: e.target.value })} />
+        </div>
+        <div style={{ display: "grid", gap: 6, width: 150 }}>
+          <label style={{ fontSize: 11, color: "#8A8A8F", letterSpacing: ".08em" }}>ORÇAMENTO-TETO (R$)</label>
+          <input className="fld" type="number" value={novoProj.orcamento_teto}
+            onChange={(e) => setNovoProj({ ...novoProj, orcamento_teto: e.target.value })} />
+          <span style={{ fontSize: 11, color: "#C9A227" }}>
+            Assessoria 0,5%: {BRL(Math.round((Number(novoProj.orcamento_teto) || 0) * TAXA_ASSESSORIA))}</span>
+        </div>
+        <div style={{ display: "grid", gap: 6, width: 170 }}>
+          <label style={{ fontSize: 11, color: "#8A8A8F", letterSpacing: ".08em" }}>SALA VINCULADA</label>
+          <select className="sel" value={novoProj.sala_id}
+            onChange={(e) => setNovoProj({ ...novoProj, sala_id: e.target.value })}>
+            <option value="">— nenhuma —</option>
+            {salas.filter((s) => isUuid(s.id)).map((s) => <option key={s.id} value={s.id}>{s.nome}</option>)}
+          </select>
+        </div>
+        <div style={{ display: "grid", gap: 6, flex: 1, minWidth: 240 }}>
+          <label style={{ fontSize: 11, color: "#8A8A8F", letterSpacing: ".08em" }}>DIAGNÓSTICO (JSON — perfil, infraestrutura)</label>
+          <textarea className="fld" rows={6} value={novoProj.diagnostico}
+            onChange={(e) => setNovoProj({ ...novoProj, diagnostico: e.target.value })} />
+        </div>
+        <div style={{ display: "grid", gap: 6, marginTop: 22 }}>
+          <button className="act" onClick={criarProjeto} style={{ borderColor: "#C9A227", color: "#C9A227" }}>Criar projeto</button>
+          <button className="act" onClick={() => setNovoProj(null)}>Cancelar</button>
+        </div>
+      </div>
+    )}
+
+    {projetoAtual && (
+      <div style={{ padding: "10px 24px", borderBottom: "1px solid #232427", background: "#0C0D0F",
+        display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
+        <span style={{ fontFamily: "'Bebas Neue'", fontSize: 18, color: "#C9A227", letterSpacing: ".05em" }}>
+          {projetoAtual.nome}</span>
+        {projetoAtual.sindico && <span style={{ fontSize: 12, color: "#8A8A8F" }}>Síndico: {projetoAtual.sindico}</span>}
+        {orcTeto > 0 && <Chip neutro txt={`Teto ${BRL(orcTeto)}`} />}
+        {orcTeto > 0 && <Chip gold txt={`Assessoria 0,5% ${BRL(Math.round(assessoria))}`} />}
+        <Chip neutro txt={`Layout ${BRL(subtotal)}`} />
+        {orcTeto > 0 && <Chip ok={saldo >= 0} warn={saldo < 0} txt={`Saldo ${BRL(saldo)}`} />}
+      </div>
+    )}
+
     <div style={{ display: "flex", gap: 16, padding: 16, alignItems: "flex-start", flexWrap: "wrap" }}>
       <aside className="no-print" style={{ width: 228, flexShrink: 0 }}>
         <div style={{ fontFamily: "'Bebas Neue'", fontSize: 19, color: "#C9A227", letterSpacing: ".06em", marginBottom: 8 }}>BIBLIOTECA</div>
@@ -322,6 +452,16 @@ function App() {
         <div style={{ marginTop: 14, display: "grid", gap: 6 }}>
           <button className="act" onClick={girar} disabled={!sel}>↻ Girar 90° {selItem ? `(${selItem.nome})` : ""}</button>
           <button className="act" onClick={remover} disabled={!sel}>✕ Remover selecionada</button>
+          {selItem && (
+            <div style={{ display: "flex", gap: 4 }}>
+              {Object.entries(CENARIOS).map(([k, c]) => (
+                <button key={k} className="act" onClick={() => setCenario(k)} title={`Cenário ${c.label}`}
+                  style={{ flex: 1, padding: "7px 4px", fontSize: 10.5,
+                    borderColor: cenarioDe(selItem) === k ? c.cor : "#33343A",
+                    color: cenarioDe(selItem) === k ? c.cor : "#8A8A8F" }}>{c.label}</button>
+              ))}
+            </div>
+          )}
           <button className="act" onClick={salvar} style={{ borderColor: "#C9A227", color: "#C9A227" }}>💾 Salvar layout</button>
           <button className="act" onClick={() => window.print()}>⎙ Imprimir / PDF</button>
         </div>
@@ -334,6 +474,13 @@ function App() {
           <Chip neutro txt={`Ocupação ${ocup}%`} />
           <Chip neutro txt={`Equipamentos: ${itens.length}`} />
           <Chip gold txt={`R$ ${subtotal.toLocaleString("pt-BR")}`} />
+        </div>
+        <div className="no-print" style={{ display: "flex", gap: 10, marginBottom: 10, flexWrap: "wrap", alignItems: "center" }}>
+          <span style={{ fontSize: 11, color: "#6E6E73", letterSpacing: ".1em", textTransform: "uppercase" }}>Cenários</span>
+          {Object.entries(CENARIOS).map(([k, c]) => (
+            <span key={k} style={{ border: `1px solid ${c.cor}`, color: c.cor, borderRadius: 999,
+              padding: "5px 13px", fontSize: 12.5, fontWeight: 700 }}>{c.label} {BRL(cenTotais[k])}</span>
+          ))}
         </div>
 
         <svg ref={svgRef} viewBox={`${-60} ${-60} ${ROOM.w + 120} ${ROOM.h + 120}`}

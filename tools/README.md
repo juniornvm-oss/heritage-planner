@@ -63,6 +63,22 @@ node importar.js exemplo.csv --sql > equipamentos.sql
 | `--sql` | Além do JSON, imprime a instrução SQL `INSERT` |
 | `--out <arquivo>` | Grava a saída JSON em arquivo em vez do stdout |
 
+## Relatório Executivo (`relatorio.js`)
+
+Gera o **Relatório Executivo de assessoria** (HTML → PDF) a partir de um projeto
+exportado. Zero dependências. Cobre os entregáveis 01 (Diagnóstico), 03 (Lista
+Técnica), 05 (Matriz de Priorização), 06 (Cenários) e 09 (Infraestrutura).
+
+```bash
+node relatorio.js exemplo-projeto.json                 # gera relatorio.html ao lado
+node relatorio.js projeto.json --out relatorio.html    # depois: navegador → Imprimir → PDF
+```
+
+Formato de entrada em `exemplo-projeto.json`: `{ projeto, sala, itens[] }`. Os
+cenários são cumulativos (Essencial ⊆ Balanceado ⊆ Premium); itens sem tag contam
+como Balanceado. Campos `impacto`/`valor_percebido`/`necessidade` (1–5) por item
+alimentam a Matriz de Priorização.
+
 ## Como inserir no Supabase
 
 - **Via SQL** (`--sql`): cole o `INSERT` no SQL Editor do projeto, schema `planner`.

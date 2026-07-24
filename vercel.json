@@ -1,1 +1,5 @@
-{"framework":null,"buildCommand":null,"installCommand":null,"outputDirectory":"."}
+{
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "rewrites": [{ "source": "/((?!assets/|icons/|.*\\.).*)", "destination": "/index.html" }]
+}

@@ -1,5 +1,7 @@
-# Config com chave publishable — injetado no deploy, fora do git (use config.example.js)
-config.js
-
-# Node
 node_modules/
+dist/
+dist-ssr/
+*.local
+.vercel
+tools/node_modules/
+tools/package-lock.json

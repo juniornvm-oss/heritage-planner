@@ -58,15 +58,21 @@ RLS habilitado em todas, com policies `select`/`insert`/`update`/`delete` para
 `anon` (MVP single-user). O SQL aplicado está versionado em [`db/`](./db).
 O schema `public` do projeto (jmp-gastronomia) **não é tocado**.
 
-## Pipeline de importação (`tools/`)
+## Pipeline local (`tools/`)
 
-Scripts locais para cadastrar equipamentos a partir de blocos **DXF** (bounding box
-automático) ou **CSV** em lote. Geram JSON pronto para `planner.equipamentos`.
+Scripts que rodam na sua máquina (não no app) para alimentar e entregar material:
+
+- **`ler.js`** — leitor unificado: ingere **PDF, CSV, planilha (.xlsx) e DXF/DWG**
+  e gera JSON/SQL para `planner.equipamentos` ou `planner.cotacoes`.
+- **`importar.js`** — importação de blocos DXF (bounding box) / CSV de equipamentos.
+- **`relatorio.js`** — gera o Relatório Executivo (HTML → PDF) de um projeto.
 
 ```bash
 cd tools && npm install
-node importar.js bloco.dxf --marca Movement --zona forca
-node importar.js exemplo.csv --sql
+node ler.js catalogo.xlsx --sql                 # planilha → equipamentos
+node ler.js orcamento.pdf --tipo cotacoes --projeto <uuid> --sql
+node ler.js bloco.dxf --marca Movement --zona forca
+node relatorio.js exemplo-projeto.json           # relatório executivo
 ```
 
 Detalhes em [`tools/README.md`](./tools/README.md).

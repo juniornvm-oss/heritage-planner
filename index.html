@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Heritage Planner</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@400;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="config.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  body { background: #0A0A0B; color: #E9E9E6; font-family: 'DM Sans', system-ui, sans-serif; }
+  .lib-btn { display:flex; justify-content:space-between; align-items:center; width:100%;
+    background:#131416; border:1px solid #26272B; border-radius:7px; padding:7px 10px;
+    color:#C9C9C4; font:600 12px 'DM Sans'; cursor:pointer; transition:.12s; text-align:left; }
+  .lib-btn:hover { border-color:#C9A227; color:#fff; }
+  .act { background:#1A1B1E; border:1px solid #33343A; border-radius:8px; color:#D9D9D4;
+    font:700 12px 'DM Sans'; padding:9px 14px; cursor:pointer; letter-spacing:.05em; }
+  .act:hover { border-color:#C9A227; }
+  .act:disabled { opacity:.4; cursor:default; }
+  .act:focus-visible, .lib-btn:focus-visible { outline:2px solid #C9A227; outline-offset:2px; }
+  @media print { .no-print { display:none !important; } }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" data-presets="react">
+const { useState, useRef, useCallback, useMemo, useEffect } = React;
+
+const sb = (window.HP_CONFIG && window.HP_CONFIG.SUPABASE_URL)
+  ? supabase.createClient(window.HP_CONFIG.SUPABASE_URL, window.HP_CONFIG.SUPABASE_KEY, { db: { schema: "planner" } })
+  : null;
+
+const ROOM = { w: 1100, h: 1120 };
+const PISO = [
+  { nome: "Vinílico 240", y0: 0, y1: 240, cor: "#241C12" },
+  { nome: "Borracha 480", y0: 240, y1: 720, cor: "#14161A" },
+  { nome: "Pista 100", y0: 720, y1: 820, cor: "#4A1E1E" },
+  { nome: "Vinílico 300", y0: 820, y1: 1120, cor: "#241C12" },
+];
+const PILAR = { x: 358, y: 302, w: 33, h: 47 };
+const CORREDOR = { x: 750, w: 100 };
+const ZONAS = {
+  ergo: { label: "Ergometria", cor: "#4A90C4" },
+  forca: { label: "Força guiada", cor: "#C9A227" },
+  livre: { label: "Peso livre", cor: "#C07A3E" },
+  prep: { label: "Preparação", cor: "#8B78BC" },
+};
+const CATALOGO = [
+  { nome: "Esteira", w: 90, h: 205, zona: "ergo", preco: 0 },
+  { nome: "Escada", w: 86, h: 147, zona: "ergo", preco: 45000 },
+  { nome: "Elíptico", w: 66, h: 165, zona: "ergo", preco: 15000 },
+  { nome: "Bike Horizontal", w: 66, h: 168, zona: "ergo", preco: 14800 },
+  { nome: "Bike Spinning", w: 51, h: 110, zona: "ergo", preco: 8200 },
+  { nome: "Cross + Smith", w: 219, h: 163, zona: "livre", preco: 40900 },
+  { nome: "Squat Machine", w: 224, h: 133, zona: "forca", preco: 27700 },
+  { nome: "Leg Press 45°", w: 246, h: 158, zona: "forca", preco: 40600 },
+  { nome: "Elevação Pélvica", w: 158, h: 152, zona: "forca", preco: 13800 },
+  { nome: "Lying Leg Curl", w: 178, h: 99, zona: "forca", preco: 29100 },
+  { nome: "Dual Leg Extension", w: 142, h: 94, zona: "forca", preco: 23200 },
+  { nome: "Dual Inner", w: 145, h: 69, zona: "forca", preco: 21500 },
+  { nome: "Impact Delt Raise", w: 130, h: 117, zona: "forca", preco: 21500 },
+  { nome: "Puxada + Remada", w: 198, h: 82, zona: "forca", preco: 21800 },
+  { nome: "Cross Over Angular", w: 120, h: 270, zona: "forca", preco: 0 },
+  { nome: "Estante Dumbbells", w: 60, h: 240, zona: "livre", preco: 0 },
+  { nome: "Torre Halteres", w: 60, h: 90, zona: "livre", preco: 0 },
+  { nome: "Banco 0-90°", w: 155, h: 64, zona: "livre", preco: 4600 },
+  { nome: "Banco Declinado", w: 135, h: 86, zona: "livre", preco: 0 },
+  { nome: "Banco Supino", w: 130, h: 55, zona: "livre", preco: 0 },
+  { nome: "Espaldar", w: 120, h: 20, zona: "prep", preco: 0 },
+  { nome: "Colchonetes", w: 80, h: 35, zona: "prep", preco: 0 },
+];
+const LAYOUT_HERITAGE = [
+  ["Escada",70,20],["Elíptico",205,20],["Bike Horizontal",470,20],["Bike Spinning",580,20],
+  ["Cross + Smith",881,20],["Squat Machine",876,240],["Elevação Pélvica",942,405],
+  ["Leg Press 45°",854,562],["Impact Delt Raise",620,240],["Dual Leg Extension",608,391],
+  ["Lying Leg Curl",572,519],["Dual Inner",605,651],["Puxada + Remada",160,285],
+  ["Cross Over Angular",440,360],["Estante Dumbbells",15,370],["Torre Halteres",15,630],
+  ["Banco Declinado",150,460],["Banco 0-90°",150,560],["Banco Supino",155,655],
+  ["Esteira",20,905],["Esteira",133,905],["Esteira",246,905],["Esteira",359,905],
+  ["Espaldar",510,1095],["Colchonetes",660,1080],
+].map(([nome,x,y],i)=>{const c=CATALOGO.find(m=>m.nome===nome);
+  return {id:i+1,nome,x,y,w:c.w,h:c.h,zona:c.zona,preco:c.preco};});
+
+const colide=(a,b)=>a.x<b.x+b.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y;
+
+function Chip({txt,ok,warn,gold,neutro}){
+  const cor=neutro?"#8A8A8F":gold?"#C9A227":ok?"#5FBF7A":warn?"#E09A45":"#E04545";
+  return <span style={{border:`1px solid ${cor}`,color:cor,borderRadius:999,
+    padding:"5px 13px",fontSize:12.5,fontWeight:700,letterSpacing:".04em"}}>{txt}</span>;
+}
+
+function App(){
+  const [itens,setItens]=useState(LAYOUT_HERITAGE);
+  const [sel,setSel]=useState(null);
+  const [nextId,setNextId]=useState(100);
+  const [status,setStatus]=useState(sb?"Conectado ao Supabase":"Modo local (sem Supabase)");
+  const svgRef=useRef(null);
+  const drag=useRef(null);
+
+  useEffect(()=>{
+    if(!sb) return;
+    sb.from("layouts").select("dados").eq("nome","heritage").maybeSingle()
+      .then(({data,error})=>{
+        if(error){setStatus("Supabase: "+error.message);return;}
+        if(data&&data.dados){setItens(data.dados);setStatus("Layout carregado do Supabase");}
+      });
+  },[]);
+
+  const salvar=async()=>{
+    if(!sb){setStatus("Configure o Supabase em config.js para salvar");return;}
+    setStatus("Salvando…");
+    const {error}=await sb.from("layouts")
+      .upsert({nome:"heritage",dados:itens,atualizado_em:new Date().toISOString()},{onConflict:"nome"});
+    setStatus(error?"Erro: "+error.message:"Salvo ✓ "+new Date().toLocaleTimeString("pt-BR"));
+  };
+
+  const problemas=useMemo(()=>{
+    const p={};
+    itens.forEach(a=>{
+      const fora=a.x<0||a.y<0||a.x+a.w>ROOM.w||a.y+a.h>ROOM.h;
+      const pil=colide(a,PILAR);
+      const outro=itens.some(b=>b.id!==a.id&&colide(a,b));
+      const corr=a.x<CORREDOR.x+CORREDOR.w&&a.x+a.w>CORREDOR.x;
+      if(fora||pil||outro)p[a.id]="colisão";else if(corr)p[a.id]="corredor";
+    });
+    return p;
+  },[itens]);
+
+  const nCol=Object.values(problemas).filter(v=>v==="colisão").length;
+  const nCor=Object.values(problemas).filter(v=>v==="corredor").length;
+  const ocup=((itens.reduce((s,i)=>s+i.w*i.h,0)/(ROOM.w*ROOM.h))*100).toFixed(0);
+  const subtotal=itens.reduce((s,i)=>s+(i.preco||0),0);
+
+  const toSVG=useCallback(e=>{
+    const svg=svgRef.current,pt=svg.createSVGPoint();
+    pt.x=e.clientX;pt.y=e.clientY;
+    return pt.matrixTransform(svg.getScreenCTM().inverse());
+  },[]);
+  const onDown=(e,item)=>{e.preventDefault();const p=toSVG(e);
+    drag.current={id:item.id,dx:p.x-item.x,dy:p.y-item.y};setSel(item.id);};
+  const onMove=e=>{if(!drag.current)return;const p=toSVG(e);
+    const{id,dx,dy}=drag.current;
+    setItens(its=>its.map(it=>it.id===id
+      ?{...it,x:Math.round((p.x-dx)/5)*5,y:Math.round((p.y-dy)/5)*5}:it));};
+  const onUp=()=>drag.current=null;
+  const girar=()=>sel&&setItens(its=>its.map(it=>it.id===sel?{...it,w:it.h,h:it.w}:it));
+  const remover=()=>{if(!sel)return;setItens(its=>its.filter(it=>it.id!==sel));setSel(null);};
+  const adicionar=m=>{const novo={id:nextId,nome:m.nome,x:460,y:460,w:m.w,h:m.h,zona:m.zona,preco:m.preco};
+    setNextId(n=>n+1);setItens(its=>[...its,novo]);setSel(novo.id);};
+
+  const M=60,selItem=itens.find(i=>i.id===sel);
+
+  return (
+  <div style={{minHeight:"100vh"}}>
+    <header style={{borderBottom:"2px solid #C9A227",padding:"18px 24px 14px",
+      display:"flex",alignItems:"baseline",gap:18,flexWrap:"wrap"}}>
+      <h1 style={{fontFamily:"'Bebas Neue'",fontSize:34,letterSpacing:".03em"}}>
+        HERITAGE <span style={{color:"#C9A227"}}>PLANNER</span></h1>
+      <span style={{fontSize:12,color:"#8A8A8F",letterSpacing:".18em",textTransform:"uppercase"}}>
+        escala real · validação ao vivo</span>
+      <span style={{fontSize:12,color:"#5FBF7A",marginLeft:"auto"}} className="no-print">{status}</span>
+    </header>
+
+    <div style={{display:"flex",gap:16,padding:16,alignItems:"flex-start",flexWrap:"wrap"}}>
+      <aside className="no-print" style={{width:228,flexShrink:0}}>
+        <div style={{fontFamily:"'Bebas Neue'",fontSize:19,color:"#C9A227",letterSpacing:".06em",marginBottom:8}}>BIBLIOTECA</div>
+        <div style={{display:"grid",gap:5,maxHeight:"56vh",overflowY:"auto",paddingRight:4}}>
+          {CATALOGO.map(m=>(
+            <button key={m.nome} className="lib-btn" onClick={()=>adicionar(m)}>
+              <span style={{display:"flex",alignItems:"center",gap:7}}>
+                <span style={{width:8,height:8,borderRadius:2,background:ZONAS[m.zona].cor}}/>{m.nome}</span>
+              <span style={{color:"#6E6E73",fontWeight:400}}>{m.w}×{m.h}</span>
+            </button>))}
+        </div>
+        <div style={{marginTop:14,display:"grid",gap:6}}>
+          <button className="act" onClick={girar} disabled={!sel}>↻ Girar 90° {selItem?`(${selItem.nome})`:""}</button>
+          <button className="act" onClick={remover} disabled={!sel}>✕ Remover selecionada</button>
+          <button className="act" onClick={salvar} style={{borderColor:"#C9A227",color:"#C9A227"}}>💾 Salvar layout</button>
+          <button className="act" onClick={()=>window.print()}>⎙ Imprimir / PDF</button>
+        </div>
+      </aside>
+
+      <main style={{flex:1,minWidth:340}}>
+        <div className="no-print" style={{display:"flex",gap:10,marginBottom:10,flexWrap:"wrap"}}>
+          <Chip ok={nCol===0} txt={nCol===0?"Sem colisões":`${nCol} colisão(ões)`}/>
+          <Chip ok={nCor===0} warn txt={nCor===0?"Corredor livre":`${nCor} no corredor`}/>
+          <Chip neutro txt={`Ocupação ${ocup}%`}/>
+          <Chip neutro txt={`Equipamentos: ${itens.length}`}/>
+          <Chip gold txt={`R$ ${subtotal.toLocaleString("pt-BR")}`}/>
+        </div>
+
+        <svg ref={svgRef} viewBox={`${-60} ${-60} ${ROOM.w+120} ${ROOM.h+120}`}
+          style={{width:"100%",background:"#0C0C0E",borderRadius:12,border:"1px solid #232427",
+            touchAction:"none",userSelect:"none"}}
+          onPointerMove={onMove} onPointerUp={onUp} onPointerLeave={onUp}>
+          {PISO.map(f=><rect key={f.nome} x={0} y={f.y0} width={ROOM.w} height={f.y1-f.y0} fill={f.cor}/>)}
+          <text x={ROOM.w/2} y={775} fill="#E8B4B4" fontSize={26} fontWeight={700}
+            letterSpacing={8} textAnchor="middle">PISTA · VIDRAÇA ↔ ESPELHO</text>
+          <rect x={CORREDOR.x} y={0} width={CORREDOR.w} height={ROOM.h} fill="#C9A227" opacity={0.06}/>
+          <line x1={CORREDOR.x+50} y1={20} x2={CORREDOR.x+50} y2={ROOM.h-20}
+            stroke="#C9A227" strokeWidth={2.5} strokeDasharray="14 12" opacity={0.5}/>
+          <rect x={-10} y={-10} width={ROOM.w+20} height={ROOM.h+20} fill="none" stroke="#3A3A3C" strokeWidth={20}/>
+          <line x1={ROOM.w+3} y1={-10} x2={ROOM.w+3} y2={ROOM.h+10} stroke="#5FC8E8" strokeWidth={8}/>
+          <line x1={-3} y1={0} x2={-3} y2={ROOM.h} stroke="#B9E2F5" strokeWidth={6}/>
+          <line x1={610} y1={-3} x2={ROOM.w} y2={-3} stroke="#B9E2F5" strokeWidth={6}/>
+          <text x={ROOM.w/2} y={-26} fill="#8A8A8F" fontSize={22} textAnchor="middle">PAREDE PILAR · 1100</text>
+          <text x={ROOM.w/2} y={ROOM.h+44} fill="#8A8A8F" fontSize={22} textAnchor="middle">PAREDE PORTA</text>
+          <text x={-30} y={ROOM.h/2} fill="#8A8A8F" fontSize={22} textAnchor="middle"
+            transform={`rotate(-90 -30 ${ROOM.h/2})`}>ESPELHO · 1120</text>
+          <text x={ROOM.w+34} y={ROOM.h/2} fill="#5FC8E8" fontSize={22} textAnchor="middle"
+            transform={`rotate(-90 ${ROOM.w+34} ${ROOM.h/2})`}>VIDRAÇA</text>
+          <rect x={PILAR.x} y={PILAR.y} width={PILAR.w} height={PILAR.h} fill="#2B2B2E" stroke="#8A8A8F" strokeWidth={3}/>
+          <text x={PILAR.x+17} y={PILAR.y-8} fill="#C9A227" fontSize={16} textAnchor="middle">33×47</text>
+          {itens.map(it=>{
+            const prob=problemas[it.id];
+            const cor=prob==="colisão"?"#E04545":prob==="corredor"?"#E09A45":ZONAS[it.zona].cor;
+            const vert=it.h>it.w*1.3,cx=it.x+it.w/2,cy=it.y+it.h/2;
+            return (
+              <g key={it.id} onPointerDown={e=>onDown(e,it)} style={{cursor:"grab"}}>
+                <rect x={it.x} y={it.y} width={it.w} height={it.h} rx={6}
+                  fill={sel===it.id?"#1E1F23":"#141518"} stroke={cor}
+                  strokeWidth={sel===it.id?7:4} strokeDasharray={prob?"10 7":"none"}/>
+                <text x={cx} y={cy-1} fill="#F2F2F0" fontSize={Math.min(it.w,it.h)>=85?22:17}
+                  fontWeight={600} textAnchor="middle"
+                  transform={vert?`rotate(-90 ${cx} ${cy})`:undefined}>{it.nome}</text>
+                <text x={cx} y={cy+18} fill="#9A9AA0" fontSize={14} textAnchor="middle"
+                  transform={vert?`rotate(-90 ${cx} ${cy})`:undefined}>{it.w}×{it.h}</text>
+              </g>);
+          })}
+        </svg>
+        <p className="no-print" style={{color:"#6E6E73",fontSize:12.5,marginTop:8}}>
+          Arraste as máquinas (grade 5 cm). Vermelho tracejado = colisão/fora da sala · laranja = corredor da porta.
+          "Salvar layout" grava no Supabase quando configurado em config.js.
+        </p>
+      </main>
+    </div>
+  </div>);
+}
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>

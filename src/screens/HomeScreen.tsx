@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import Shell from "../ui/Shell";
-import { listarProjetos, online } from "../lib/supabase";
+import { listarProjetos, online, criarProjeto } from "../lib/supabase";
 import { heritageProjeto } from "../lib/seed";
 import { BRL } from "../lib/units";
 import { TAXA_ASSESSORIA, type Projeto } from "../lib/types";
@@ -21,8 +21,20 @@ export default function HomeScreen() {
   const [projetos, setProjetos] = useState<Projeto[]>([]);
   const [carregando, setCarregando] = useState(true);
   const [ativoId, setAtivoId] = useState<string>("heritage");
+  const [dupBusy, setDupBusy] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
 
   const heritage = useMemo(() => heritageProjeto(), []);
+
+  async function duplicarHeritage() {
+    if (!online) { setErro("Configure o Supabase para salvar projetos."); return; }
+    setDupBusy(true); setErro(null);
+    try {
+      const base = heritageProjeto();
+      const p = await criarProjeto({ nome: "Heritage", orcamento_teto: base.orcamento_teto, cena: base.cena });
+      nav(`/projeto/${p.id}`);
+    } catch (e) { setErro((e as Error).message); setDupBusy(false); }
+  }
 
   useEffect(() => {
     (async () => {
@@ -123,8 +135,12 @@ export default function HomeScreen() {
             Modo local (Supabase não configurado) — exibindo apenas o modelo Heritage.
           </p>
         )}
+        <p style={{ color: "var(--muted)", fontSize: 12.5, marginBottom: 12 }}>
+          O <b style={{ color: "#c9c9c4" }}>Heritage</b> é um modelo só-leitura. Use <b style={{ color: "var(--gold)" }}>Duplicar como projeto</b> para editar e salvar de verdade.
+        </p>
+        {erro && <p style={{ color: "var(--red)", fontSize: 12.5, marginBottom: 12 }}>{erro}</p>}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 16 }}>
-          <ProjetoCard projeto={heritage} modelo onAbrir={() => nav("/projeto/heritage")} onSelecionar={() => setAtivoId("heritage")} ativo={ativoId === "heritage"} />
+          <ProjetoCard projeto={heritage} modelo onAbrir={() => nav("/projeto/heritage")} onSelecionar={() => setAtivoId("heritage")} ativo={ativoId === "heritage"} onDuplicar={duplicarHeritage} dupBusy={dupBusy} />
           {carregando && <div style={{ color: "var(--muted)", alignSelf: "center" }}>Carregando…</div>}
           {projetos.map((p) => (
             <ProjetoCard key={p.id} projeto={p}
@@ -178,8 +194,9 @@ function StatusPill({ status }: { status: StatusFase }) {
 }
 
 // ── Card de projeto ──────────────────────────────────────────────
-function ProjetoCard({ projeto, modelo, ativo, onAbrir, onSelecionar }: {
+function ProjetoCard({ projeto, modelo, ativo, onAbrir, onSelecionar, onDuplicar, dupBusy }: {
   projeto: Projeto; modelo?: boolean; ativo?: boolean; onAbrir: () => void; onSelecionar: () => void;
+  onDuplicar?: () => void; dupBusy?: boolean;
 }) {
   const itens = projeto.cena?.itens ?? [];
   const total = itens.reduce((s, i) => s + (i.preco || 0), 0);
@@ -211,10 +228,21 @@ function ProjetoCard({ projeto, modelo, ativo, onAbrir, onSelecionar }: {
       </div>
 
       <div style={{ display: "flex", gap: 8, marginTop: 2 }}>
-        <button className="btn btn-gold" style={{ flex: 1 }} onClick={onAbrir}>Abrir editor</button>
-        <button className="btn" onClick={onSelecionar} style={ativo ? { borderColor: "var(--gold)", color: "var(--gold)" } : undefined}>
-          {ativo ? "✓ Ativo" : "Na trilha"}
-        </button>
+        {modelo ? (
+          <>
+            <button className="btn btn-gold" style={{ flex: 1 }} onClick={onDuplicar} disabled={dupBusy}>
+              {dupBusy ? "Duplicando…" : "＋ Duplicar como projeto"}
+            </button>
+            <button className="btn" onClick={onAbrir}>Abrir modelo</button>
+          </>
+        ) : (
+          <>
+            <button className="btn btn-gold" style={{ flex: 1 }} onClick={onAbrir}>Abrir editor</button>
+            <button className="btn" onClick={onSelecionar} style={ativo ? { borderColor: "var(--gold)", color: "var(--gold)" } : undefined}>
+              {ativo ? "✓ Ativo" : "Na trilha"}
+            </button>
+          </>
+        )}
       </div>
     </div>
   );

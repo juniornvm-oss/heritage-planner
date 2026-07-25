@@ -4,7 +4,7 @@ import type Konva from "konva";
 import EditorCanvas from "../editor/EditorCanvas";
 import { useProjeto } from "../store/projetoStore";
 import { useLibrary } from "../store/libraryStore";
-import { obterProjeto } from "../lib/supabase";
+import { obterProjeto, criarProjeto } from "../lib/supabase";
 import { heritageProjeto } from "../lib/seed";
 import { lerPlanta } from "../lib/planta";
 import { exportarPdf } from "../lib/export/pdfExport";
@@ -79,6 +79,14 @@ export default function EditorScreen() {
     updatePlanta({ cmPorPx: cena.planta.cmPorPx * (real / distanciaMundoCm) });
   }
 
+  async function salvarComoNovo() {
+    setBusy("Salvando…"); setErro(null);
+    try {
+      const p = await criarProjeto({ nome: projeto?.nome?.replace(" (modelo)", "") || "Heritage", orcamento_teto: projeto?.orcamento_teto ?? null, cena });
+      nav(`/projeto/${p.id}`);
+    } catch (e) { setErro((e as Error).message); setBusy(null); }
+  }
+
   async function exportar() {
     if (!projeto) return;
     setBusy("Gerando PDF…");
@@ -120,7 +128,9 @@ export default function EditorScreen() {
         <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
           {busy && <span style={{ fontSize: 12, color: "var(--gold)" }}>{busy}</span>}
           {modoCalibrar && <span style={{ fontSize: 12, color: "#8fd6f0" }}>toque 2 pontos de medida conhecida</span>}
-          <button className="btn btn-gold" disabled={salvando} onClick={() => void salvar()}>{salvando ? "Salvando…" : dirty ? "💾 Salvar" : "✓ Salvo"}</button>
+          {id === "heritage"
+            ? <button className="btn btn-gold" disabled={!!busy} onClick={() => void salvarComoNovo()}>{busy || "💾 Salvar como projeto"}</button>
+            : <button className="btn btn-gold" disabled={salvando} onClick={() => void salvar()}>{salvando ? "Salvando…" : dirty ? "💾 Salvar" : "✓ Salvo"}</button>}
           <button className="btn btn-blue" onClick={exportar}>⤓ Dossiê</button>
         </div>
       </div>

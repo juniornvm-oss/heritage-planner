@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import Shell from "../ui/Shell";
-import { listarProjetos, online } from "../lib/supabase";
+import { listarProjetos, online, criarProjeto } from "../lib/supabase";
 import { heritageProjeto } from "../lib/seed";
 import { BRL } from "../lib/units";
 import { TAXA_ASSESSORIA, type Projeto } from "../lib/types";
@@ -21,8 +21,23 @@ export default function HomeScreen() {
   const [projetos, setProjetos] = useState<Projeto[]>([]);
   const [carregando, setCarregando] = useState(true);
   const [ativoId, setAtivoId] = useState<string>("heritage");
+  const [dupBusy, setDupBusy] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
 
   const heritage = useMemo(() => heritageProjeto(), []);
+
+  // Abre o Heritage como projeto REAL e editável: cria uma vez, depois reabre o mesmo.
+  async function abrirHeritage() {
+    if (!online) { setErro("Configure o Supabase para editar e salvar."); return; }
+    setDupBusy(true); setErro(null);
+    try {
+      const existente = projetos.find((p) => (p.nome ?? "").trim().toLowerCase() === "heritage");
+      if (existente?.id) { nav(`/projeto/${existente.id}`); return; }
+      const base = heritageProjeto();
+      const p = await criarProjeto({ nome: "Heritage", orcamento_teto: base.orcamento_teto, cena: base.cena });
+      nav(`/projeto/${p.id}`);
+    } catch (e) { setErro((e as Error).message); setDupBusy(false); }
+  }
 
   useEffect(() => {
     (async () => {
@@ -38,8 +53,10 @@ export default function HomeScreen() {
     })();
   }, []);
 
-  const todos = useMemo(() => [heritage, ...projetos], [heritage, projetos]);
-  const ativo = todos.find((p) => (p.id ?? "") === ativoId) ?? heritage;
+  // Se já existe um Heritage real no banco, não mostramos o modelo local (evita duplicidade).
+  const temHeritageReal = useMemo(() => projetos.some((p) => (p.nome ?? "").trim().toLowerCase() === "heritage"), [projetos]);
+  const todos = useMemo(() => (temHeritageReal ? projetos : [heritage, ...projetos]), [temHeritageReal, heritage, projetos]);
+  const ativo = todos.find((p) => (p.id ?? "") === ativoId) ?? todos[0] ?? heritage;
   const prog = progressoProjeto(ativo);
 
   return (
@@ -123,8 +140,16 @@ export default function HomeScreen() {
             Modo local (Supabase não configurado) — exibindo apenas o modelo Heritage.
           </p>
         )}
+        {!temHeritageReal && (
+          <p style={{ color: "var(--muted)", fontSize: 12.5, marginBottom: 12 }}>
+            O <b style={{ color: "#c9c9c4" }}>Heritage</b> abaixo é um modelo. Toque em <b style={{ color: "var(--gold)" }}>Criar meu Heritage</b> para começar um projeto real, editável e salvável.
+          </p>
+        )}
+        {erro && <p style={{ color: "var(--red)", fontSize: 12.5, marginBottom: 12 }}>{erro}</p>}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 16 }}>
-          <ProjetoCard projeto={heritage} modelo onAbrir={() => nav("/projeto/heritage")} onSelecionar={() => setAtivoId("heritage")} ativo={ativoId === "heritage"} />
+          {!temHeritageReal && (
+            <ProjetoCard projeto={heritage} modelo onAbrir={() => nav("/projeto/heritage")} onSelecionar={() => setAtivoId("heritage")} ativo={ativoId === "heritage"} onDuplicar={abrirHeritage} dupBusy={dupBusy} />
+          )}
           {carregando && <div style={{ color: "var(--muted)", alignSelf: "center" }}>Carregando…</div>}
           {projetos.map((p) => (
             <ProjetoCard key={p.id} projeto={p}
@@ -178,8 +203,9 @@ function StatusPill({ status }: { status: StatusFase }) {
 }
 
 // ── Card de projeto ──────────────────────────────────────────────
-function ProjetoCard({ projeto, modelo, ativo, onAbrir, onSelecionar }: {
+function ProjetoCard({ projeto, modelo, ativo, onAbrir, onSelecionar, onDuplicar, dupBusy }: {
   projeto: Projeto; modelo?: boolean; ativo?: boolean; onAbrir: () => void; onSelecionar: () => void;
+  onDuplicar?: () => void; dupBusy?: boolean;
 }) {
   const itens = projeto.cena?.itens ?? [];
   const total = itens.reduce((s, i) => s + (i.preco || 0), 0);
@@ -211,10 +237,21 @@ function ProjetoCard({ projeto, modelo, ativo, onAbrir, onSelecionar }: {
       </div>
 
       <div style={{ display: "flex", gap: 8, marginTop: 2 }}>
-        <button className="btn btn-gold" style={{ flex: 1 }} onClick={onAbrir}>Abrir editor</button>
-        <button className="btn" onClick={onSelecionar} style={ativo ? { borderColor: "var(--gold)", color: "var(--gold)" } : undefined}>
-          {ativo ? "✓ Ativo" : "Na trilha"}
-        </button>
+        {modelo ? (
+          <>
+            <button className="btn btn-gold" style={{ flex: 1 }} onClick={onDuplicar} disabled={dupBusy}>
+              {dupBusy ? "Criando…" : "＋ Criar meu Heritage"}
+            </button>
+            <button className="btn" onClick={onAbrir}>Ver modelo</button>
+          </>
+        ) : (
+          <>
+            <button className="btn btn-gold" style={{ flex: 1 }} onClick={onAbrir}>Abrir editor</button>
+            <button className="btn" onClick={onSelecionar} style={ativo ? { borderColor: "var(--gold)", color: "var(--gold)" } : undefined}>
+              {ativo ? "✓ Ativo" : "Na trilha"}
+            </button>
+          </>
+        )}
       </div>
     </div>
   );

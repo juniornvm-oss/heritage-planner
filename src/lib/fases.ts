@@ -68,8 +68,7 @@ export const FASES: Fase[] = [
       { n: "04", label: "3+ Cotações por Categoria" },
       { n: "10", label: "Contatos de Fornecedores" },
     ],
-    emBreve: ["Matriz de priorização editável", "Cotações & fornecedores no app"],
-    rota: (id) => (id ? `/projeto/${id}` : "/novo"),
+    rota: (id) => (id ? `/projeto/${id}/curadoria` : "/novo"),
   },
   {
     id: "dossie",
@@ -80,7 +79,6 @@ export const FASES: Fase[] = [
       "O documento de alto padrão que consolida diagnóstico, layout, lista técnica, cenários e resumo financeiro — para que engenheiro e arquiteto executem sem saber de academia.",
     cor: "#8B78BC",
     entregaveis: [{ n: "08", label: "Relatório Executivo (PDF)" }],
-    emBreve: ["Capa e diagnóstico no padrão dossiê"],
     rota: (id) => (id ? `/projeto/${id}` : "/novo"),
   },
 ];

@@ -5,6 +5,7 @@ import HomeScreen from "./screens/HomeScreen";
 import ProjetosScreen from "./screens/ProjetosScreen";
 import LeituraScreen from "./screens/LeituraScreen";
 import EditorScreen from "./screens/EditorScreen";
+import CuradoriaScreen from "./screens/CuradoriaScreen";
 import BibliotecaEquipamentosScreen from "./screens/BibliotecaEquipamentosScreen";
 import BibliotecaAcabamentosScreen from "./screens/BibliotecaAcabamentosScreen";
 import { useLibrary } from "./store/libraryStore";
@@ -22,6 +23,7 @@ export default function App() {
         <Route path="/projetos" element={<ProjetosScreen />} />
         <Route path="/novo" element={<LeituraScreen />} />
         <Route path="/projeto/:id/leitura" element={<LeituraScreen />} />
+        <Route path="/projeto/:id/curadoria" element={<CuradoriaScreen />} />
         <Route path="/projeto/:id" element={<EditorScreen />} />
         <Route path="/equipamentos" element={<BibliotecaEquipamentosScreen />} />
         <Route path="/acabamentos" element={<BibliotecaAcabamentosScreen />} />

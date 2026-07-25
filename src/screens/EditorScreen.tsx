@@ -102,6 +102,11 @@ export default function EditorScreen() {
             ◱ Leitura
           </button>
         )}
+        {id && (
+          <button className="btn" onClick={() => nav(`/projeto/${id}/curadoria`)} style={{ padding: "8px 11px", fontSize: 11.5 }} title="Curadoria & Investimento">
+            ⚖ Curadoria
+          </button>
+        )}
         <span className="chip" style={{ padding: "3px 10px", fontSize: 10.5, borderColor: "var(--gold)", color: "var(--gold)" }}>Fase 02 · Projeto Funcional</span>
         <span style={{ width: 1, height: 22, background: "var(--line-2)", margin: "0 4px" }} />
         <input ref={fileRef} type="file" accept=".pdf,.dwg,.dxf,image/*" style={{ display: "none" }} onChange={(e) => importarPlanta(e.target.files?.[0])} />

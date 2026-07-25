@@ -54,6 +54,10 @@ export interface ItemPosicionado {
   zona: Zona;
   cenario: Cenario;
   preco: number;
+  // Matriz de priorização (1–5, opcional) — alimenta o Dossiê Executivo.
+  impacto?: number;
+  valor_percebido?: number;
+  necessidade?: number;
 }
 
 /** Planta baixa importada como fundo, já calibrada em escala real. */

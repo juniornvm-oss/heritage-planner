@@ -26,6 +26,15 @@ export function totalCenario(itens: ItemPosicionado[], tier: Cenario): number {
   return itens.reduce((s, i) => (CENARIOS[i.cenario].ordem <= CENARIOS[tier].ordem ? s + (i.preco || 0) : s), 0);
 }
 
+/** Item com prioridade calculada (impacto+valor_percebido+necessidade), ordenado desc.
+ *  Só entram itens com pelo menos um dos três campos preenchidos. */
+export function matrizDaCena(cena: Cena): (ItemPosicionado & { prio: number })[] {
+  return cena.itens
+    .filter((i) => i.impacto || i.valor_percebido || i.necessidade)
+    .map((i) => ({ ...i, prio: (i.impacto || 0) + (i.valor_percebido || 0) + (i.necessidade || 0) }))
+    .sort((a, b) => b.prio - a.prio);
+}
+
 export function resumo(cena: Cena) {
   const { sala, itens } = cena;
   const problemas = problemasDaCena(cena);

@@ -84,7 +84,7 @@ export default function EditorScreen() {
     setBusy("Gerando PDF…");
     try {
       const png = stageRef.current ? stageRef.current.toDataURL({ pixelRatio: 2 }) : null;
-      await exportarPdf({ ...projeto, cena }, png);
+      await exportarPdf({ ...projeto, cena }, png, equipamentos);
     } catch (e) { setErro((e as Error).message); } finally { setBusy(null); }
   }
 
@@ -116,7 +116,7 @@ export default function EditorScreen() {
           {busy && <span style={{ fontSize: 12, color: "var(--gold)" }}>{busy}</span>}
           {modoCalibrar && <span style={{ fontSize: 12, color: "#8fd6f0" }}>toque 2 pontos de medida conhecida</span>}
           <button className="btn btn-gold" disabled={salvando} onClick={() => void salvar()}>{salvando ? "Salvando…" : dirty ? "💾 Salvar" : "✓ Salvo"}</button>
-          <button className="btn btn-blue" onClick={exportar}>⤓ PDF</button>
+          <button className="btn btn-blue" onClick={exportar}>⤓ Dossiê</button>
         </div>
       </div>
 
@@ -169,6 +169,11 @@ export default function EditorScreen() {
                     }}>{CENARIOS[k].label}</button>
                   ))}
                 </div>
+              </Bloco>
+              <Bloco label="PRIORIDADE (1–5)">
+                <Nota1a5 label="Impacto" valor={selItem.impacto} onSet={(n) => updateItem(selItem.id, { impacto: n })} />
+                <Nota1a5 label="Valor percebido" valor={selItem.valor_percebido} onSet={(n) => updateItem(selItem.id, { valor_percebido: n })} />
+                <Nota1a5 label="Necessidade" valor={selItem.necessidade} onSet={(n) => updateItem(selItem.id, { necessidade: n })} />
               </Bloco>
               {selItem.preco ? <div style={{ fontSize: 13, color: "var(--gold)" }}>{BRL(selItem.preco)}</div> : null}
               <div style={{ display: "flex", gap: 6 }}>
@@ -230,6 +235,24 @@ const Bloco = ({ label, children }: { label: string; children: React.ReactNode }
     {children}
   </div>
 );
+
+function Nota1a5({ label, valor, onSet }: { label: string; valor?: number; onSet: (n: number) => void }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6 }}>
+      <span style={{ fontSize: 11, color: "#b6b6b1", flex: 1 }}>{label}</span>
+      <div style={{ display: "flex", gap: 3 }}>
+        {[1, 2, 3, 4, 5].map((n) => (
+          <button key={n} onClick={() => onSet(valor === n ? 0 : n)} title={`${label}: ${n}`} style={{
+            width: 20, height: 22, borderRadius: 5, cursor: "pointer",
+            border: `1px solid ${valor && valor >= n ? "var(--gold)" : "var(--line-2)"}`,
+            background: valor && valor >= n ? "var(--gold-soft)" : "transparent",
+            color: valor && valor >= n ? "var(--gold)" : "#6e6e73", font: "700 11px 'DM Sans'",
+          }}>{n}</button>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 const Centro = ({ children }: { children: React.ReactNode }) => (
   <div style={{ position: "fixed", inset: 0, display: "flex", flexDirection: "column", gap: 12, alignItems: "center", justifyContent: "center" }}>{children}</div>

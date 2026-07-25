@@ -2,7 +2,8 @@ import { Link, useLocation } from "react-router-dom";
 import type { ReactNode } from "react";
 
 const nav = [
-  { to: "/", label: "Projetos" },
+  { to: "/", label: "Início" },
+  { to: "/projetos", label: "Projetos" },
   { to: "/equipamentos", label: "Equipamentos" },
   { to: "/acabamentos", label: "Acabamentos" },
 ];
@@ -12,7 +13,8 @@ export default function Shell({ children, actions }: { children: ReactNode; acti
   return (
     <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
       <header style={{
-        display: "flex", alignItems: "center", gap: 22, padding: "16px 24px",
+        display: "flex", alignItems: "center", gap: 22,
+        padding: "calc(16px + var(--sat)) calc(24px + var(--sar)) 16px calc(24px + var(--sal))",
         borderBottom: "2px solid var(--gold)", flexWrap: "wrap",
       }}>
         <Link to="/" className="brandface" style={{ fontSize: 26 }}>
@@ -31,7 +33,10 @@ export default function Shell({ children, actions }: { children: ReactNode; acti
         </nav>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>{actions}</div>
       </header>
-      <main style={{ flex: 1, padding: 24, overflow: "auto" }}>{children}</main>
+      <main style={{
+        flex: 1, overflow: "auto",
+        padding: "24px calc(24px + var(--sar)) calc(24px + var(--sab)) calc(24px + var(--sal))",
+      }}>{children}</main>
     </div>
   );
 }

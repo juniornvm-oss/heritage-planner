@@ -94,9 +94,15 @@ export default function EditorScreen() {
   return (
     <div style={{ position: "fixed", inset: 0, display: "flex", flexDirection: "column", background: "var(--bg)" }}>
       {/* Toolbar */}
-      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", borderBottom: "1px solid var(--line)", flexShrink: 0 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "calc(8px + var(--sat)) calc(12px + var(--sar)) 8px calc(12px + var(--sal))", borderBottom: "1px solid var(--line)", flexShrink: 0 }}>
         <button className="btn" onClick={() => nav("/")}>←</button>
         <span className="brandface" style={{ fontSize: 18, color: "var(--gold)" }}>{projeto.nome}</span>
+        {id && id !== "heritage" && (
+          <button className="btn" onClick={() => nav(`/projeto/${id}/leitura`)} style={{ padding: "8px 11px", fontSize: 11.5 }} title="Revisar a Leitura do Condomínio">
+            ◱ Leitura
+          </button>
+        )}
+        <span className="chip" style={{ padding: "3px 10px", fontSize: 10.5, borderColor: "var(--gold)", color: "var(--gold)" }}>Fase 02 · Projeto Funcional</span>
         <span style={{ width: 1, height: 22, background: "var(--line-2)", margin: "0 4px" }} />
         <input ref={fileRef} type="file" accept=".pdf,.dwg,.dxf,image/*" style={{ display: "none" }} onChange={(e) => importarPlanta(e.target.files?.[0])} />
         <button className="btn btn-blue" onClick={() => fileRef.current?.click()}>⭱ Planta</button>
@@ -116,7 +122,7 @@ export default function EditorScreen() {
 
       <div style={{ flex: 1, display: "flex", minHeight: 0 }}>
         {/* Rail esquerdo: biblioteca */}
-        <aside style={{ width: 210, flexShrink: 0, borderRight: "1px solid var(--line)", overflow: "auto", padding: 10 }}>
+        <aside style={{ width: 210, flexShrink: 0, borderRight: "1px solid var(--line)", overflow: "auto", padding: "10px 10px 10px calc(10px + var(--sal))" }}>
           <div className="brandface" style={{ fontSize: 15, color: "var(--gold)", marginBottom: 8 }}>BIBLIOTECA</div>
           <div style={{ display: "grid", gap: 5 }}>
             {equipamentos.map((m, i) => (
@@ -140,7 +146,7 @@ export default function EditorScreen() {
         </div>
 
         {/* Inspetor direito */}
-        <aside style={{ width: 220, flexShrink: 0, borderLeft: "1px solid var(--line)", overflow: "auto", padding: 12 }}>
+        <aside style={{ width: 220, flexShrink: 0, borderLeft: "1px solid var(--line)", overflow: "auto", padding: "12px calc(12px + var(--sar)) 12px 12px" }}>
           {selItem ? (
             <div style={{ display: "grid", gap: 12 }}>
               <div className="brandface" style={{ fontSize: 16, color: "var(--gold)" }}>{selItem.nome}</div>
@@ -182,7 +188,7 @@ export default function EditorScreen() {
       </div>
 
       {/* Rodapé: validação */}
-      <div style={{ display: "flex", gap: 8, alignItems: "center", padding: "7px 12px", borderTop: "1px solid var(--line)", flexWrap: "wrap", flexShrink: 0 }}>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", padding: "7px calc(12px + var(--sar)) calc(7px + var(--sab)) calc(12px + var(--sal))", borderTop: "1px solid var(--line)", flexWrap: "wrap", flexShrink: 0 }}>
         <Chip ok={r.nCol === 0} txt={r.nCol === 0 ? "Sem colisões" : `${r.nCol} colisão(ões)`} />
         <Chip ok={r.nCor === 0} warn txt={r.nCor === 0 ? "Corredor livre" : `${r.nCor} no corredor`} />
         <Chip neutro txt={`Ocupação ${r.ocupacao}%`} />

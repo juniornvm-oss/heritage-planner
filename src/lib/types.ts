@@ -97,16 +97,35 @@ export interface Cena {
   itens: ItemPosicionado[];
 }
 
+/** Diagnóstico — perfil de uso do condomínio (planner.projetos.perfil jsonb). */
+export interface PerfilUso {
+  faixa_etaria?: string;
+  frequencia?: string;
+  uso?: string; // "autônomo" | "assistido" (texto livre por flexibilidade)
+  moradores?: string;
+  objetivo?: string;
+}
+
+/** Diagnóstico — infraestrutura do local (planner.projetos.infraestrutura jsonb). */
+export interface Infraestrutura {
+  eletrica?: string;
+  climatizacao?: string;
+  piso?: string;
+  acesso?: string;
+}
+
 export interface Projeto {
   id?: string;
   nome: string;
   sindico?: string | null;
   contato?: string | null;
+  endereco?: string | null;
   orcamento_teto?: number | null;
-  taxa_assessoria?: number | null;
-  perfil?: Record<string, unknown> | null;
-  infraestrutura?: Record<string, unknown> | null;
+  taxa_assessoria?: number | null; // coluna gerada no banco — nunca enviar em insert/update
+  perfil?: PerfilUso | null;
+  infraestrutura?: Infraestrutura | null;
   observacoes?: string | null;
+  status?: string | null; // 'diagnostico' por padrão no banco
   cena?: Cena | null;
   criado_em?: string;
 }

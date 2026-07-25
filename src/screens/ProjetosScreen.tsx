@@ -4,6 +4,7 @@ import Shell from "../ui/Shell";
 import { listarProjetos, online } from "../lib/supabase";
 import type { Projeto } from "../lib/types";
 import { BRL } from "../lib/units";
+import { FASES, statusDaFase, STATUS_COR } from "../lib/fases";
 
 export default function ProjetosScreen() {
   const [projetos, setProjetos] = useState<Projeto[]>([]);
@@ -24,7 +25,7 @@ export default function ProjetosScreen() {
   }, []);
 
   return (
-    <Shell actions={<Link to="/novo" className="btn btn-gold">+ Novo projeto</Link>}>
+    <Shell actions={<Link to="/novo" className="btn btn-gold">+ Nova leitura</Link>}>
       <h1 className="brandface" style={{ fontSize: 28, color: "var(--gold)", marginBottom: 4 }}>PROJETOS</h1>
       <p style={{ color: "var(--muted)", fontSize: 13, marginBottom: 20 }}>
         {online ? "Assessoria de implantação de academias." : "Modo local (Supabase não configurado)."}
@@ -56,7 +57,15 @@ export default function ProjetosScreen() {
             }}>
               <div className="brandface" style={{ fontSize: 22, color: "var(--gold)" }}>{p.nome}</div>
               {p.sindico && <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>Síndico: {p.sindico}</div>}
-              <div style={{ display: "flex", gap: 14, marginTop: 12, fontSize: 12, color: "#c9c9c4" }}>
+              <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 12 }}>
+                {FASES.map((fase) => {
+                  const st = statusDaFase(fase, p);
+                  return <span key={fase.id} title={`${fase.numero} · ${fase.titulo}`} style={{
+                    width: 9, height: 9, borderRadius: 3, background: STATUS_COR[st], opacity: st === "a-iniciar" ? 0.35 : 1,
+                  }} />;
+                })}
+              </div>
+              <div style={{ display: "flex", gap: 14, marginTop: 10, fontSize: 12, color: "#c9c9c4" }}>
                 <span>{n} equipamento(s)</span>
                 {p.orcamento_teto ? <span>Teto {BRL(p.orcamento_teto)}</span> : null}
               </div>

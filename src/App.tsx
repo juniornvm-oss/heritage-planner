@@ -1,8 +1,9 @@
 import { Routes, Route, Navigate } from "react-router-dom";
 import { useEffect } from "react";
 import OrientationGuard from "./screens/OrientationGuard";
+import HomeScreen from "./screens/HomeScreen";
 import ProjetosScreen from "./screens/ProjetosScreen";
-import NovoProjetoScreen from "./screens/NovoProjetoScreen";
+import LeituraScreen from "./screens/LeituraScreen";
 import EditorScreen from "./screens/EditorScreen";
 import BibliotecaEquipamentosScreen from "./screens/BibliotecaEquipamentosScreen";
 import BibliotecaAcabamentosScreen from "./screens/BibliotecaAcabamentosScreen";
@@ -17,8 +18,10 @@ export default function App() {
   return (
     <OrientationGuard>
       <Routes>
-        <Route path="/" element={<ProjetosScreen />} />
-        <Route path="/novo" element={<NovoProjetoScreen />} />
+        <Route path="/" element={<HomeScreen />} />
+        <Route path="/projetos" element={<ProjetosScreen />} />
+        <Route path="/novo" element={<LeituraScreen />} />
+        <Route path="/projeto/:id/leitura" element={<LeituraScreen />} />
         <Route path="/projeto/:id" element={<EditorScreen />} />
         <Route path="/equipamentos" element={<BibliotecaEquipamentosScreen />} />
         <Route path="/acabamentos" element={<BibliotecaAcabamentosScreen />} />

@@ -30,7 +30,8 @@ const Overlay = ({ titulo, texto, icone }: { titulo: string; texto: string; icon
   <div style={{
     position: "fixed", inset: 0, background: "#0A0A0B", color: "#E9E9E6",
     display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-    gap: 14, padding: 32, textAlign: "center", zIndex: 1000,
+    gap: 14, padding: "calc(32px + var(--sat)) calc(32px + var(--sar)) calc(32px + var(--sab)) calc(32px + var(--sal))",
+    textAlign: "center", zIndex: 1000,
   }}>
     <div style={{ fontSize: 64 }}>{icone}</div>
     <div className="brandface" style={{ fontSize: 30, color: "#C9A227" }}>{titulo}</div>

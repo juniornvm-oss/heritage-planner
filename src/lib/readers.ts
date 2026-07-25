@@ -1,7 +1,7 @@
 // Leitores de documentos de DADOS (planilha/CSV) → linhas → Equipamento.
 // Para PLANTA BAIXA (geometria em escala), veja src/lib/planta.ts.
 import * as XLSX from "xlsx";
-import type { Equipamento, Zona } from "./types";
+import type { Equipamento, Zona, Cotacao } from "./types";
 
 const ZONAS_VALIDAS: Zona[] = ["ergo", "forca", "livre", "prep"];
 
@@ -71,16 +71,41 @@ function csvParaObjetos(txt: string): Record<string, unknown>[] {
   });
 }
 
+export function mapCotacao(o: Record<string, unknown>): Cotacao | null {
+  const equipamento = String(pick(o, ["equipamento", "item", "produto", "descricao"]) ?? "").trim();
+  const fornecedorNome = String(pick(o, ["fornecedor", "empresa"]) ?? "").trim();
+  if (!equipamento && !fornecedorNome) return null;
+  return {
+    categoria: (pick(o, ["categoria", "zona", "grupo"]) as string) || null,
+    equipamento: equipamento || null,
+    marca: (pick(o, ["marca", "fabricante"]) as string) || null,
+    modelo: (pick(o, ["modelo"]) as string) || null,
+    valor: parseNum(pick(o, ["valor", "preco", "price"])),
+    garantia: (pick(o, ["garantia"]) as string) || null,
+    assistencia: (pick(o, ["assistencia", "assistência", "suporte"]) as string) || null,
+    prazo: (pick(o, ["prazo", "entrega"]) as string) || null,
+    // guarda o nome do fornecedor cru para a tela resolver/associar
+    ...(fornecedorNome ? { fornecedor_nome: fornecedorNome } : {}),
+  } as Cotacao & { fornecedor_nome?: string };
+}
+
+/** Lê CSV/XLSX e devolve as linhas cruas (objetos por cabeçalho). */
+async function lerTabela(file: File): Promise<Record<string, unknown>[]> {
+  const ext = (file.name.split(".").pop() || "").toLowerCase();
+  if (ext === "csv") return csvParaObjetos(await file.text());
+  if (ext === "xlsx" || ext === "xls") {
+    const wb = XLSX.read(await file.arrayBuffer(), { type: "array" });
+    return XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: "" });
+  }
+  throw new Error("Use um arquivo .csv ou .xlsx (planilha).");
+}
+
 /** Lê CSV/XLSX e devolve equipamentos normalizados. */
 export async function lerEquipamentos(file: File): Promise<Equipamento[]> {
-  const ext = (file.name.split(".").pop() || "").toLowerCase();
-  let rows: Record<string, unknown>[] = [];
-  if (ext === "csv") rows = csvParaObjetos(await file.text());
-  else if (ext === "xlsx" || ext === "xls") {
-    const wb = XLSX.read(await file.arrayBuffer(), { type: "array" });
-    rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: "" });
-  } else {
-    throw new Error("Use um arquivo .csv ou .xlsx (planilha).");
-  }
-  return rows.map(mapEquipamento).filter((r): r is Equipamento => !!r);
+  return (await lerTabela(file)).map(mapEquipamento).filter((r): r is Equipamento => !!r);
+}
+
+/** Lê CSV/XLSX e devolve cotações normalizadas (associe o fornecedor na tela). */
+export async function lerCotacoes(file: File): Promise<(Cotacao & { fornecedor_nome?: string })[]> {
+  return (await lerTabela(file)).map(mapCotacao).filter((r): r is Cotacao => !!r);
 }

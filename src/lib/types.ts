@@ -1,0 +1,112 @@
+// Domínio do Heritage Planner (schema Supabase "planner").
+
+export type Zona = "ergo" | "forca" | "livre" | "prep";
+export type Cenario = "essencial" | "balanceado" | "premium";
+
+export const ZONAS: Record<Zona, { label: string; cor: string }> = {
+  ergo: { label: "Ergometria", cor: "#4A90C4" },
+  forca: { label: "Força guiada", cor: "#C9A227" },
+  livre: { label: "Peso livre", cor: "#C07A3E" },
+  prep: { label: "Preparação", cor: "#8B78BC" },
+};
+
+export const CENARIOS: Record<Cenario, { label: string; cor: string; ordem: number }> = {
+  essencial: { label: "Essencial", cor: "#5FBF7A", ordem: 1 },
+  balanceado: { label: "Balanceado", cor: "#C9A227", ordem: 2 },
+  premium: { label: "Premium", cor: "#8B78BC", ordem: 3 },
+};
+
+export const TAXA_ASSESSORIA = 0.005; // 0,5% do teto do condomínio
+
+/** Equipamento do catálogo (planner.equipamentos). */
+export interface Equipamento {
+  id?: string;
+  nome: string;
+  marca?: string | null;
+  modelo?: string | null;
+  largura_cm: number;
+  profundidade_cm: number;
+  zona: Zona;
+  preco: number;
+}
+
+/** Acabamento/revestimento (planner.acabamentos). */
+export interface Acabamento {
+  id?: string;
+  nome: string;
+  tipo: "piso" | "parede" | "teto" | "outro";
+  categoria?: string | null;
+  cor?: string | null;
+  preco_m2?: number | null;
+  fornecedor?: string | null;
+}
+
+/** Instância posicionada na cena (equipamento colocado na planta). */
+export interface ItemPosicionado {
+  id: string;
+  equipamentoId?: string | null;
+  nome: string;
+  x_cm: number;
+  y_cm: number;
+  w_cm: number;
+  h_cm: number;
+  rotacao: number; // graus
+  zona: Zona;
+  cenario: Cenario;
+  preco: number;
+}
+
+/** Planta baixa importada como fundo, já calibrada em escala real. */
+export interface PlantaFundo {
+  dataUrl: string; // imagem (PDF rasterizado ou DWG renderizado)
+  larguraPx: number;
+  alturaPx: number;
+  x_cm: number; // canto superior-esquerdo em cm
+  y_cm: number;
+  cmPorPx: number; // escala calibrada: quantos cm cada pixel da imagem representa
+  rotacao: number;
+  opacidade: number;
+  bloqueada: boolean;
+}
+
+export interface Piso {
+  nome: string;
+  y0: number;
+  y1: number;
+  cor: string;
+}
+
+export interface SalaConfig {
+  pisos?: Piso[];
+  pilar?: { x: number; y: number; w: number; h: number } | null;
+  corredor?: { x: number; w: number } | null;
+  paredes?: { top?: string; bottom?: string; left?: string; right?: string };
+  pista_label?: string;
+}
+
+export interface Sala {
+  largura_cm: number;
+  profundidade_cm: number;
+  config?: SalaConfig;
+}
+
+/** Estado completo do editor de um projeto. */
+export interface Cena {
+  sala: Sala;
+  planta?: PlantaFundo | null;
+  itens: ItemPosicionado[];
+}
+
+export interface Projeto {
+  id?: string;
+  nome: string;
+  sindico?: string | null;
+  contato?: string | null;
+  orcamento_teto?: number | null;
+  taxa_assessoria?: number | null;
+  perfil?: Record<string, unknown> | null;
+  infraestrutura?: Record<string, unknown> | null;
+  observacoes?: string | null;
+  cena?: Cena | null;
+  criado_em?: string;
+}

@@ -1,0 +1,76 @@
+import { createClient } from "@supabase/supabase-js";
+import type { Projeto, Equipamento, Acabamento } from "./types";
+
+declare global {
+  interface Window {
+    HP_CONFIG?: { SUPABASE_URL: string; SUPABASE_KEY: string };
+  }
+}
+
+const cfg = typeof window !== "undefined" ? window.HP_CONFIG : undefined;
+
+export const sb =
+  cfg && cfg.SUPABASE_URL
+    ? createClient(cfg.SUPABASE_URL, cfg.SUPABASE_KEY, { db: { schema: "planner" } })
+    : null;
+
+export const online = !!sb;
+
+// ── Projetos ─────────────────────────────────────────────────────────────────
+export async function listarProjetos(): Promise<Projeto[]> {
+  if (!sb) return [];
+  const { data, error } = await sb.from("projetos").select("*").order("criado_em");
+  if (error) throw error;
+  return (data as Projeto[]) || [];
+}
+
+export async function obterProjeto(id: string): Promise<Projeto | null> {
+  if (!sb) return null;
+  const { data, error } = await sb.from("projetos").select("*").eq("id", id).maybeSingle();
+  if (error) throw error;
+  return (data as Projeto) || null;
+}
+
+export async function criarProjeto(p: Partial<Projeto>): Promise<Projeto> {
+  if (!sb) throw new Error("Supabase não configurado");
+  const { data, error } = await sb.from("projetos").insert(p).select().single();
+  if (error) throw error;
+  return data as Projeto;
+}
+
+export async function salvarCena(id: string, cena: unknown): Promise<void> {
+  if (!sb) throw new Error("Supabase não configurado");
+  const { error } = await sb.from("projetos").update({ cena }).eq("id", id);
+  if (error) throw error;
+}
+
+// ── Bibliotecas ──────────────────────────────────────────────────────────────
+export async function listarEquipamentos(): Promise<Equipamento[]> {
+  if (!sb) return [];
+  const { data, error } = await sb.from("equipamentos").select("*").order("nome");
+  if (error) throw error;
+  return ((data as any[]) || []).map((e) => ({
+    id: e.id, nome: e.nome, marca: e.marca, modelo: e.modelo,
+    largura_cm: e.largura_cm, profundidade_cm: e.profundidade_cm,
+    zona: (e.zona || "livre"), preco: e.preco || 0,
+  }));
+}
+
+export async function inserirEquipamentos(rows: Equipamento[]): Promise<void> {
+  if (!sb) throw new Error("Supabase não configurado");
+  const { error } = await sb.from("equipamentos").insert(rows);
+  if (error) throw error;
+}
+
+export async function listarAcabamentos(): Promise<Acabamento[]> {
+  if (!sb) return [];
+  const { data, error } = await sb.from("acabamentos").select("*").order("nome");
+  if (error) return []; // tabela pode não existir ainda
+  return (data as Acabamento[]) || [];
+}
+
+export async function inserirAcabamento(a: Acabamento): Promise<void> {
+  if (!sb) throw new Error("Supabase não configurado");
+  const { error } = await sb.from("acabamentos").insert(a);
+  if (error) throw error;
+}

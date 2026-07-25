@@ -26,10 +26,13 @@ export default function HomeScreen() {
 
   const heritage = useMemo(() => heritageProjeto(), []);
 
-  async function duplicarHeritage() {
-    if (!online) { setErro("Configure o Supabase para salvar projetos."); return; }
+  // Abre o Heritage como projeto REAL e editável: cria uma vez, depois reabre o mesmo.
+  async function abrirHeritage() {
+    if (!online) { setErro("Configure o Supabase para editar e salvar."); return; }
     setDupBusy(true); setErro(null);
     try {
+      const existente = projetos.find((p) => (p.nome ?? "").trim().toLowerCase() === "heritage");
+      if (existente?.id) { nav(`/projeto/${existente.id}`); return; }
       const base = heritageProjeto();
       const p = await criarProjeto({ nome: "Heritage", orcamento_teto: base.orcamento_teto, cena: base.cena });
       nav(`/projeto/${p.id}`);
@@ -50,8 +53,10 @@ export default function HomeScreen() {
     })();
   }, []);
 
-  const todos = useMemo(() => [heritage, ...projetos], [heritage, projetos]);
-  const ativo = todos.find((p) => (p.id ?? "") === ativoId) ?? heritage;
+  // Se já existe um Heritage real no banco, não mostramos o modelo local (evita duplicidade).
+  const temHeritageReal = useMemo(() => projetos.some((p) => (p.nome ?? "").trim().toLowerCase() === "heritage"), [projetos]);
+  const todos = useMemo(() => (temHeritageReal ? projetos : [heritage, ...projetos]), [temHeritageReal, heritage, projetos]);
+  const ativo = todos.find((p) => (p.id ?? "") === ativoId) ?? todos[0] ?? heritage;
   const prog = progressoProjeto(ativo);
 
   return (
@@ -135,12 +140,16 @@ export default function HomeScreen() {
             Modo local (Supabase não configurado) — exibindo apenas o modelo Heritage.
           </p>
         )}
-        <p style={{ color: "var(--muted)", fontSize: 12.5, marginBottom: 12 }}>
-          O <b style={{ color: "#c9c9c4" }}>Heritage</b> é um modelo só-leitura. Use <b style={{ color: "var(--gold)" }}>Duplicar como projeto</b> para editar e salvar de verdade.
-        </p>
+        {!temHeritageReal && (
+          <p style={{ color: "var(--muted)", fontSize: 12.5, marginBottom: 12 }}>
+            O <b style={{ color: "#c9c9c4" }}>Heritage</b> abaixo é um modelo. Toque em <b style={{ color: "var(--gold)" }}>Criar meu Heritage</b> para começar um projeto real, editável e salvável.
+          </p>
+        )}
         {erro && <p style={{ color: "var(--red)", fontSize: 12.5, marginBottom: 12 }}>{erro}</p>}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 16 }}>
-          <ProjetoCard projeto={heritage} modelo onAbrir={() => nav("/projeto/heritage")} onSelecionar={() => setAtivoId("heritage")} ativo={ativoId === "heritage"} onDuplicar={duplicarHeritage} dupBusy={dupBusy} />
+          {!temHeritageReal && (
+            <ProjetoCard projeto={heritage} modelo onAbrir={() => nav("/projeto/heritage")} onSelecionar={() => setAtivoId("heritage")} ativo={ativoId === "heritage"} onDuplicar={abrirHeritage} dupBusy={dupBusy} />
+          )}
           {carregando && <div style={{ color: "var(--muted)", alignSelf: "center" }}>Carregando…</div>}
           {projetos.map((p) => (
             <ProjetoCard key={p.id} projeto={p}
@@ -231,9 +240,9 @@ function ProjetoCard({ projeto, modelo, ativo, onAbrir, onSelecionar, onDuplicar
         {modelo ? (
           <>
             <button className="btn btn-gold" style={{ flex: 1 }} onClick={onDuplicar} disabled={dupBusy}>
-              {dupBusy ? "Duplicando…" : "＋ Duplicar como projeto"}
+              {dupBusy ? "Criando…" : "＋ Criar meu Heritage"}
             </button>
-            <button className="btn" onClick={onAbrir}>Abrir modelo</button>
+            <button className="btn" onClick={onAbrir}>Ver modelo</button>
           </>
         ) : (
           <>

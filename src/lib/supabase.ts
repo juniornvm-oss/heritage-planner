@@ -44,6 +44,16 @@ export async function salvarCena(id: string, cena: unknown): Promise<void> {
   if (error) throw error;
 }
 
+/** Atualiza campos do projeto (ex.: diagnóstico da Leitura). `taxa_assessoria` é gerada
+ *  no banco e é removida do patch para não quebrar o update. */
+export async function atualizarProjeto(id: string, patch: Partial<Projeto>): Promise<Projeto> {
+  if (!sb) throw new Error("Supabase não configurado");
+  const { taxa_assessoria: _omit, id: _id, criado_em: _c, ...limpo } = patch;
+  const { data, error } = await sb.from("projetos").update(limpo).eq("id", id).select().single();
+  if (error) throw error;
+  return data as Projeto;
+}
+
 // ── Bibliotecas ──────────────────────────────────────────────────────────────
 export async function listarEquipamentos(): Promise<Equipamento[]> {
   if (!sb) return [];

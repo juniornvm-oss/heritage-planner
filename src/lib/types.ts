@@ -150,8 +150,11 @@ export interface Projeto {
   id?: string;
   nome: string;
   sindico?: string | null;
-  contato?: string | null;
+  contato?: string | null; // contato do síndico (telefone/WhatsApp)
+  contato_admin?: string | null; // contato administrativo (nome · telefone)
   endereco?: string | null;
+  cep?: string | null;
+  foto_fachada?: string | null; // dataURL (JPEG reduzido)
   orcamento_teto?: number | null;
   taxa_assessoria?: number | null; // coluna gerada no banco — nunca enviar em insert/update
   perfil?: PerfilUso | null;

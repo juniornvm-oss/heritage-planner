@@ -30,6 +30,34 @@ export interface Equipamento {
   preco: number;
 }
 
+/** Fornecedor (planner.fornecedores) — global, reaproveitado entre projetos. */
+export interface Fornecedor {
+  id?: string;
+  nome: string;
+  marca?: string | null;
+  contato?: string | null;
+  telefone?: string | null;
+  email?: string | null;
+  condicoes?: string | null;
+  criado_em?: string;
+}
+
+/** Cotação de um equipamento/categoria (planner.cotacoes) — por projeto. */
+export interface Cotacao {
+  id?: string;
+  projeto_id?: string;
+  categoria?: string | null;
+  equipamento?: string | null;
+  fornecedor_id?: string | null;
+  marca?: string | null;
+  modelo?: string | null;
+  valor?: number | null;
+  garantia?: string | null;
+  assistencia?: string | null;
+  prazo?: string | null;
+  criado_em?: string;
+}
+
 /** Acabamento/revestimento (planner.acabamentos). */
 export interface Acabamento {
   id?: string;

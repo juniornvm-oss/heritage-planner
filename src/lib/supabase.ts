@@ -1,5 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
-import type { Projeto, Equipamento, Acabamento } from "./types";
+import type { Projeto, Equipamento, Acabamento, Fornecedor, Cotacao } from "./types";
 
 declare global {
   interface Window {
@@ -82,5 +82,47 @@ export async function listarAcabamentos(): Promise<Acabamento[]> {
 export async function inserirAcabamento(a: Acabamento): Promise<void> {
   if (!sb) throw new Error("Supabase não configurado");
   const { error } = await sb.from("acabamentos").insert(a);
+  if (error) throw error;
+}
+
+// ── Fornecedores (global) e Cotações (por projeto) ───────────────────────────
+export async function listarFornecedores(): Promise<Fornecedor[]> {
+  if (!sb) return [];
+  const { data, error } = await sb.from("fornecedores").select("*").order("nome");
+  if (error) return []; // tabela pode não existir ainda
+  return (data as Fornecedor[]) || [];
+}
+
+export async function inserirFornecedor(f: Fornecedor): Promise<Fornecedor> {
+  if (!sb) throw new Error("Supabase não configurado");
+  const { data, error } = await sb.from("fornecedores").insert(f).select().single();
+  if (error) throw error;
+  return data as Fornecedor;
+}
+
+export async function removerFornecedor(id: string): Promise<void> {
+  if (!sb) throw new Error("Supabase não configurado");
+  const { error } = await sb.from("fornecedores").delete().eq("id", id);
+  if (error) throw error;
+}
+
+export async function listarCotacoes(projetoId: string): Promise<Cotacao[]> {
+  if (!sb) return [];
+  const { data, error } = await sb.from("cotacoes").select("*").eq("projeto_id", projetoId).order("criado_em");
+  if (error) return [];
+  return (data as Cotacao[]) || [];
+}
+
+export async function inserirCotacao(c: Cotacao): Promise<Cotacao> {
+  if (!sb) throw new Error("Supabase não configurado");
+  const { id: _id, criado_em: _c, ...limpo } = c;
+  const { data, error } = await sb.from("cotacoes").insert(limpo).select().single();
+  if (error) throw error;
+  return data as Cotacao;
+}
+
+export async function removerCotacao(id: string): Promise<void> {
+  if (!sb) throw new Error("Supabase não configurado");
+  const { error } = await sb.from("cotacoes").delete().eq("id", id);
   if (error) throw error;
 }

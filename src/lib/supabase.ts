@@ -17,9 +17,11 @@ export const sb =
 export const online = !!sb;
 
 // ── Projetos ─────────────────────────────────────────────────────────────────
+// Lista enxuta — não traz foto_fachada (dataURL pesado); a foto vem no obterProjeto.
+const COLS_LISTA = "id,nome,sindico,contato,endereco,orcamento_teto,taxa_assessoria,perfil,infraestrutura,status,cena,criado_em";
 export async function listarProjetos(): Promise<Projeto[]> {
   if (!sb) return [];
-  const { data, error } = await sb.from("projetos").select("*").order("criado_em");
+  const { data, error } = await sb.from("projetos").select(COLS_LISTA).order("criado_em");
   if (error) throw error;
   return (data as Projeto[]) || [];
 }

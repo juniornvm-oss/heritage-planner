@@ -142,7 +142,7 @@ export interface Camada {
   visivel: boolean;
 }
 export interface PlantaVetorial {
-  origem: "dxf" | "dwg";
+  origem: "dxf" | "dwg" | "pdf";
   tracos: Traco[];
   rotulos: Rotulo[];
   camadas: Camada[];

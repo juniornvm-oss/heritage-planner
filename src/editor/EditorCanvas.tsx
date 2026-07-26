@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Stage, Layer, Rect, Line, Group, Text, Image as KImage, Circle } from "react-konva";
+import { Stage, Layer, Rect, Line, Group, Text, Image as KImage, Circle, Transformer } from "react-konva";
 import type Konva from "konva";
 import { useProjeto } from "../store/projetoStore";
 import { ZONAS, type ItemPosicionado } from "../lib/types";
@@ -33,6 +33,7 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, modoAcabamento,
   const selecionar = useProjeto((s) => s.selecionar);
   const selecionarAcab = useProjeto((s) => s.selecionarAcab);
   const updateItem = useProjeto((s) => s.updateItem);
+  const updateArea = useProjeto((s) => s.updateArea);
 
   const wrapRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: 800, h: 600 });
@@ -41,6 +42,8 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, modoAcabamento,
   const pinch = useRef<{ dist: number; cx: number; cy: number } | null>(null);
   const [calPts, setCalPts] = useState<{ x: number; y: number }[]>([]);
   const [areaPts, setAreaPts] = useState<{ x: number; y: number }[]>([]);
+  const areaRefs = useRef<Record<string, Konva.Group>>({});
+  const trRef = useRef<Konva.Transformer>(null);
 
   const plantaImg = useHtmlImage(cena.planta?.dataUrl);
 
@@ -151,7 +154,15 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, modoAcabamento,
 
   const cfg = sala.config || {};
   const planta = cena.planta;
+  const pv = cena.plantaVetorial;
   const drawing = modoCalibrar || modoAcabamento; // enquanto desenha, itens/áreas não capturam o toque
+  const camVis = useMemo(() => new Map((pv?.camadas ?? []).map((c) => [c.nome, c.visivel])), [pv]);
+
+  // Prende o Transformer à área de acabamento selecionada (some durante o desenho).
+  useEffect(() => {
+    const node = !drawing && selectedAcabId ? areaRefs.current[selectedAcabId] : null;
+    if (trRef.current) { trRef.current.nodes(node ? [node] : []); trRef.current.getLayer()?.batchDraw(); }
+  }, [selectedAcabId, drawing, cena.acabamentos]);
 
   return (
     <div ref={wrapRef} style={{ position: "absolute", inset: 0, cursor: modoCalibrar || modoAcabamento ? "crosshair" : pan.current ? "grabbing" : "default", background: "#0C0C0E" }}>
@@ -174,6 +185,20 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, modoAcabamento,
               opacity={planta.opacidade} listening={false} />
           )}
 
+          {/* planta VETORIAL (desenho separado do texto) */}
+          {pv && (
+            <Group x={pv.x_cm} y={pv.y_cm} scaleX={pv.escala || 1} scaleY={pv.escala || 1} opacity={pv.opacidade} listening={false}>
+              {pv.tracos.map((tr, i) => (
+                camVis.get(tr.camada ?? "0") === false ? null :
+                <Line key={i} points={tr.pts} closed={tr.fechado} stroke={tr.cor || "#9FB4C7"} strokeWidth={1 / (cam.zoom * (pv.escala || 1))} />
+              ))}
+              {pv.mostrarTexto && pv.rotulos.map((r, i) => (
+                camVis.get(r.camada ?? "0") === false ? null :
+                <Text key={`t${i}`} x={r.x_cm} y={r.y_cm} text={r.texto} fontSize={Math.max(1, r.altura)} rotation={r.rotacao} fill="#C9A227" />
+              ))}
+            </Group>
+          )}
+
           {/* grade */}
           {gridLines.map((l, i) => <Line key={i} points={l} stroke="#ffffff" strokeWidth={0.6 / cam.zoom} opacity={0.05} listening={false} />)}
 
@@ -191,7 +216,15 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, modoAcabamento,
             const sel = selectedAcabId === a.id;
             const m2 = (a.w_cm / 100) * (a.h_cm / 100);
             return (
-              <Group key={a.id} x={a.x_cm} y={a.y_cm} listening={!drawing} onMouseDown={() => selecionarAcab(a.id)} onTouchStart={() => selecionarAcab(a.id)} onClick={() => selecionarAcab(a.id)} onTap={() => selecionarAcab(a.id)}>
+              <Group key={a.id} x={a.x_cm} y={a.y_cm} listening={!drawing} draggable={!drawing}
+                ref={(n) => { if (n) areaRefs.current[a.id] = n; else delete areaRefs.current[a.id]; }}
+                onMouseDown={() => selecionarAcab(a.id)} onTouchStart={() => selecionarAcab(a.id)} onClick={() => selecionarAcab(a.id)} onTap={() => selecionarAcab(a.id)}
+                onDragEnd={(e) => updateArea(a.id, { x_cm: snapCm(e.target.x()), y_cm: snapCm(e.target.y()) })}
+                onTransformEnd={(e) => {
+                  const node = e.target; const sx = node.scaleX(), sy = node.scaleY();
+                  node.scaleX(1); node.scaleY(1);
+                  updateArea(a.id, { x_cm: snapCm(node.x()), y_cm: snapCm(node.y()), w_cm: Math.max(GRID_CM, snapCm(a.w_cm * sx)), h_cm: Math.max(GRID_CM, snapCm(a.h_cm * sy)) });
+                }}>
                 <Rect width={a.w_cm} height={a.h_cm} fill={a.cor} opacity={a.tipo === "parede" ? 0.3 : 0.5}
                   stroke={sel ? "#C9A227" : a.cor} strokeWidth={(sel ? 6 : 2) / cam.zoom} dash={a.tipo === "parede" ? [14 / cam.zoom, 8 / cam.zoom] : undefined} />
                 <Text x={0} y={a.h_cm / 2 - 9} width={a.w_cm} align="center" text={`${a.nome}\n${m2.toFixed(1)} m²`}
@@ -199,6 +232,11 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, modoAcabamento,
               </Group>
             );
           })}
+
+          {/* handles de mover/redimensionar da área de acabamento selecionada */}
+          <Transformer ref={trRef} rotateEnabled={false} keepRatio={false} ignoreStroke
+            anchorSize={12 / cam.zoom} anchorStroke="#C9A227" borderStroke="#C9A227" borderStrokeWidth={1.5 / cam.zoom}
+            boundBoxFunc={(oldBox, newBox) => (newBox.width < GRID_CM || newBox.height < GRID_CM ? oldBox : newBox)} />
 
           {/* equipamentos */}
           {cena.itens.map((it) => (

@@ -7,6 +7,7 @@ import { useLibrary } from "../store/libraryStore";
 import { obterProjeto, criarProjeto } from "../lib/supabase";
 import { heritageProjeto } from "../lib/seed";
 import { lerPlanta } from "../lib/planta";
+import { lerPlantaVetorial } from "../lib/plantaVetorial";
 import { exportarPdf } from "../lib/export/pdfExport";
 import { resumo } from "../lib/validation";
 import { snapCm } from "../lib/canvas";
@@ -17,7 +18,7 @@ export default function EditorScreen() {
   const { id } = useParams();
   const nav = useNavigate();
   const { projeto, cena, selectedId, selectedAcabId, dirty, salvando } = useProjeto();
-  const { abrir, selecionar, addItem, updateItem, removerSelecionado, girarSelecionado, setPlanta, updatePlanta, addArea, undo, redo, salvar } = useProjeto();
+  const { abrir, selecionar, addItem, updateItem, removerSelecionado, girarSelecionado, setPlanta, updatePlanta, setPlantaVetorial, updatePlantaVetorial, addArea, undo, redo, salvar } = useProjeto();
   const equipamentos = useLibrary((s) => s.equipamentos);
   const acabamentos = useLibrary((s) => s.acabamentos);
 
@@ -82,6 +83,12 @@ export default function EditorScreen() {
     setBusy("Lendo planta…");
     setErro(null);
     try {
+      const ext = (file.name.split(".").pop() || "").toLowerCase();
+      if (ext === "dxf" || ext === "dwg") {
+        const pv = await lerPlantaVetorial(file); // desenho vetorial separado do texto
+        if (pv) { setPlantaVetorial(pv); return; }
+        // sem geometria reconhecível → cai no raster
+      }
       const bmp = await lerPlanta(file);
       const cmPorPx = cena.sala.largura_cm / bmp.larguraPx; // começa do tamanho da sala; calibre depois
       setPlanta({ dataUrl: bmp.dataUrl, larguraPx: bmp.larguraPx, alturaPx: bmp.alturaPx, x_cm: 0, y_cm: 0, cmPorPx, rotacao: 0, opacidade: 0.55, bloqueada: false });
@@ -90,11 +97,11 @@ export default function EditorScreen() {
 
   function onCalibrar(distanciaMundoCm: number) {
     setModoCalibrar(false);
-    if (!cena.planta) return;
     const entrada = window.prompt("Distância real entre os 2 pontos (ex.: 500 ou 5 m):", "500");
     const real = entrada ? parseLength(entrada) : null;
     if (!real || distanciaMundoCm <= 0) return;
-    updatePlanta({ cmPorPx: cena.planta.cmPorPx * (real / distanciaMundoCm) });
+    if (cena.plantaVetorial) { updatePlantaVetorial({ escala: (cena.plantaVetorial.escala || 1) * (real / distanciaMundoCm) }); return; }
+    if (cena.planta) updatePlanta({ cmPorPx: cena.planta.cmPorPx * (real / distanciaMundoCm) });
   }
 
   async function salvarComoNovo() {
@@ -137,7 +144,7 @@ export default function EditorScreen() {
         <span style={{ width: 1, height: 22, background: "var(--line-2)", margin: "0 4px" }} />
         <input ref={fileRef} type="file" accept=".pdf,.dwg,.dxf,image/*" style={{ display: "none" }} onChange={(e) => importarPlanta(e.target.files?.[0])} />
         <button className="btn btn-blue" onClick={() => fileRef.current?.click()}>⭱ Planta</button>
-        <button className="btn" disabled={!cena.planta} onClick={() => { setModoCalibrar((v) => !v); setModoAcabamento(false); }} style={modoCalibrar ? { borderColor: "#5FC8E8", color: "#8fd6f0" } : undefined}>📐 Calibrar</button>
+        <button className="btn" disabled={!cena.planta && !cena.plantaVetorial} onClick={() => { setModoCalibrar((v) => !v); setModoAcabamento(false); }} style={modoCalibrar ? { borderColor: "#5FC8E8", color: "#8fd6f0" } : undefined}>📐 Calibrar</button>
         <button className="btn" onClick={() => { setModoAcabamento((v) => !v); setModoCalibrar(false); }} style={modoAcabamento ? { borderColor: "#C9A227", color: "#C9A227" } : undefined}>▦ Acabamento</button>
         <button className="btn" disabled={!selItem} onClick={() => girarSelecionado()}>↻ Girar</button>
         <button className="btn" disabled={!selItem} onClick={removerSelecionado}>✕</button>
@@ -218,6 +225,8 @@ export default function EditorScreen() {
             </div>
           ) : selAcab ? (
             <AcabamentoInspector area={selAcab} />
+          ) : cena.plantaVetorial ? (
+            <PlantaVetorialInspector />
           ) : cena.planta ? (
             <PlantaInspector />
           ) : (
@@ -263,6 +272,45 @@ function PlantaInspector() {
         <input type="range" min={0} max={1} step={0.05} value={planta.opacidade} onChange={(e) => updatePlanta({ opacidade: +e.target.value })} style={{ width: "100%" }} />
       </Bloco>
       <button className="btn" onClick={() => setPlanta(null)}>Remover planta</button>
+    </div>
+  );
+}
+
+function PlantaVetorialInspector() {
+  const pv = useProjeto((s) => s.cena.plantaVetorial)!;
+  const updatePV = useProjeto((s) => s.updatePlantaVetorial);
+  const toggleCamada = useProjeto((s) => s.toggleCamada);
+  const setPV = useProjeto((s) => s.setPlantaVetorial);
+  return (
+    <div style={{ display: "grid", gap: 12 }}>
+      <div className="brandface" style={{ fontSize: 16, color: "var(--gold)" }}>PLANTA VETORIAL</div>
+      <div style={{ fontSize: 12, color: "var(--muted)" }}>
+        {pv.origem.toUpperCase()} · {pv.tracos.length} traços · {pv.rotulos.length} textos
+      </div>
+      {Math.abs((pv.escala || 1) - 1) > 1e-6 && <div style={{ fontSize: 11, color: "var(--muted)" }}>Escala calibrada: ×{(pv.escala || 1).toFixed(3)}</div>}
+      <div style={{ fontSize: 11.5, color: "#b6b6b1", lineHeight: 1.5 }}>
+        Se a escala estiver errada, use <b>📐 Calibrar</b> na barra: toque 2 pontos de uma medida conhecida.
+      </div>
+      <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: "#c9c9c4" }}>
+        <input type="checkbox" checked={pv.mostrarTexto} onChange={(e) => updatePV({ mostrarTexto: e.target.checked })} />
+        Mostrar texto / anotações
+      </label>
+      <Bloco label={`OPACIDADE ${Math.round(pv.opacidade * 100)}%`}>
+        <input type="range" min={0.15} max={1} step={0.05} value={pv.opacidade} onChange={(e) => updatePV({ opacidade: +e.target.value })} style={{ width: "100%" }} />
+      </Bloco>
+      {pv.camadas.length > 1 && (
+        <Bloco label="CAMADAS">
+          <div style={{ display: "grid", gap: 3, maxHeight: 220, overflow: "auto" }}>
+            {pv.camadas.map((c) => (
+              <label key={c.nome} style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 11.5, color: "#c9c9c4" }}>
+                <input type="checkbox" checked={c.visivel} onChange={() => toggleCamada(c.nome)} />
+                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.nome}</span>
+              </label>
+            ))}
+          </div>
+        </Bloco>
+      )}
+      <button className="btn" onClick={() => setPV(null)}>Remover planta</button>
     </div>
   );
 }

@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import type { Equipamento, Acabamento } from "../lib/types";
 import { listarEquipamentos, listarAcabamentos } from "../lib/supabase";
-import { CATALOGO_LOCAL } from "../lib/seed";
+import { CATALOGO_LOCAL, ACABAMENTOS_LOCAL } from "../lib/seed";
 
 interface LibraryState {
   equipamentos: Equipamento[];
@@ -9,11 +9,12 @@ interface LibraryState {
   carregado: boolean;
   carregar: () => Promise<void>;
   addEquipamentos: (rows: Equipamento[]) => void;
+  addAcabamentos: (rows: Acabamento[]) => void;
 }
 
 export const useLibrary = create<LibraryState>((set, get) => ({
   equipamentos: CATALOGO_LOCAL,
-  acabamentos: [],
+  acabamentos: ACABAMENTOS_LOCAL,
   carregado: false,
   async carregar() {
     if (get().carregado) return;
@@ -21,7 +22,7 @@ export const useLibrary = create<LibraryState>((set, get) => ({
       const [eq, ac] = await Promise.all([listarEquipamentos(), listarAcabamentos()]);
       set({
         equipamentos: eq.length ? eq : CATALOGO_LOCAL,
-        acabamentos: ac,
+        acabamentos: ac.length ? ac : ACABAMENTOS_LOCAL,
         carregado: true,
       });
     } catch {
@@ -30,5 +31,8 @@ export const useLibrary = create<LibraryState>((set, get) => ({
   },
   addEquipamentos(rows) {
     set((s) => ({ equipamentos: [...s.equipamentos, ...rows] }));
+  },
+  addAcabamentos(rows) {
+    set((s) => ({ acabamentos: [...s.acabamentos, ...rows] }));
   },
 }));

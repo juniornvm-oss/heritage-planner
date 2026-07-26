@@ -122,6 +122,39 @@ export interface Sala {
   config?: SalaConfig;
 }
 
+/** Planta importada como VETOR (DXF/DWG): geometria separada do texto, em cm. */
+export interface Traco {
+  pts: number[]; // [x0,y0,x1,y1,...] em cm (mundo)
+  cor?: string;
+  camada?: string;
+  fechado?: boolean;
+}
+export interface Rotulo {
+  texto: string;
+  x_cm: number;
+  y_cm: number;
+  altura: number; // cm
+  rotacao?: number;
+  camada?: string;
+}
+export interface Camada {
+  nome: string;
+  visivel: boolean;
+}
+export interface PlantaVetorial {
+  origem: "dxf" | "dwg";
+  tracos: Traco[];
+  rotulos: Rotulo[];
+  camadas: Camada[];
+  x_cm: number;
+  y_cm: number;
+  rotacao: number;
+  escala: number; // multiplicador de escala (calibração 2 cliques); 1 = unidades do arquivo
+  opacidade: number;
+  bloqueada: boolean;
+  mostrarTexto: boolean; // separa desenho (sempre) de texto/anotações (toggle)
+}
+
 /** Área de acabamento pintada na planta (piso/parede) — retângulo em cm. */
 export interface AreaAcabamento {
   id: string;
@@ -140,6 +173,7 @@ export interface AreaAcabamento {
 export interface Cena {
   sala: Sala;
   planta?: PlantaFundo | null;
+  plantaVetorial?: PlantaVetorial | null;
   itens: ItemPosicionado[];
   acabamentos?: AreaAcabamento[];
 }

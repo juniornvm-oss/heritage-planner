@@ -160,6 +160,16 @@ async function lerPdfVetorial(file: File): Promise<PlantaVetorial | null> {
   return { origem: "pdf", tracos, rotulos, camadas: [{ nome: "desenho", visivel: true }], x_cm: 0, y_cm: 0, rotacao: 0, escala: 1, opacidade: 0.9, bloqueada: false, mostrarTexto: true };
 }
 
+/** Extrai o contorno (footprint) de um DWG/PDF/DXF como polilinhas normalizadas 0..1 (para equipamento). */
+export async function contornoDeArquivo(file: File): Promise<number[][] | null> {
+  const pv = await lerPlantaVetorial(file);
+  if (!pv || !pv.tracos.length) return null;
+  let mnx = Infinity, mny = Infinity, mxx = -Infinity, mxy = -Infinity;
+  for (const t of pv.tracos) for (let i = 0; i < t.pts.length; i += 2) { mnx = Math.min(mnx, t.pts[i]); mxx = Math.max(mxx, t.pts[i]); mny = Math.min(mny, t.pts[i + 1]); mxy = Math.max(mxy, t.pts[i + 1]); }
+  const w = (mxx - mnx) || 1, h = (mxy - mny) || 1;
+  return pv.tracos.map((t) => t.pts.map((v, i) => (i % 2 === 0 ? (v - mnx) / w : (v - mny) / h)));
+}
+
 /** Lê DXF/DWG/PDF como vetor. Retorna null se não houver geometria (chamador cai no raster). */
 export async function lerPlantaVetorial(file: File): Promise<PlantaVetorial | null> {
   const ext = (file.name.split(".").pop() || "").toLowerCase();

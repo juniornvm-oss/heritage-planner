@@ -7,6 +7,8 @@ import type { Traco, Rotulo, Camada, PlantaVetorial } from "./types";
 const CDN = {
   dxf: "https://cdn.jsdelivr.net/npm/dxf-parser@1.1.2/+esm",
   dwg: "https://cdn.jsdelivr.net/npm/@mlightcad/libredwg-web/+esm",
+  pdf: "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.7.76/build/pdf.min.mjs",
+  pdfWorker: "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.7.76/build/pdf.worker.min.mjs",
 };
 const dyn = (u: string) => import(/* @vite-ignore */ u);
 
@@ -104,9 +106,74 @@ function montar(origem: "dxf" | "dwg", g: { tracos: Traco[]; rotulos: Rotulo[]; 
   return { origem, ...g, x_cm: 0, y_cm: 0, rotacao: 0, escala: 1, opacidade: 0.9, bloqueada: false, mostrarTexto: true };
 }
 
-/** Lê DXF/DWG como vetor. Retorna null se não houver geometria (chamador cai no raster). */
+// ── PDF vetorial (pdf.js): extrai o DESENHO (paths) separando o TEXTO ──────────
+const mulM = (m: number[], n: number[]) => [m[0] * n[0] + m[2] * n[1], m[1] * n[0] + m[3] * n[1], m[0] * n[2] + m[2] * n[3], m[1] * n[2] + m[3] * n[3], m[0] * n[4] + m[2] * n[5] + m[4], m[1] * n[4] + m[3] * n[5] + m[5]];
+const apM = (m: number[], x: number, y: number): [number, number] => [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]];
+
+async function lerPdfVetorial(file: File): Promise<PlantaVetorial | null> {
+  const pdfjs: Ent = await dyn(CDN.pdf);
+  try { pdfjs.GlobalWorkerOptions.workerSrc = CDN.pdfWorker; } catch { /* ok */ }
+  const doc = await pdfjs.getDocument({ data: await file.arrayBuffer() }).promise;
+  const page = await doc.getPage(1);
+  const ol = await page.getOperatorList();
+  const OPS = pdfjs.OPS;
+
+  const tracosRaw: [number, number][][] = [];
+  let ctm = [1, 0, 0, 1, 0, 0]; const pilha: number[][] = [];
+  const SEGN = 8;
+  const cubica = (p0: [number, number], c1: [number, number], c2: [number, number], p1: [number, number], out: [number, number][]) => {
+    for (let i = 1; i <= SEGN; i++) { const t = i / SEGN, u = 1 - t; out.push([u * u * u * p0[0] + 3 * u * u * t * c1[0] + 3 * u * t * t * c2[0] + t * t * t * p1[0], u * u * u * p0[1] + 3 * u * u * t * c1[1] + 3 * u * t * t * c2[1] + t * t * t * p1[1]]); }
+  };
+  for (let i = 0; i < ol.fnArray.length; i++) {
+    const fn = ol.fnArray[i], a = ol.argsArray[i];
+    if (fn === OPS.save) pilha.push(ctm.slice());
+    else if (fn === OPS.restore) ctm = pilha.pop() || [1, 0, 0, 1, 0, 0];
+    else if (fn === OPS.transform) ctm = mulM(ctm, a);
+    else if (fn === OPS.constructPath) {
+      const ops = a[0], co = a[1]; let k = 0, cur: [number, number] | null = null, sub: [number, number][] = [];
+      const flush = () => { if (sub.length >= 2) tracosRaw.push(sub); sub = []; };
+      for (const op of ops) {
+        if (op === OPS.moveTo) { flush(); cur = apM(ctm, co[k], co[k + 1]); k += 2; sub = [cur]; }
+        else if (op === OPS.lineTo) { cur = apM(ctm, co[k], co[k + 1]); k += 2; sub.push(cur); }
+        else if (op === OPS.curveTo) { const c1 = apM(ctm, co[k], co[k + 1]), c2 = apM(ctm, co[k + 2], co[k + 3]), p1 = apM(ctm, co[k + 4], co[k + 5]); if (cur) cubica(cur, c1, c2, p1, sub); cur = p1; k += 6; }
+        else if (op === OPS.curveTo2) { const c2 = apM(ctm, co[k], co[k + 1]), p1 = apM(ctm, co[k + 2], co[k + 3]); if (cur) cubica(cur, cur, c2, p1, sub); cur = p1; k += 4; }
+        else if (op === OPS.curveTo3) { const c1 = apM(ctm, co[k], co[k + 1]), p1 = apM(ctm, co[k + 2], co[k + 3]); if (cur) cubica(cur, c1, p1, p1, sub); cur = p1; k += 4; }
+        else if (op === OPS.rectangle) { const x = co[k], y = co[k + 1], w = co[k + 2], h = co[k + 3]; k += 4; flush(); sub = [apM(ctm, x, y), apM(ctm, x + w, y), apM(ctm, x + w, y + h), apM(ctm, x, y + h), apM(ctm, x, y)]; flush(); }
+        else if (op === OPS.closePath) { if (sub.length) sub.push(sub[0]); }
+      }
+      flush();
+    }
+  }
+
+  const tc = await page.getTextContent();
+  const rotulosRaw = (tc.items as Ent[]).filter((t) => t.str && t.str.trim()).map((t) => {
+    const m = t.transform as number[];
+    return { texto: String(t.str).trim(), x: m[4], y: m[5], altura: t.height || Math.hypot(m[2], m[3]) || 10, rot: -(Math.atan2(m[1], m[0]) * 180 / Math.PI) };
+  });
+
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const pl of tracosRaw) for (const [x, y] of pl) { if (x < minX) minX = x; if (x > maxX) maxX = x; if (y < minY) minY = y; if (y > maxY) maxY = y; }
+  if (!Number.isFinite(minX)) return null;
+  const nx = (x: number) => x - minX, ny = (y: number) => maxY - y; // inverte Y (PDF/CAD para cima)
+  const tracos: Traco[] = tracosRaw.map((pl) => ({ pts: pl.flatMap(([x, y]) => [nx(x), ny(y)]), camada: "desenho" }));
+  const rotulos: Rotulo[] = rotulosRaw.map((r) => ({ texto: r.texto, x_cm: nx(r.x), y_cm: ny(r.y), altura: r.altura, rotacao: r.rot, camada: "texto" }));
+  return { origem: "pdf", tracos, rotulos, camadas: [{ nome: "desenho", visivel: true }], x_cm: 0, y_cm: 0, rotacao: 0, escala: 1, opacidade: 0.9, bloqueada: false, mostrarTexto: true };
+}
+
+/** Extrai o contorno (footprint) de um DWG/PDF/DXF como polilinhas normalizadas 0..1 (para equipamento). */
+export async function contornoDeArquivo(file: File): Promise<number[][] | null> {
+  const pv = await lerPlantaVetorial(file);
+  if (!pv || !pv.tracos.length) return null;
+  let mnx = Infinity, mny = Infinity, mxx = -Infinity, mxy = -Infinity;
+  for (const t of pv.tracos) for (let i = 0; i < t.pts.length; i += 2) { mnx = Math.min(mnx, t.pts[i]); mxx = Math.max(mxx, t.pts[i]); mny = Math.min(mny, t.pts[i + 1]); mxy = Math.max(mxy, t.pts[i + 1]); }
+  const w = (mxx - mnx) || 1, h = (mxy - mny) || 1;
+  return pv.tracos.map((t) => t.pts.map((v, i) => (i % 2 === 0 ? (v - mnx) / w : (v - mny) / h)));
+}
+
+/** Lê DXF/DWG/PDF como vetor. Retorna null se não houver geometria (chamador cai no raster). */
 export async function lerPlantaVetorial(file: File): Promise<PlantaVetorial | null> {
   const ext = (file.name.split(".").pop() || "").toLowerCase();
+  if (ext === "pdf") return lerPdfVetorial(file);
   if (ext === "dxf") {
     const mod: Ent = await dyn(CDN.dxf);
     const DxfParser = mod.default || mod.DxfParser || mod;

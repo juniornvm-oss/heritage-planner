@@ -28,6 +28,8 @@ export interface Equipamento {
   profundidade_cm: number;
   zona: Zona;
   preco: number;
+  imagem?: string | null; // dataURL de referência (foto do equipamento, reduzida)
+  contorno?: number[][] | null; // polilinhas do footprint, normalizadas 0..1 (x/larg, y/prof)
 }
 
 /** Fornecedor (planner.fornecedores) — global, reaproveitado entre projetos. */
@@ -86,6 +88,9 @@ export interface ItemPosicionado {
   impacto?: number;
   valor_percebido?: number;
   necessidade?: number;
+  // Visual do equipamento (herdado do catálogo) para desenhar no editor.
+  imagem?: string | null;
+  contorno?: number[][] | null;
 }
 
 /** Planta baixa importada como fundo, já calibrada em escala real. */
@@ -142,7 +147,7 @@ export interface Camada {
   visivel: boolean;
 }
 export interface PlantaVetorial {
-  origem: "dxf" | "dwg";
+  origem: "dxf" | "dwg" | "pdf";
   tracos: Traco[];
   rotulos: Rotulo[];
   camadas: Camada[];

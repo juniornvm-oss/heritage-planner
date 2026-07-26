@@ -20,11 +20,13 @@ function useHtmlImage(src?: string) {
 
 interface Cam { zoom: number; x: number; y: number } // x,y = posição da layer em px
 
-export default function EditorCanvas({ modoCalibrar, onCalibrar, modoAcabamento, onArea, stageRef }: {
+export default function EditorCanvas({ modoCalibrar, onCalibrar, modoAcabamento, onArea, modoRecorte, onRecorte, stageRef }: {
   modoCalibrar: boolean;
   onCalibrar: (distanciaMundoCm: number) => void;
   modoAcabamento: boolean;
   onArea: (rect: { x: number; y: number; w: number; h: number }) => void;
+  modoRecorte: boolean;
+  onRecorte: (rect: { x: number; y: number; w: number; h: number }) => void;
   stageRef?: React.RefObject<Konva.Stage>;
 }) {
   const cena = useProjeto((s) => s.cena);
@@ -42,6 +44,7 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, modoAcabamento,
   const pinch = useRef<{ dist: number; cx: number; cy: number } | null>(null);
   const [calPts, setCalPts] = useState<{ x: number; y: number }[]>([]);
   const [areaPts, setAreaPts] = useState<{ x: number; y: number }[]>([]);
+  const [recPts, setRecPts] = useState<{ x: number; y: number }[]>([]);
   const areaRefs = useRef<Record<string, Konva.Group>>({});
   const trRef = useRef<Konva.Transformer>(null);
 
@@ -111,6 +114,17 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, modoAcabamento,
       } else setAreaPts(pts);
       return;
     }
+    if (modoRecorte && emVazio) {
+      const w = toWorld(p.x, p.y);
+      const pts = [...recPts, w];
+      if (pts.length === 2) {
+        const x = Math.min(pts[0].x, pts[1].x), y = Math.min(pts[0].y, pts[1].y);
+        const wcm = Math.abs(pts[1].x - pts[0].x), hcm = Math.abs(pts[1].y - pts[0].y);
+        setRecPts([]);
+        if (wcm > 1 && hcm > 1) onRecorte({ x, y, w: wcm, h: hcm });
+      } else setRecPts(pts);
+      return;
+    }
     const touches = (e.evt as TouchEvent).touches;
     if (touches && touches.length === 2) {
       const [a, b] = [touches[0], touches[1]];
@@ -155,7 +169,7 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, modoAcabamento,
   const cfg = sala.config || {};
   const planta = cena.planta;
   const pv = cena.plantaVetorial;
-  const drawing = modoCalibrar || modoAcabamento; // enquanto desenha, itens/áreas não capturam o toque
+  const drawing = modoCalibrar || modoAcabamento || modoRecorte; // enquanto desenha, itens/áreas não capturam o toque
   const camVis = useMemo(() => new Map((pv?.camadas ?? []).map((c) => [c.nome, c.visivel])), [pv]);
 
   // Prende o Transformer à área de acabamento selecionada (some durante o desenho).
@@ -165,7 +179,7 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, modoAcabamento,
   }, [selectedAcabId, drawing, cena.acabamentos]);
 
   return (
-    <div ref={wrapRef} style={{ position: "absolute", inset: 0, cursor: modoCalibrar || modoAcabamento ? "crosshair" : pan.current ? "grabbing" : "default", background: "#0C0C0E" }}>
+    <div ref={wrapRef} style={{ position: "absolute", inset: 0, cursor: drawing ? "crosshair" : pan.current ? "grabbing" : "default", background: "#0C0C0E" }}>
       <Stage ref={stageRef} width={size.w} height={size.h} onWheel={onWheel}
         onMouseDown={stageDown} onMouseMove={stageMove} onMouseUp={stageUp}
         onTouchStart={stageDown} onTouchMove={stageMove} onTouchEnd={stageUp}>
@@ -252,6 +266,10 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, modoAcabamento,
           {/* marcadores de área de acabamento */}
           {areaPts.map((p, i) => <Circle key={i} x={p.x} y={p.y} radius={7 / cam.zoom} fill="#C9A227" />)}
           {areaPts.length === 1 && <Text x={areaPts[0].x} y={areaPts[0].y} text=" toque o canto oposto" fontSize={16 / cam.zoom} fill="#C9A227" />}
+
+          {/* marcadores de recorte */}
+          {recPts.map((p, i) => <Circle key={`r${i}`} x={p.x} y={p.y} radius={7 / cam.zoom} fill="#5FBF7A" />)}
+          {recPts.length === 1 && <Text x={recPts[0].x} y={recPts[0].y} text=" toque o canto oposto (recorte)" fontSize={16 / cam.zoom} fill="#5FBF7A" />}
         </Layer>
       </Stage>
     </div>
@@ -264,6 +282,8 @@ function ItemView({ it, zoom, selected, problema, listening, onSelect, onDrag }:
 }) {
   const cor = problema === "colisao" ? "#E04545" : problema === "corredor" ? "#E09A45" : (ZONAS[it.zona]?.cor || "#888");
   const vert = it.h_cm > it.w_cm * 1.3;
+  const img = useHtmlImage(it.imagem || undefined);
+  const temDesenho = !!(it.contorno?.length || it.imagem);
   return (
     <Group x={it.x_cm} y={it.y_cm} draggable={listening !== false} listening={listening}
       onMouseDown={onSelect} onTouchStart={onSelect} onClick={onSelect} onTap={onSelect}
@@ -271,11 +291,20 @@ function ItemView({ it, zoom, selected, problema, listening, onSelect, onDrag }:
       onDragEnd={(e) => onDrag(e.target.x(), e.target.y(), true)}>
       <Rect width={it.w_cm} height={it.h_cm} cornerRadius={4} fill={selected ? "#1E1F23" : "#141518"}
         stroke={cor} strokeWidth={(selected ? 7 : 4) / zoom} dash={problema ? [10 / zoom, 7 / zoom] : undefined} />
-      <Text x={0} y={it.h_cm / 2 - 10} width={it.w_cm} align="center" text={it.nome}
-        fontSize={Math.min(it.w_cm, it.h_cm) >= 85 ? 20 : 15} fill="#F2F2F0" fontStyle="600"
-        rotation={vert ? -90 : 0} offsetX={vert ? (it.w_cm - it.h_cm) / 2 : 0} listening={false} />
+      {it.imagem && img && <KImage image={img} x={0} y={0} width={it.w_cm} height={it.h_cm} opacity={0.85} listening={false} />}
+      {(it.contorno || []).map((pl, i) => (
+        <Line key={i} points={pl.map((v, j) => (j % 2 === 0 ? v * it.w_cm : v * it.h_cm))} stroke={cor} strokeWidth={2 / zoom} listening={false} />
+      ))}
+      {!temDesenho && (
+        <Text x={0} y={it.h_cm / 2 - 10} width={it.w_cm} align="center" text={it.nome}
+          fontSize={Math.min(it.w_cm, it.h_cm) >= 85 ? 20 : 15} fill="#F2F2F0" fontStyle="600"
+          rotation={vert ? -90 : 0} offsetX={vert ? (it.w_cm - it.h_cm) / 2 : 0} listening={false} />
+      )}
+      {temDesenho && (
+        <Text x={0} y={it.h_cm - 16} width={it.w_cm} align="center" text={it.nome} fontSize={12} fill="#F2F2F0" fontStyle="600" listening={false} />
+      )}
       <Text x={0} y={it.h_cm / 2 + 12} width={it.w_cm} align="center" text={`${formatLength(it.w_cm)} × ${formatLength(it.h_cm)}`}
-        fontSize={12} fill="#9A9AA0" listening={false} visible={!vert} />
+        fontSize={12} fill="#9A9AA0" listening={false} visible={!vert && !temDesenho} />
     </Group>
   );
 }

@@ -32,6 +32,7 @@ interface ProjetoState {
   setPlantaVetorial: (pv: PlantaVetorial | null) => void;
   updatePlantaVetorial: (patch: Partial<PlantaVetorial>) => void;
   toggleCamada: (nome: string) => void;
+  recortarVetorial: (rect: { x: number; y: number; w: number; h: number }) => void;
 
   undo: () => void;
   redo: () => void;
@@ -137,6 +138,24 @@ export const useProjeto = create<ProjetoState>((set, get) => ({
       if (!pv) return {};
       const camadas = pv.camadas.map((c) => (c.nome === nome ? { ...c, visivel: !c.visivel } : c));
       return { cena: { ...s.cena, plantaVetorial: { ...pv, camadas } }, dirty: true };
+    });
+  },
+
+  // Mantém só o desenho/texto dentro do retângulo (isola a planta do carimbo/observações).
+  recortarVetorial(rect) {
+    set((s) => {
+      const pv = s.cena.plantaVetorial;
+      if (!pv) return {};
+      const esc = pv.escala || 1;
+      const lx = (rect.x - pv.x_cm) / esc, ly = (rect.y - pv.y_cm) / esc, lw = rect.w / esc, lh = rect.h / esc;
+      const dentro = (x: number, y: number) => x >= lx && x <= lx + lw && y >= ly && y <= ly + lh;
+      const tracos = pv.tracos.filter((t) => {
+        let mnx = Infinity, mny = Infinity, mxx = -Infinity, mxy = -Infinity;
+        for (let i = 0; i < t.pts.length; i += 2) { mnx = Math.min(mnx, t.pts[i]); mxx = Math.max(mxx, t.pts[i]); mny = Math.min(mny, t.pts[i + 1]); mxy = Math.max(mxy, t.pts[i + 1]); }
+        return dentro((mnx + mxx) / 2, (mny + mxy) / 2);
+      });
+      const rotulos = pv.rotulos.filter((r) => dentro(r.x_cm, r.y_cm));
+      return { past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, plantaVetorial: { ...pv, tracos, rotulos } }, dirty: true };
     });
   },
 

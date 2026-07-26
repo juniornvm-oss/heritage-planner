@@ -65,6 +65,7 @@ export async function listarEquipamentos(): Promise<Equipamento[]> {
     id: e.id, nome: e.nome, marca: e.marca, modelo: e.modelo,
     largura_cm: e.largura_cm, profundidade_cm: e.profundidade_cm,
     zona: (e.zona || "livre"), preco: e.preco || 0,
+    imagem: e.imagem ?? null, contorno: e.contorno ?? null,
   }));
 }
 

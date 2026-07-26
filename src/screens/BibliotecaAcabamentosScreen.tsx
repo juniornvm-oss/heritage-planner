@@ -2,6 +2,7 @@ import { useState } from "react";
 import Shell from "../ui/Shell";
 import { useLibrary } from "../store/libraryStore";
 import { inserirAcabamento, online } from "../lib/supabase";
+import { ACABAMENTOS_LOCAL } from "../lib/seed";
 import type { Acabamento } from "../lib/types";
 import { BRL } from "../lib/units";
 
@@ -12,6 +13,21 @@ export default function BibliotecaAcabamentosScreen() {
   const [lista, setLista] = useState<Acabamento[]>(acabamentos);
   const [status, setStatus] = useState<string | null>(null);
   const [novo, setNovo] = useState<Acabamento>({ nome: "", tipo: "piso", cor: "#241C12", preco_m2: 0, fornecedor: "" });
+  const [semeando, setSemeando] = useState(false);
+
+  async function semear() {
+    const existentes = new Set(lista.map((a) => a.nome.toLowerCase()));
+    const faltam = ACABAMENTOS_LOCAL.filter((a) => !existentes.has(a.nome.toLowerCase()));
+    if (!faltam.length) { setStatus("Todos os acabamentos de alto padrão já estão na lista."); return; }
+    setSemeando(true); setStatus(null);
+    setLista((l) => [...l, ...faltam]);
+    if (online) {
+      let n = 0;
+      for (const a of faltam) { try { await inserirAcabamento(a); n++; } catch { /* segue */ } }
+      setStatus(`${n} acabamento(s) de alto padrão adicionados.`);
+    } else setStatus(`${faltam.length} adicionados localmente (Supabase não configurado).`);
+    setSemeando(false);
+  }
 
   async function adicionar() {
     if (!novo.nome.trim()) return;
@@ -25,7 +41,10 @@ export default function BibliotecaAcabamentosScreen() {
 
   return (
     <Shell>
-      <h1 className="brandface" style={{ fontSize: 28, color: "var(--gold)", marginBottom: 4 }}>BIBLIOTECA DE ACABAMENTOS</h1>
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
+        <h1 className="brandface" style={{ fontSize: 28, color: "var(--gold)", marginBottom: 4 }}>BIBLIOTECA DE ACABAMENTOS</h1>
+        <button className="btn" disabled={semeando} onClick={semear}>{semeando ? "Semeando…" : "✦ Semear alto padrão"}</button>
+      </div>
       <p style={{ color: "var(--muted)", fontSize: 13, marginBottom: 18 }}>
         Pisos, paredes e revestimentos. {status ? "· " + status : ""}
       </p>

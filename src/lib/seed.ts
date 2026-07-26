@@ -1,4 +1,17 @@
-import type { Equipamento, SalaConfig, ItemPosicionado, Zona } from "./types";
+import type { Equipamento, SalaConfig, ItemPosicionado, Zona, Acabamento } from "./types";
+
+// Acabamentos de alto padrão (fallback local + semear na biblioteca).
+export const ACABAMENTOS_LOCAL: Acabamento[] = [
+  { nome: "Vinílico Tarkett Ambienta", tipo: "piso", categoria: "Vinílico", cor: "#8A6E4B", preco_m2: 189, fornecedor: "Tarkett" },
+  { nome: "Borracha EPDM 8mm", tipo: "piso", categoria: "Borracha", cor: "#2B2B2E", preco_m2: 240, fornecedor: "Krona/Plurigoma" },
+  { nome: "Porcelanato Acetinado 90×90", tipo: "piso", categoria: "Porcelanato", cor: "#CFC7B8", preco_m2: 210, fornecedor: "Portobello" },
+  { nome: "Madeira Engenheirada", tipo: "piso", categoria: "Madeira", cor: "#7A4E2D", preco_m2: 320, fornecedor: "Indusparquet" },
+  { nome: "Cimento Queimado", tipo: "piso", categoria: "Cimentício", cor: "#9A968E", preco_m2: 130, fornecedor: "—" },
+  { nome: "Espelho 4mm", tipo: "parede", categoria: "Espelho", cor: "#3A5A6A", preco_m2: 320, fornecedor: "Vidraçaria" },
+  { nome: "Painel Ripado Madeira", tipo: "parede", categoria: "Ripado", cor: "#6B4A2E", preco_m2: 420, fornecedor: "—" },
+  { nome: "ACM Composto", tipo: "parede", categoria: "ACM", cor: "#4A4A4E", preco_m2: 290, fornecedor: "Alubond" },
+  { nome: "Pintura Acústica", tipo: "parede", categoria: "Pintura", cor: "#22303A", preco_m2: 95, fornecedor: "Suvinil" },
+];
 
 // Catálogo local (fallback offline) — migrado do planner original.
 export const CATALOGO_LOCAL: Equipamento[] = [

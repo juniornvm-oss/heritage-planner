@@ -187,14 +187,14 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, modoAcabamento,
 
           {/* planta VETORIAL (desenho separado do texto) */}
           {pv && (
-            <Group x={pv.x_cm} y={pv.y_cm} opacity={pv.opacidade} listening={false}>
+            <Group x={pv.x_cm} y={pv.y_cm} scaleX={pv.escala || 1} scaleY={pv.escala || 1} opacity={pv.opacidade} listening={false}>
               {pv.tracos.map((tr, i) => (
                 camVis.get(tr.camada ?? "0") === false ? null :
-                <Line key={i} points={tr.pts} closed={tr.fechado} stroke={tr.cor || "#9FB4C7"} strokeWidth={1 / cam.zoom} />
+                <Line key={i} points={tr.pts} closed={tr.fechado} stroke={tr.cor || "#9FB4C7"} strokeWidth={1 / (cam.zoom * (pv.escala || 1))} />
               ))}
               {pv.mostrarTexto && pv.rotulos.map((r, i) => (
                 camVis.get(r.camada ?? "0") === false ? null :
-                <Text key={`t${i}`} x={r.x_cm} y={r.y_cm} text={r.texto} fontSize={Math.max(6, r.altura)} rotation={r.rotacao} fill="#C9A227" />
+                <Text key={`t${i}`} x={r.x_cm} y={r.y_cm} text={r.texto} fontSize={Math.max(1, r.altura)} rotation={r.rotacao} fill="#C9A227" />
               ))}
             </Group>
           )}

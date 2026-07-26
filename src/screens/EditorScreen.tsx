@@ -18,7 +18,7 @@ export default function EditorScreen() {
   const { id } = useParams();
   const nav = useNavigate();
   const { projeto, cena, selectedId, selectedAcabId, dirty, salvando } = useProjeto();
-  const { abrir, selecionar, addItem, updateItem, removerSelecionado, girarSelecionado, setPlanta, updatePlanta, setPlantaVetorial, addArea, undo, redo, salvar } = useProjeto();
+  const { abrir, selecionar, addItem, updateItem, removerSelecionado, girarSelecionado, setPlanta, updatePlanta, setPlantaVetorial, updatePlantaVetorial, addArea, undo, redo, salvar } = useProjeto();
   const equipamentos = useLibrary((s) => s.equipamentos);
   const acabamentos = useLibrary((s) => s.acabamentos);
 
@@ -97,11 +97,11 @@ export default function EditorScreen() {
 
   function onCalibrar(distanciaMundoCm: number) {
     setModoCalibrar(false);
-    if (!cena.planta) return;
     const entrada = window.prompt("Distância real entre os 2 pontos (ex.: 500 ou 5 m):", "500");
     const real = entrada ? parseLength(entrada) : null;
     if (!real || distanciaMundoCm <= 0) return;
-    updatePlanta({ cmPorPx: cena.planta.cmPorPx * (real / distanciaMundoCm) });
+    if (cena.plantaVetorial) { updatePlantaVetorial({ escala: (cena.plantaVetorial.escala || 1) * (real / distanciaMundoCm) }); return; }
+    if (cena.planta) updatePlanta({ cmPorPx: cena.planta.cmPorPx * (real / distanciaMundoCm) });
   }
 
   async function salvarComoNovo() {
@@ -144,7 +144,7 @@ export default function EditorScreen() {
         <span style={{ width: 1, height: 22, background: "var(--line-2)", margin: "0 4px" }} />
         <input ref={fileRef} type="file" accept=".pdf,.dwg,.dxf,image/*" style={{ display: "none" }} onChange={(e) => importarPlanta(e.target.files?.[0])} />
         <button className="btn btn-blue" onClick={() => fileRef.current?.click()}>⭱ Planta</button>
-        <button className="btn" disabled={!cena.planta} onClick={() => { setModoCalibrar((v) => !v); setModoAcabamento(false); }} style={modoCalibrar ? { borderColor: "#5FC8E8", color: "#8fd6f0" } : undefined}>📐 Calibrar</button>
+        <button className="btn" disabled={!cena.planta && !cena.plantaVetorial} onClick={() => { setModoCalibrar((v) => !v); setModoAcabamento(false); }} style={modoCalibrar ? { borderColor: "#5FC8E8", color: "#8fd6f0" } : undefined}>📐 Calibrar</button>
         <button className="btn" onClick={() => { setModoAcabamento((v) => !v); setModoCalibrar(false); }} style={modoAcabamento ? { borderColor: "#C9A227", color: "#C9A227" } : undefined}>▦ Acabamento</button>
         <button className="btn" disabled={!selItem} onClick={() => girarSelecionado()}>↻ Girar</button>
         <button className="btn" disabled={!selItem} onClick={removerSelecionado}>✕</button>
@@ -286,6 +286,10 @@ function PlantaVetorialInspector() {
       <div className="brandface" style={{ fontSize: 16, color: "var(--gold)" }}>PLANTA VETORIAL</div>
       <div style={{ fontSize: 12, color: "var(--muted)" }}>
         {pv.origem.toUpperCase()} · {pv.tracos.length} traços · {pv.rotulos.length} textos
+      </div>
+      {Math.abs((pv.escala || 1) - 1) > 1e-6 && <div style={{ fontSize: 11, color: "var(--muted)" }}>Escala calibrada: ×{(pv.escala || 1).toFixed(3)}</div>}
+      <div style={{ fontSize: 11.5, color: "#b6b6b1", lineHeight: 1.5 }}>
+        Se a escala estiver errada, use <b>📐 Calibrar</b> na barra: toque 2 pontos de uma medida conhecida.
       </div>
       <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: "#c9c9c4" }}>
         <input type="checkbox" checked={pv.mostrarTexto} onChange={(e) => updatePV({ mostrarTexto: e.target.checked })} />

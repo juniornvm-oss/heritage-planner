@@ -32,9 +32,10 @@ function limparTexto(s: unknown): string {
  * Converte entidades DXF (dxf-parser / libredwg) em geometria vetorial + rótulos, em cm.
  * Função pura e testável (sem DOM). Y do CAD é para cima → invertido para o editor (y p/ baixo).
  */
-export function dxfEntidadesParaVetorial(entities: Ent[], blocks: Record<string, Ent>, unitFactor = 1): {
+export function dxfEntidadesParaVetorial(entities: Ent[], blocks: Record<string, Ent>, unitFactor = 1, angulosRad = false): {
   tracos: Traco[]; rotulos: Rotulo[]; camadas: Camada[];
 } {
+  const grau = (a: number) => (angulosRad ? a : (a * Math.PI) / 180); // ARC: DXF em graus, DWG em radianos
   const tracosRaw: { pts: [number, number][]; camada: string; fechado?: boolean }[] = [];
   const rotulosRaw: { texto: string; x: number; y: number; altura: number; rot: number; camada: string }[] = [];
   const camadas = new Set<string>();
@@ -50,14 +51,18 @@ export function dxfEntidadesParaVetorial(entities: Ent[], blocks: Record<string,
       const t = (e.type || "").toUpperCase();
       const camada = e.layer || "0";
       camadas.add(camada);
-      if (t === "LINE" || t === "LWPOLYLINE" || t === "POLYLINE") {
-        addTraco((e.vertices || []).map((v: Ent) => tf(v.x, v.y)), camada, e.shape || e.closed);
+      if (t === "LINE") {
+        // dxf-parser: e.vertices; libredwg: startPoint/endPoint
+        if (e.startPoint && e.endPoint) addTraco([tf(e.startPoint.x, e.startPoint.y), tf(e.endPoint.x, e.endPoint.y)], camada);
+        else if (e.vertices) addTraco((e.vertices || []).map((v: Ent) => tf(v.x, v.y)), camada);
+      } else if (t === "LWPOLYLINE" || t === "POLYLINE" || t === "POLYLINE2D" || t === "POLYLINE3D") {
+        addTraco((e.vertices || []).map((v: Ent) => tf(v.x, v.y)), camada, e.shape || e.closed || !!(e.flag & 1));
       } else if (t === "CIRCLE" && e.center) {
         const n = 32, pts: [number, number][] = [];
         for (let i = 0; i <= n; i++) { const a = (i / n) * 2 * Math.PI; pts.push(tf(e.center.x + e.radius * Math.cos(a), e.center.y + e.radius * Math.sin(a))); }
         addTraco(pts, camada, true);
       } else if (t === "ARC" && e.center) {
-        let a0 = (e.startAngle || 0) * Math.PI / 180, a1 = (e.endAngle || 0) * Math.PI / 180;
+        let a0 = grau(e.startAngle || 0), a1 = grau(e.endAngle || 0);
         if (a1 < a0) a1 += 2 * Math.PI;
         const n = Math.max(6, Math.ceil((a1 - a0) / (Math.PI / 16))), pts: [number, number][] = [];
         for (let i = 0; i <= n; i++) { const a = a0 + (a1 - a0) * (i / n); pts.push(tf(e.center.x + e.radius * Math.cos(a), e.center.y + e.radius * Math.sin(a))); }
@@ -79,7 +84,7 @@ export function dxfEntidadesParaVetorial(entities: Ent[], blocks: Record<string,
       } else if (TEXTO.has(t)) {
         const pt = e.startPoint || e.position || e.textMidPoint || e.anchorPoint;
         const txt = limparTexto(e.text ?? e.string);
-        if (pt && txt) { const [x, y] = tf(pt.x, pt.y); rotulosRaw.push({ texto: txt, x, y, altura: e.textHeight || e.height || 20, rot: e.rotation || 0, camada }); hit(x, y); }
+        if (pt && txt) { const [x, y] = tf(pt.x, pt.y); const rot = angulosRad ? (e.rotation || 0) * 180 / Math.PI : (e.rotation || 0); rotulosRaw.push({ texto: txt, x, y, altura: e.textHeight || e.height || 20, rot, camada }); hit(x, y); }
       }
     }
   };
@@ -96,7 +101,7 @@ export function dxfEntidadesParaVetorial(entities: Ent[], blocks: Record<string,
 }
 
 function montar(origem: "dxf" | "dwg", g: { tracos: Traco[]; rotulos: Rotulo[]; camadas: Camada[] }): PlantaVetorial {
-  return { origem, ...g, x_cm: 0, y_cm: 0, rotacao: 0, opacidade: 0.9, bloqueada: false, mostrarTexto: true };
+  return { origem, ...g, x_cm: 0, y_cm: 0, rotacao: 0, escala: 1, opacidade: 0.9, bloqueada: false, mostrarTexto: true };
 }
 
 /** Lê DXF/DWG como vetor. Retorna null se não houver geometria (chamador cai no raster). */
@@ -113,12 +118,14 @@ export async function lerPlantaVetorial(file: File): Promise<PlantaVetorial | nu
   if (ext === "dwg") {
     const { LibreDwg, Dwg_File_Type }: Ent = await dyn(CDN.dwg);
     const lib = await LibreDwg.create();
-    const dwg = lib.dwg_read_data(new Uint8Array(await file.arrayBuffer()), Dwg_File_Type.DWG);
+    const dwg = lib.dwg_read_data(await file.arrayBuffer(), Dwg_File_Type.DWG);
     const db = lib.convert(dwg);
     const blocks: Record<string, Ent> = {};
     (db.blocks || []).forEach((b: Ent) => { if (b?.name) blocks[b.name] = { entities: b.entities || [] }; });
-    const ents = db.entities || (db.blocks && db.blocks.model_space) || [];
-    const g = dxfEntidadesParaVetorial(ents, blocks, 1); // unidades do DWG desconhecidas → calibrar
+    const ents = db.entities || [];
+    const insunits = Number(db.header?.INSUNITS ?? db.header?.["$INSUNITS"] ?? 0);
+    // libredwg: ângulos em RADIANOS; LINE via startPoint/endPoint (tratado no walker)
+    const g = dxfEntidadesParaVetorial(ents, blocks, unitToCm(insunits), true);
     try { lib.dwg_free(dwg); } catch { /* ignore */ }
     return g.tracos.length ? montar("dwg", g) : null;
   }

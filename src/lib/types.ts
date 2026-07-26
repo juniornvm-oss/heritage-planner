@@ -149,6 +149,7 @@ export interface PlantaVetorial {
   x_cm: number;
   y_cm: number;
   rotacao: number;
+  escala: number; // multiplicador de escala (calibração 2 cliques); 1 = unidades do arquivo
   opacidade: number;
   bloqueada: boolean;
   mostrarTexto: boolean; // separa desenho (sempre) de texto/anotações (toggle)

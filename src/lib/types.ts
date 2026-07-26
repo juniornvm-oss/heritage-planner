@@ -122,11 +122,26 @@ export interface Sala {
   config?: SalaConfig;
 }
 
+/** Área de acabamento pintada na planta (piso/parede) — retângulo em cm. */
+export interface AreaAcabamento {
+  id: string;
+  acabamentoId?: string | null;
+  nome: string; // nome do acabamento aplicado
+  tipo: "piso" | "parede";
+  cor: string;
+  preco_m2?: number | null;
+  x_cm: number;
+  y_cm: number;
+  w_cm: number;
+  h_cm: number;
+}
+
 /** Estado completo do editor de um projeto. */
 export interface Cena {
   sala: Sala;
   planta?: PlantaFundo | null;
   itens: ItemPosicionado[];
+  acabamentos?: AreaAcabamento[];
 }
 
 /** Diagnóstico — perfil de uso do condomínio (planner.projetos.perfil jsonb). */

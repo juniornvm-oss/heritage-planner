@@ -282,6 +282,8 @@ function ItemView({ it, zoom, selected, problema, listening, onSelect, onDrag }:
 }) {
   const cor = problema === "colisao" ? "#E04545" : problema === "corredor" ? "#E09A45" : (ZONAS[it.zona]?.cor || "#888");
   const vert = it.h_cm > it.w_cm * 1.3;
+  const img = useHtmlImage(it.imagem || undefined);
+  const temDesenho = !!(it.contorno?.length || it.imagem);
   return (
     <Group x={it.x_cm} y={it.y_cm} draggable={listening !== false} listening={listening}
       onMouseDown={onSelect} onTouchStart={onSelect} onClick={onSelect} onTap={onSelect}
@@ -289,11 +291,20 @@ function ItemView({ it, zoom, selected, problema, listening, onSelect, onDrag }:
       onDragEnd={(e) => onDrag(e.target.x(), e.target.y(), true)}>
       <Rect width={it.w_cm} height={it.h_cm} cornerRadius={4} fill={selected ? "#1E1F23" : "#141518"}
         stroke={cor} strokeWidth={(selected ? 7 : 4) / zoom} dash={problema ? [10 / zoom, 7 / zoom] : undefined} />
-      <Text x={0} y={it.h_cm / 2 - 10} width={it.w_cm} align="center" text={it.nome}
-        fontSize={Math.min(it.w_cm, it.h_cm) >= 85 ? 20 : 15} fill="#F2F2F0" fontStyle="600"
-        rotation={vert ? -90 : 0} offsetX={vert ? (it.w_cm - it.h_cm) / 2 : 0} listening={false} />
+      {it.imagem && img && <KImage image={img} x={0} y={0} width={it.w_cm} height={it.h_cm} opacity={0.85} listening={false} />}
+      {(it.contorno || []).map((pl, i) => (
+        <Line key={i} points={pl.map((v, j) => (j % 2 === 0 ? v * it.w_cm : v * it.h_cm))} stroke={cor} strokeWidth={2 / zoom} listening={false} />
+      ))}
+      {!temDesenho && (
+        <Text x={0} y={it.h_cm / 2 - 10} width={it.w_cm} align="center" text={it.nome}
+          fontSize={Math.min(it.w_cm, it.h_cm) >= 85 ? 20 : 15} fill="#F2F2F0" fontStyle="600"
+          rotation={vert ? -90 : 0} offsetX={vert ? (it.w_cm - it.h_cm) / 2 : 0} listening={false} />
+      )}
+      {temDesenho && (
+        <Text x={0} y={it.h_cm - 16} width={it.w_cm} align="center" text={it.nome} fontSize={12} fill="#F2F2F0" fontStyle="600" listening={false} />
+      )}
       <Text x={0} y={it.h_cm / 2 + 12} width={it.w_cm} align="center" text={`${formatLength(it.w_cm)} × ${formatLength(it.h_cm)}`}
-        fontSize={12} fill="#9A9AA0" listening={false} visible={!vert} />
+        fontSize={12} fill="#9A9AA0" listening={false} visible={!vert && !temDesenho} />
     </Group>
   );
 }

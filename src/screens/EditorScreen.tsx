@@ -75,6 +75,7 @@ export default function EditorScreen() {
       x_cm: snapCm(cena.sala.largura_cm / 2 - w / 2),
       y_cm: snapCm(cena.sala.profundidade_cm / 2 - h / 2),
       w_cm: w, h_cm: h, rotacao: 0, zona: m.zona, cenario: "balanceado", preco: m.preco,
+      imagem: m.imagem ?? null, contorno: m.contorno ?? null,
     };
     addItem(item);
   }

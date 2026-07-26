@@ -217,6 +217,34 @@ export async function montarDossie(
   rightAt(BRL(r.cenarios.premium), colVal, y, 10, bold, GOLD);
   y -= 26;
 
+  // ── Revestimentos & acabamentos ──
+  const revest = cena.acabamentos ?? [];
+  if (revest.length) {
+    const totalRevest = revest.reduce((s, a) => s + (a.w_cm / 100) * (a.h_cm / 100) * (a.preco_m2 || 0), 0);
+    secao("Revestimentos & Acabamentos");
+    const rTipo = M + 250, rM2 = M + 340, rUnit = M + 420, rTot = A4.w - M - 6;
+    page.drawRectangle({ x: M, y: y - 4, width: CW, height: 18, color: CREAM });
+    at("ÁREA / ACABAMENTO", M + 6, y, 8, bold, MUTED);
+    at("TIPO", rTipo, y, 8, bold, MUTED);
+    rightAt("M²", rM2, y, 8, bold, MUTED); rightAt("R$/M²", rUnit, y, 8, bold, MUTED); rightAt("TOTAL", rTot, y, 8, bold, MUTED);
+    y -= 22;
+    for (const a of revest) {
+      ensure(18);
+      const m2 = (a.w_cm / 100) * (a.h_cm / 100);
+      at(trunc(a.nome, rTipo - (M + 6) - 8, 9.5), M + 6, y, 9.5, font, DARK);
+      at(a.tipo === "parede" ? "Parede" : "Piso", rTipo, y, 9, font, MUTED);
+      rightAt(m2.toFixed(1), rM2, y, 9, font, MUTED);
+      rightAt(a.preco_m2 ? BRL(a.preco_m2) : "—", rUnit, y, 9, font, MUTED);
+      rightAt(a.preco_m2 ? BRL(Math.round(m2 * a.preco_m2)) : "—", rTot, y, 9.5, font, DARK);
+      page.drawLine({ start: { x: M, y: y - 5 }, end: { x: A4.w - M, y: y - 5 }, thickness: 0.4, color: LINE });
+      y -= 16;
+    }
+    ensure(16);
+    at("Total em revestimentos", M + 6, y, 9, bold, DARK);
+    rightAt(BRL(Math.round(totalRevest)), rTot, y, 10, bold, GOLD);
+    y -= 24;
+  }
+
   // ── Cenários ──
   secao("06 · Cenários de Investimento");
   paragrafo("Essencial · Balanceado · Premium — cada cenário é cumulativo (inclui os anteriores), do indispensável ao completo.", 9, MUTED);

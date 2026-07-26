@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { Projeto, Cena, ItemPosicionado, PlantaFundo } from "../lib/types";
+import type { Projeto, Cena, ItemPosicionado, PlantaFundo, AreaAcabamento } from "../lib/types";
 import { salvarCena } from "../lib/supabase";
 
 const CENA_VAZIA: Cena = { sala: { largura_cm: 1000, profundidade_cm: 800 }, planta: null, itens: [] };
@@ -8,6 +8,7 @@ interface ProjetoState {
   projeto: Projeto | null;
   cena: Cena;
   selectedId: string | null;
+  selectedAcabId: string | null;
   dirty: boolean;
   salvando: boolean;
   past: Cena[];
@@ -15,6 +16,11 @@ interface ProjetoState {
 
   abrir: (projeto: Projeto) => void;
   selecionar: (id: string | null) => void;
+  selecionarAcab: (id: string | null) => void;
+
+  addArea: (area: AreaAcabamento) => void;
+  updateArea: (id: string, patch: Partial<AreaAcabamento>, commit?: boolean) => void;
+  removerArea: (id: string) => void;
 
   addItem: (item: ItemPosicionado) => void;
   updateItem: (id: string, patch: Partial<ItemPosicionado>, commit?: boolean) => void;
@@ -35,6 +41,7 @@ export const useProjeto = create<ProjetoState>((set, get) => ({
   projeto: null,
   cena: CENA_VAZIA,
   selectedId: null,
+  selectedAcabId: null,
   dirty: false,
   salvando: false,
   past: [],
@@ -42,11 +49,31 @@ export const useProjeto = create<ProjetoState>((set, get) => ({
 
   abrir(projeto) {
     const cena = projeto.cena && projeto.cena.sala ? clone(projeto.cena) : clone(CENA_VAZIA);
-    set({ projeto, cena, selectedId: null, dirty: false, past: [], future: [] });
+    set({ projeto, cena, selectedId: null, selectedAcabId: null, dirty: false, past: [], future: [] });
   },
 
   selecionar(id) {
-    set({ selectedId: id });
+    set({ selectedId: id, selectedAcabId: null });
+  },
+
+  selecionarAcab(id) {
+    set({ selectedAcabId: id, selectedId: null });
+  },
+
+  addArea(area) {
+    set((s) => ({ past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, acabamentos: [...(s.cena.acabamentos ?? []), area] }, selectedAcabId: area.id, selectedId: null, dirty: true }));
+  },
+
+  updateArea(id, patch, commit = true) {
+    set((s) => {
+      const acabamentos = (s.cena.acabamentos ?? []).map((a) => (a.id === id ? { ...a, ...patch } : a));
+      const past = commit ? [...s.past, clone(s.cena)] : s.past;
+      return { past, future: commit ? [] : s.future, cena: { ...s.cena, acabamentos }, dirty: true };
+    });
+  },
+
+  removerArea(id) {
+    set((s) => ({ past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, acabamentos: (s.cena.acabamentos ?? []).filter((a) => a.id !== id) }, selectedAcabId: null, dirty: true }));
   },
 
   addItem(item) {

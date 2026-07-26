@@ -11,17 +11,19 @@ import { exportarPdf } from "../lib/export/pdfExport";
 import { resumo } from "../lib/validation";
 import { snapCm } from "../lib/canvas";
 import { BRL, formatLength, parseLength } from "../lib/units";
-import { ZONAS, CENARIOS, TAXA_ASSESSORIA, type Zona, type Cenario, type ItemPosicionado, type Equipamento } from "../lib/types";
+import { ZONAS, CENARIOS, TAXA_ASSESSORIA, type Zona, type Cenario, type ItemPosicionado, type Equipamento, type AreaAcabamento } from "../lib/types";
 
 export default function EditorScreen() {
   const { id } = useParams();
   const nav = useNavigate();
-  const { projeto, cena, selectedId, dirty, salvando } = useProjeto();
-  const { abrir, selecionar, addItem, updateItem, removerSelecionado, girarSelecionado, setPlanta, updatePlanta, undo, redo, salvar } = useProjeto();
+  const { projeto, cena, selectedId, selectedAcabId, dirty, salvando } = useProjeto();
+  const { abrir, selecionar, addItem, updateItem, removerSelecionado, girarSelecionado, setPlanta, updatePlanta, addArea, undo, redo, salvar } = useProjeto();
   const equipamentos = useLibrary((s) => s.equipamentos);
+  const acabamentos = useLibrary((s) => s.acabamentos);
 
   const [erro, setErro] = useState<string | null>(null);
   const [modoCalibrar, setModoCalibrar] = useState(false);
+  const [modoAcabamento, setModoAcabamento] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const stageRef = useRef<Konva.Stage>(null);
@@ -43,8 +45,24 @@ export default function EditorScreen() {
 
   const r = resumo(cena);
   const selItem = cena.itens.find((i) => i.id === selectedId) || null;
+  const selAcab = (cena.acabamentos ?? []).find((a) => a.id === selectedAcabId) || null;
   const teto = Number(projeto?.orcamento_teto) || 0;
   const saldo = teto - r.subtotal;
+
+  function onArea(rect: { x: number; y: number; w: number; h: number }) {
+    const ac = acabamentos[0];
+    const area: AreaAcabamento = {
+      id: crypto.randomUUID(),
+      acabamentoId: ac?.id ?? null,
+      nome: ac?.nome ?? "Piso",
+      tipo: (ac?.tipo === "parede" ? "parede" : "piso"),
+      cor: ac?.cor ?? "#8A7B5C",
+      preco_m2: ac?.preco_m2 ?? null,
+      x_cm: rect.x, y_cm: rect.y, w_cm: rect.w, h_cm: rect.h,
+    };
+    addArea(area);
+    setModoAcabamento(false);
+  }
 
   function adicionar(m: Equipamento) {
     const w = m.largura_cm, h = m.profundidade_cm;
@@ -119,7 +137,8 @@ export default function EditorScreen() {
         <span style={{ width: 1, height: 22, background: "var(--line-2)", margin: "0 4px" }} />
         <input ref={fileRef} type="file" accept=".pdf,.dwg,.dxf,image/*" style={{ display: "none" }} onChange={(e) => importarPlanta(e.target.files?.[0])} />
         <button className="btn btn-blue" onClick={() => fileRef.current?.click()}>⭱ Planta</button>
-        <button className="btn" disabled={!cena.planta} onClick={() => setModoCalibrar((v) => !v)} style={modoCalibrar ? { borderColor: "#5FC8E8", color: "#8fd6f0" } : undefined}>📐 Calibrar</button>
+        <button className="btn" disabled={!cena.planta} onClick={() => { setModoCalibrar((v) => !v); setModoAcabamento(false); }} style={modoCalibrar ? { borderColor: "#5FC8E8", color: "#8fd6f0" } : undefined}>📐 Calibrar</button>
+        <button className="btn" onClick={() => { setModoAcabamento((v) => !v); setModoCalibrar(false); }} style={modoAcabamento ? { borderColor: "#C9A227", color: "#C9A227" } : undefined}>▦ Acabamento</button>
         <button className="btn" disabled={!selItem} onClick={() => girarSelecionado()}>↻ Girar</button>
         <button className="btn" disabled={!selItem} onClick={removerSelecionado}>✕</button>
         <span style={{ width: 1, height: 22, background: "var(--line-2)", margin: "0 4px" }} />
@@ -128,6 +147,7 @@ export default function EditorScreen() {
         <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
           {busy && <span style={{ fontSize: 12, color: "var(--gold)" }}>{busy}</span>}
           {modoCalibrar && <span style={{ fontSize: 12, color: "#8fd6f0" }}>toque 2 pontos de medida conhecida</span>}
+          {modoAcabamento && <span style={{ fontSize: 12, color: "var(--gold)" }}>toque 2 cantos da área a revestir</span>}
           {id === "heritage"
             ? <button className="btn btn-gold" disabled={!!busy} onClick={() => void salvarComoNovo()}>{busy || "💾 Salvar como projeto"}</button>
             : <button className="btn btn-gold" disabled={salvando} onClick={() => void salvar()}>{salvando ? "Salvando…" : dirty ? "💾 Salvar" : "✓ Salvo"}</button>}
@@ -157,7 +177,7 @@ export default function EditorScreen() {
 
         {/* Canvas */}
         <div style={{ flex: 1, position: "relative", minWidth: 0 }}>
-          <EditorCanvas modoCalibrar={modoCalibrar} onCalibrar={onCalibrar} stageRef={stageRef} />
+          <EditorCanvas modoCalibrar={modoCalibrar} onCalibrar={onCalibrar} modoAcabamento={modoAcabamento} onArea={onArea} stageRef={stageRef} />
         </div>
 
         {/* Inspetor direito */}
@@ -196,12 +216,15 @@ export default function EditorScreen() {
                 <button className="btn" style={{ flex: 1 }} onClick={removerSelecionado}>✕ Remover</button>
               </div>
             </div>
+          ) : selAcab ? (
+            <AcabamentoInspector area={selAcab} />
           ) : cena.planta ? (
             <PlantaInspector />
           ) : (
             <div style={{ color: "var(--muted)", fontSize: 12.5, lineHeight: 1.6 }}>
               Toque um equipamento da biblioteca para adicioná-lo. Arraste na planta para posicionar.
               <br /><br />Importe a <b>planta baixa</b> (PDF/DWG) e use <b>Calibrar</b> para deixar tudo em escala real.
+              <br /><br />Use <b>▦ Acabamento</b> para pintar pisos/paredes com um revestimento da biblioteca.
             </div>
           )}
         </aside>
@@ -240,6 +263,46 @@ function PlantaInspector() {
         <input type="range" min={0} max={1} step={0.05} value={planta.opacidade} onChange={(e) => updatePlanta({ opacidade: +e.target.value })} style={{ width: "100%" }} />
       </Bloco>
       <button className="btn" onClick={() => setPlanta(null)}>Remover planta</button>
+    </div>
+  );
+}
+
+function AcabamentoInspector({ area }: { area: AreaAcabamento }) {
+  const acabamentos = useLibrary((s) => s.acabamentos);
+  const updateArea = useProjeto((s) => s.updateArea);
+  const removerArea = useProjeto((s) => s.removerArea);
+  const m2 = (area.w_cm / 100) * (area.h_cm / 100);
+  const custo = area.preco_m2 ? m2 * area.preco_m2 : 0;
+  return (
+    <div style={{ display: "grid", gap: 12 }}>
+      <div className="brandface" style={{ fontSize: 16, color: "var(--gold)" }}>REVESTIMENTO</div>
+      <Bloco label="ACABAMENTO">
+        <select className="fld" value={area.acabamentoId ?? ""} onChange={(e) => {
+          const ac = acabamentos.find((a) => a.id === e.target.value);
+          updateArea(area.id, ac
+            ? { acabamentoId: ac.id, nome: ac.nome, cor: ac.cor ?? area.cor, preco_m2: ac.preco_m2 ?? null, tipo: ac.tipo === "parede" ? "parede" : "piso" }
+            : { acabamentoId: null });
+        }}>
+          <option value="">— selecione da biblioteca —</option>
+          {acabamentos.map((a) => <option key={a.id} value={a.id}>{a.nome}{a.preco_m2 ? ` · ${BRL(a.preco_m2)}/m²` : ""}</option>)}
+        </select>
+        {acabamentos.length === 0 && <span style={{ fontSize: 11, color: "var(--muted)" }}>Cadastre acabamentos na Biblioteca para escolher aqui.</span>}
+      </Bloco>
+      <Bloco label="TIPO">
+        <div style={{ display: "flex", gap: 6 }}>
+          {(["piso", "parede"] as const).map((t) => (
+            <button key={t} className="btn" onClick={() => updateArea(area.id, { tipo: t })} style={{
+              flex: 1, padding: "8px 4px", fontSize: 11,
+              borderColor: area.tipo === t ? "var(--gold)" : "var(--line-2)", color: area.tipo === t ? "var(--gold)" : "var(--muted)",
+            }}>{t === "piso" ? "Piso" : "Parede"}</button>
+          ))}
+        </div>
+      </Bloco>
+      <div style={{ fontSize: 12.5, color: "var(--muted)" }}>
+        Área: <b style={{ color: "#e9e9e6" }}>{m2.toFixed(1)} m²</b>
+        {area.preco_m2 ? <> · Custo: <b style={{ color: "var(--gold)" }}>{BRL(Math.round(custo))}</b></> : null}
+      </div>
+      <button className="btn" onClick={() => removerArea(area.id)}>✕ Remover área</button>
     </div>
   );
 }

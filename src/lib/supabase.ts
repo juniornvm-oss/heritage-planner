@@ -75,6 +75,20 @@ export async function inserirEquipamentos(rows: Equipamento[]): Promise<void> {
   if (error) throw error;
 }
 
+export async function atualizarEquipamento(eq: Equipamento): Promise<void> {
+  if (!sb) throw new Error("Supabase não configurado");
+  if (!eq.id) throw new Error("Equipamento sem id");
+  const { id, ...patch } = eq;
+  const { error } = await sb.from("equipamentos").update(patch).eq("id", id);
+  if (error) throw error;
+}
+
+export async function removerEquipamento(id: string): Promise<void> {
+  if (!sb) throw new Error("Supabase não configurado");
+  const { error } = await sb.from("equipamentos").delete().eq("id", id);
+  if (error) throw error;
+}
+
 export async function listarAcabamentos(): Promise<Acabamento[]> {
   if (!sb) return [];
   const { data, error } = await sb.from("acabamentos").select("*").order("nome");

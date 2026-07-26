@@ -270,7 +270,7 @@ export default function LeituraScreen() {
               <Campo label="Profundidade (cm)"><Num value={f.profundidade} onChange={set("profundidade")} /></Campo>
               <label className="btn btn-blue" style={{ textAlign: "center", cursor: "pointer" }}>
                 {busy === "Lendo planta…" ? "Lendo…" : planta ? "✓ Planta anexada" : "⭱ Planta baixa"}
-                <input type="file" accept=".pdf,.dwg,.dxf,image/*" style={{ display: "none" }} onChange={(e) => importarPlanta(e.target.files?.[0])} />
+                <input type="file" style={{ display: "none" }} onChange={(e) => importarPlanta(e.target.files?.[0])} />
               </label>
             </div>
             {planta && <div style={{ fontSize: 12, color: "var(--muted)" }}>Planta anexada ({planta.larguraPx}×{planta.alturaPx}px). A calibração de escala é feita no editor.</div>}

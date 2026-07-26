@@ -20,7 +20,7 @@ function useHtmlImage(src?: string) {
 
 interface Cam { zoom: number; x: number; y: number } // x,y = posição da layer em px
 
-export default function EditorCanvas({ modoCalibrar, onCalibrar, modoAcabamento, onArea, modoRecorte, onRecorte, stageRef }: {
+export default function EditorCanvas({ modoCalibrar, onCalibrar, modoAcabamento, onArea, modoRecorte, onRecorte, stageRef, somenteLeitura }: {
   modoCalibrar: boolean;
   onCalibrar: (distanciaMundoCm: number) => void;
   modoAcabamento: boolean;
@@ -28,6 +28,7 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, modoAcabamento,
   modoRecorte: boolean;
   onRecorte: (rect: { x: number; y: number; w: number; h: number }) => void;
   stageRef?: React.RefObject<Konva.Stage>;
+  somenteLeitura?: boolean;
 }) {
   const cena = useProjeto((s) => s.cena);
   const selectedId = useProjeto((s) => s.selectedId);
@@ -170,11 +171,12 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, modoAcabamento,
   const planta = cena.planta;
   const pv = cena.plantaVetorial;
   const drawing = modoCalibrar || modoAcabamento || modoRecorte; // enquanto desenha, itens/áreas não capturam o toque
+  const bloquear = drawing || somenteLeitura; // read-only (legado): navega/zoom, mas não move/seleciona/edita
   const camVis = useMemo(() => new Map((pv?.camadas ?? []).map((c) => [c.nome, c.visivel])), [pv]);
 
   // Prende o Transformer à área de acabamento selecionada (some durante o desenho).
   useEffect(() => {
-    const node = !drawing && selectedAcabId ? areaRefs.current[selectedAcabId] : null;
+    const node = !bloquear && selectedAcabId ? areaRefs.current[selectedAcabId] : null;
     if (trRef.current) { trRef.current.nodes(node ? [node] : []); trRef.current.getLayer()?.batchDraw(); }
   }, [selectedAcabId, drawing, cena.acabamentos]);
 
@@ -230,7 +232,7 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, modoAcabamento,
             const sel = selectedAcabId === a.id;
             const m2 = (a.w_cm / 100) * (a.h_cm / 100);
             return (
-              <Group key={a.id} x={a.x_cm} y={a.y_cm} listening={!drawing} draggable={!drawing}
+              <Group key={a.id} x={a.x_cm} y={a.y_cm} listening={!bloquear} draggable={!bloquear}
                 ref={(n) => { if (n) areaRefs.current[a.id] = n; else delete areaRefs.current[a.id]; }}
                 onMouseDown={() => selecionarAcab(a.id)} onTouchStart={() => selecionarAcab(a.id)} onClick={() => selecionarAcab(a.id)} onTap={() => selecionarAcab(a.id)}
                 onDragEnd={(e) => updateArea(a.id, { x_cm: snapCm(e.target.x()), y_cm: snapCm(e.target.y()) })}
@@ -254,7 +256,7 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, modoAcabamento,
 
           {/* equipamentos */}
           {cena.itens.map((it) => (
-            <ItemView key={it.id} it={it} zoom={cam.zoom} selected={selectedId === it.id} problema={problemas[it.id]} listening={!drawing}
+            <ItemView key={it.id} it={it} zoom={cam.zoom} selected={selectedId === it.id} problema={problemas[it.id]} listening={!bloquear}
               onSelect={() => selecionar(it.id)}
               onDrag={(x, y, commit) => updateItem(it.id, { x_cm: snapCm(x), y_cm: snapCm(y) }, commit)} />
           ))}

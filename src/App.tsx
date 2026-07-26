@@ -28,6 +28,7 @@ export default function App() {
         <Route path="/projeto/:id" element={<EditorScreen />} />
         <Route path="/equipamentos" element={<BibliotecaEquipamentosScreen />} />
         <Route path="/equipamentos/novo" element={<CadastrarEquipamentoScreen />} />
+        <Route path="/equipamentos/:ref" element={<CadastrarEquipamentoScreen />} />
         <Route path="/acabamentos" element={<BibliotecaAcabamentosScreen />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

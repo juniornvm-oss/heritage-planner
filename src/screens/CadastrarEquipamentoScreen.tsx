@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import Shell from "../ui/Shell";
 import { useLibrary } from "../store/libraryStore";
 import { inserirEquipamentos, online } from "../lib/supabase";
-import { reduzirImagem } from "../lib/imagem";
+import { reduzirImagem, limparDesenho, recortarImagem } from "../lib/imagem";
 import { contornoDeArquivo } from "../lib/plantaVetorial";
 import { ZONAS, type Equipamento, type Zona } from "../lib/types";
 
@@ -20,9 +20,14 @@ export default function CadastrarEquipamentoScreen() {
 
   const [f, setF] = useState({ nome: "", marca: "", modelo: "", zona: "livre" as Zona, preco: "", largura: "100", profundidade: "100" });
   const [imagem, setImagem] = useState<string | null>(null);
+  const [imagemOriginal, setImagemOriginal] = useState<string | null>(null);
+  const [limiar, setLimiar] = useState(135);
   const [contorno, setContorno] = useState<number[][]>([]);
   const [tracando, setTracando] = useState(false);
   const [tracoAtual, setTracoAtual] = useState<number[]>([]);
+  const [modoRecorte, setModoRecorte] = useState(false);
+  const [recorteA, setRecorteA] = useState<[number, number] | null>(null);
+  const [recortePtr, setRecortePtr] = useState<[number, number] | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -44,22 +49,56 @@ export default function CadastrarEquipamentoScreen() {
         else setErro("Não achei geometria nesse arquivo. Tente uma imagem e trace por cima.");
       } else if (["png", "jpg", "jpeg", "webp"].includes(ext)) {
         setBusy("Processando imagem…");
-        setImagem(await reduzirImagem(file));
+        const red = await reduzirImagem(file);
+        setImagem(red); setImagemOriginal(red);
       } else setErro("Use DWG, DXF, PDF ou imagem.");
     } catch (e) { setErro((e as Error).message); } finally { setBusy(null); }
   }
 
-  function clicarPreview(e: React.MouseEvent) {
-    if (!tracando || !svgRef.current) return;
+  function ponto(e: React.MouseEvent): [number, number] | null {
+    if (!svgRef.current) return null;
     const r = svgRef.current.getBoundingClientRect();
-    const x = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
-    const y = Math.min(1, Math.max(0, (e.clientY - r.top) / r.height));
-    setTracoAtual((t) => [...t, x, y]);
+    return [Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)), Math.min(1, Math.max(0, (e.clientY - r.top) / r.height))];
+  }
+
+  function clicarPreview(e: React.MouseEvent) {
+    const p = ponto(e);
+    if (!p) return;
+    if (modoRecorte) {
+      if (!recorteA) { setRecorteA(p); setRecortePtr(p); }
+      else { aplicarRecorte(recorteA, p); setRecorteA(null); setRecortePtr(null); setModoRecorte(false); }
+      return;
+    }
+    if (tracando) setTracoAtual((t) => [...t, p[0], p[1]]);
+  }
+
+  function moverPreview(e: React.MouseEvent) {
+    if (modoRecorte && recorteA) setRecortePtr(ponto(e));
   }
 
   function concluirTraco() {
     if (tracoAtual.length >= 4) setContorno((c) => [...c, tracoAtual]);
     setTracoAtual([]);
+  }
+
+  async function aplicarLimpar() {
+    if (!imagemOriginal) return;
+    setBusy("Limpando desenho…"); setErro(null);
+    try { setImagem(await limparDesenho(imagemOriginal, limiar, ZONAS[f.zona].cor)); }
+    catch (e) { setErro((e as Error).message); } finally { setBusy(null); }
+  }
+
+  function restaurarImagem() { setImagem(imagemOriginal); }
+
+  async function aplicarRecorte(a: [number, number], b: [number, number]) {
+    if (!imagem) return;
+    const rect = { x: Math.min(a[0], b[0]), y: Math.min(a[1], b[1]), w: Math.abs(a[0] - b[0]), h: Math.abs(a[1] - b[1]) };
+    if (rect.w < 0.02 || rect.h < 0.02) return;
+    setBusy("Recortando…"); setErro(null);
+    try {
+      setImagem(await recortarImagem(imagem, rect));
+      if (imagemOriginal) setImagemOriginal(await recortarImagem(imagemOriginal, rect));
+    } catch (e) { setErro((e as Error).message); } finally { setBusy(null); }
   }
 
   async function salvar() {
@@ -118,15 +157,38 @@ export default function CadastrarEquipamentoScreen() {
             <div className="microlabel">Footprint {larg}×{prof} cm</div>
             <div style={{ position: "relative", width: previewW, height: previewH, background: "var(--panel-2)", border: "1px solid var(--line-2)", borderRadius: 8, overflow: "hidden" }}>
               {imagem && <img src={imagem} alt="equipamento" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "fill", opacity: 0.85 }} />}
-              <svg ref={svgRef} viewBox="0 0 1 1" preserveAspectRatio="none" onClick={clicarPreview}
-                style={{ position: "absolute", inset: 0, width: "100%", height: "100%", cursor: tracando ? "crosshair" : "default" }}>
+              <svg ref={svgRef} viewBox="0 0 1 1" preserveAspectRatio="none" onClick={clicarPreview} onMouseMove={moverPreview}
+                style={{ position: "absolute", inset: 0, width: "100%", height: "100%", cursor: (tracando || modoRecorte) ? "crosshair" : "default" }}>
                 {contorno.map((pl, i) => <polyline key={i} points={pts(pl)} fill="none" stroke="#C9A227" strokeWidth={0.007} />)}
                 {tracoAtual.length >= 2 && <polyline points={pts(tracoAtual)} fill="none" stroke="#5FC8E8" strokeWidth={0.007} />}
                 {chunk(tracoAtual).map(([x, y], i) => <circle key={i} cx={x} cy={y} r={0.012} fill="#5FC8E8" />)}
+                {recorteA && recortePtr && (
+                  <rect x={Math.min(recorteA[0], recortePtr[0])} y={Math.min(recorteA[1], recortePtr[1])}
+                    width={Math.abs(recorteA[0] - recortePtr[0])} height={Math.abs(recorteA[1] - recortePtr[1])}
+                    fill="rgba(95,200,232,0.12)" stroke="#5FC8E8" strokeWidth={0.005} strokeDasharray="0.02 0.012" />
+                )}
               </svg>
             </div>
+            {imagem && (
+              <div style={{ display: "grid", gap: 8, width: previewW, background: "var(--panel-2)", border: "1px solid var(--line)", borderRadius: 8, padding: "10px 12px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span className="microlabel" style={{ whiteSpace: "nowrap" }}>Sensibilidade</span>
+                  <input type="range" min={40} max={220} value={limiar} onChange={(e) => setLimiar(Number(e.target.value))} style={{ flex: 1 }} />
+                  <span style={{ fontSize: 11, color: "var(--muted)", width: 26, textAlign: "right" }}>{limiar}</span>
+                </div>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  <button className="btn btn-gold" onClick={aplicarLimpar}>✦ Limpar desenho</button>
+                  <button className="btn" onClick={restaurarImagem} disabled={imagem === imagemOriginal}>↺ Original</button>
+                  <button className="btn" onClick={() => { setModoRecorte((v) => !v); setRecorteA(null); setRecortePtr(null); setTracando(false); }}
+                    style={modoRecorte ? { borderColor: "var(--blue)", color: "var(--blue)" } : undefined}>{modoRecorte ? (recorteA ? "Toque o 2º canto…" : "Toque o 1º canto…") : "✂ Recortar"}</button>
+                </div>
+                <div style={{ fontSize: 10.5, color: "var(--muted)", lineHeight: 1.4 }}>
+                  Isola os traços do equipamento (fundo transparente, na cor da zona). Recorte tira as cotas ao redor.
+                </div>
+              </div>
+            )}
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "center", maxWidth: previewW }}>
-              <button className="btn" onClick={() => setTracando((v) => !v)} style={tracando ? { borderColor: "var(--gold)", color: "var(--gold)" } : undefined}>{tracando ? "Traçando…" : "✎ Traçar"}</button>
+              <button className="btn" onClick={() => { setTracando((v) => !v); setModoRecorte(false); }} style={tracando ? { borderColor: "var(--gold)", color: "var(--gold)" } : undefined}>{tracando ? "Traçando…" : "✎ Traçar"}</button>
               <button className="btn" disabled={tracoAtual.length < 4} onClick={concluirTraco}>Concluir traço</button>
               <button className="btn" disabled={!tracoAtual.length} onClick={() => setTracoAtual((t) => t.slice(0, -2))}>↶ ponto</button>
               <button className="btn" disabled={!contorno.length && !tracoAtual.length} onClick={() => { setContorno([]); setTracoAtual([]); }}>Limpar</button>

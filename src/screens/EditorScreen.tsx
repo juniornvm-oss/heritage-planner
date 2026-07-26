@@ -17,6 +17,7 @@ import { ZONAS, CENARIOS, TAXA_ASSESSORIA, type Zona, type Cenario, type ItemPos
 export default function EditorScreen() {
   const { id } = useParams();
   const nav = useNavigate();
+  const somenteLeitura = id === "heritage"; // projeto legado: só visualização (evita os bugs de edição)
   const { projeto, cena, selectedId, selectedAcabId, dirty, salvando } = useProjeto();
   const { abrir, selecionar, addItem, updateItem, removerSelecionado, girarSelecionado, setPlanta, updatePlanta, setPlantaVetorial, updatePlantaVetorial, recortarVetorial, addArea, undo, redo, salvar } = useProjeto();
   const equipamentos = useLibrary((s) => s.equipamentos);
@@ -137,63 +138,96 @@ export default function EditorScreen() {
             ◱ Leitura
           </button>
         )}
-        {id && (
+        {id && !somenteLeitura && (
           <button className="btn" onClick={() => nav(`/projeto/${id}/curadoria`)} style={{ padding: "8px 11px", fontSize: 11.5 }} title="Curadoria & Investimento">
             ⚖ Curadoria
           </button>
         )}
-        <span className="chip" style={{ padding: "3px 10px", fontSize: 10.5, borderColor: "var(--gold)", color: "var(--gold)" }}>Fase 02 · Projeto Funcional</span>
-        <span style={{ width: 1, height: 22, background: "var(--line-2)", margin: "0 4px" }} />
-        <input ref={fileRef} type="file" accept=".pdf,.dwg,.dxf,image/*" style={{ display: "none" }} onChange={(e) => importarPlanta(e.target.files?.[0])} />
-        <button className="btn btn-blue" onClick={() => fileRef.current?.click()}>⭱ Planta</button>
-        <button className="btn" disabled={!cena.planta && !cena.plantaVetorial} onClick={() => { setModoCalibrar((v) => !v); setModoAcabamento(false); }} style={modoCalibrar ? { borderColor: "#5FC8E8", color: "#8fd6f0" } : undefined}>📐 Calibrar</button>
-        <button className="btn" onClick={() => { setModoAcabamento((v) => !v); setModoCalibrar(false); setModoRecorte(false); }} style={modoAcabamento ? { borderColor: "#C9A227", color: "#C9A227" } : undefined}>▦ Acabamento</button>
-        {cena.plantaVetorial && <button className="btn" onClick={() => { setModoRecorte((v) => !v); setModoCalibrar(false); setModoAcabamento(false); }} style={modoRecorte ? { borderColor: "#5FBF7A", color: "#5FBF7A" } : undefined}>✂ Recortar</button>}
-        <button className="btn" disabled={!selItem} onClick={() => girarSelecionado()}>↻ Girar</button>
-        <button className="btn" disabled={!selItem} onClick={removerSelecionado}>✕</button>
-        <span style={{ width: 1, height: 22, background: "var(--line-2)", margin: "0 4px" }} />
-        <button className="btn" onClick={undo}>⤺</button>
-        <button className="btn" onClick={redo}>⤻</button>
+        {somenteLeitura
+          ? <span className="chip" style={{ padding: "3px 10px", fontSize: 10.5, borderColor: "#8A8A8F", color: "#b6b6b1" }}>Referência · somente visualização</span>
+          : <span className="chip" style={{ padding: "3px 10px", fontSize: 10.5, borderColor: "var(--gold)", color: "var(--gold)" }}>Fase 02 · Projeto Funcional</span>}
+        {!somenteLeitura && (
+          <>
+            <span style={{ width: 1, height: 22, background: "var(--line-2)", margin: "0 4px" }} />
+            <input ref={fileRef} type="file" style={{ display: "none" }} onChange={(e) => importarPlanta(e.target.files?.[0])} />
+            <button className="btn btn-blue" onClick={() => fileRef.current?.click()}>⭱ Planta</button>
+            <button className="btn" disabled={!cena.planta && !cena.plantaVetorial} onClick={() => { setModoCalibrar((v) => !v); setModoAcabamento(false); }} style={modoCalibrar ? { borderColor: "#5FC8E8", color: "#8fd6f0" } : undefined}>📐 Calibrar</button>
+            <button className="btn" onClick={() => { setModoAcabamento((v) => !v); setModoCalibrar(false); setModoRecorte(false); }} style={modoAcabamento ? { borderColor: "#C9A227", color: "#C9A227" } : undefined}>▦ Acabamento</button>
+            {cena.plantaVetorial && <button className="btn" onClick={() => { setModoRecorte((v) => !v); setModoCalibrar(false); setModoAcabamento(false); }} style={modoRecorte ? { borderColor: "#5FBF7A", color: "#5FBF7A" } : undefined}>✂ Recortar</button>}
+            <button className="btn" disabled={!selItem} onClick={() => girarSelecionado()}>↻ Girar</button>
+            <button className="btn" disabled={!selItem} onClick={removerSelecionado}>✕</button>
+            <span style={{ width: 1, height: 22, background: "var(--line-2)", margin: "0 4px" }} />
+            <button className="btn" onClick={undo}>⤺</button>
+            <button className="btn" onClick={redo}>⤻</button>
+          </>
+        )}
         <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
           {busy && <span style={{ fontSize: 12, color: "var(--gold)" }}>{busy}</span>}
           {modoCalibrar && <span style={{ fontSize: 12, color: "#8fd6f0" }}>toque 2 pontos de medida conhecida</span>}
           {modoAcabamento && <span style={{ fontSize: 12, color: "var(--gold)" }}>toque 2 cantos da área a revestir</span>}
-          {id === "heritage"
-            ? <button className="btn btn-gold" disabled={!!busy} onClick={() => void salvarComoNovo()}>{busy || "💾 Salvar como projeto"}</button>
+          {somenteLeitura
+            ? <button className="btn btn-gold" onClick={() => nav("/novo")}>＋ Começar meu Heritage</button>
             : <button className="btn btn-gold" disabled={salvando} onClick={() => void salvar()}>{salvando ? "Salvando…" : dirty ? "💾 Salvar" : "✓ Salvo"}</button>}
           <button className="btn btn-blue" onClick={exportar}>⤓ Dossiê</button>
         </div>
       </div>
 
+      {somenteLeitura && (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px calc(12px + var(--sar)) 8px calc(12px + var(--sal))", background: "var(--panel-2)", borderBottom: "1px solid var(--line)", flexShrink: 0 }}>
+          <span style={{ fontSize: 16 }}>🏛️</span>
+          <span style={{ fontSize: 12.5, color: "#b6b6b1", lineHeight: 1.5 }}>
+            Este é o <b style={{ color: "var(--gold)" }}>Heritage de referência</b> — o projeto legado que deu origem à plataforma. Fica aqui só para consulta (não é editável).
+            Para tocar o projeto de verdade, <b style={{ color: "#e9e9e6" }}>comece o seu Heritage do zero</b> e siga a trilha das quatro fases.
+          </span>
+        </div>
+      )}
+
       <div style={{ flex: 1, display: "flex", minHeight: 0 }}>
-        {/* Rail esquerdo: biblioteca */}
-        <aside style={{ width: 210, flexShrink: 0, borderRight: "1px solid var(--line)", overflow: "auto", padding: "10px 10px 10px calc(10px + var(--sal))" }}>
-          <div className="brandface" style={{ fontSize: 15, color: "var(--gold)", marginBottom: 8 }}>BIBLIOTECA</div>
-          <div style={{ display: "grid", gap: 5 }}>
-            {equipamentos.map((m, i) => (
-              <button key={(m.id || m.nome) + i} onClick={() => adicionar(m)} style={{
-                display: "flex", justifyContent: "space-between", alignItems: "center", gap: 6,
-                background: "var(--panel-2)", border: "1px solid var(--line)", borderRadius: 7, padding: "7px 9px",
-                color: "#c9c9c4", font: "600 12px 'DM Sans'", textAlign: "left", cursor: "pointer",
-              }}>
-                <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <span style={{ width: 8, height: 8, borderRadius: 2, background: ZONAS[m.zona]?.cor }} />{m.nome}
-                </span>
-                <span style={{ color: "#6e6e73", fontWeight: 400 }}>{m.largura_cm}×{m.profundidade_cm}</span>
-              </button>
-            ))}
-          </div>
-        </aside>
+        {/* Rail esquerdo: biblioteca (oculto no modo referência) */}
+        {!somenteLeitura && (
+          <aside style={{ width: 210, flexShrink: 0, borderRight: "1px solid var(--line)", overflow: "auto", padding: "10px 10px 10px calc(10px + var(--sal))" }}>
+            <div className="brandface" style={{ fontSize: 15, color: "var(--gold)", marginBottom: 8 }}>BIBLIOTECA</div>
+            <div style={{ display: "grid", gap: 5 }}>
+              {equipamentos.map((m, i) => (
+                <button key={(m.id || m.nome) + i} onClick={() => adicionar(m)} style={{
+                  display: "flex", justifyContent: "space-between", alignItems: "center", gap: 6,
+                  background: "var(--panel-2)", border: "1px solid var(--line)", borderRadius: 7, padding: "7px 9px",
+                  color: "#c9c9c4", font: "600 12px 'DM Sans'", textAlign: "left", cursor: "pointer",
+                }}>
+                  <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <span style={{ width: 8, height: 8, borderRadius: 2, background: ZONAS[m.zona]?.cor }} />{m.nome}
+                  </span>
+                  <span style={{ color: "#6e6e73", fontWeight: 400 }}>{m.largura_cm}×{m.profundidade_cm}</span>
+                </button>
+              ))}
+            </div>
+          </aside>
+        )}
 
         {/* Canvas */}
         <div style={{ flex: 1, position: "relative", minWidth: 0 }}>
           <EditorCanvas modoCalibrar={modoCalibrar} onCalibrar={onCalibrar} modoAcabamento={modoAcabamento} onArea={onArea}
-            modoRecorte={modoRecorte} onRecorte={(rect) => { recortarVetorial(rect); setModoRecorte(false); }} stageRef={stageRef} />
+            modoRecorte={modoRecorte} onRecorte={(rect) => { recortarVetorial(rect); setModoRecorte(false); }} stageRef={stageRef} somenteLeitura={somenteLeitura} />
         </div>
 
         {/* Inspetor direito */}
         <aside style={{ width: 220, flexShrink: 0, borderLeft: "1px solid var(--line)", overflow: "auto", padding: "12px calc(12px + var(--sar)) 12px 12px" }}>
-          {selItem ? (
+          {somenteLeitura ? (
+            <div style={{ display: "grid", gap: 12 }}>
+              <div className="brandface" style={{ fontSize: 16, color: "var(--gold)" }}>Sobre este projeto</div>
+              <p style={{ color: "#b6b6b1", fontSize: 12.5, lineHeight: 1.6 }}>
+                O <b style={{ color: "#e9e9e6" }}>Heritage</b> foi o primeiro estudo que originou esta assessoria — o layout, o orçamento e a lógica das quatro fases nasceram aqui.
+              </p>
+              <p style={{ color: "#b6b6b1", fontSize: 12.5, lineHeight: 1.6 }}>
+                Ele fica como <b style={{ color: "var(--gold)" }}>referência</b>: dá para navegar, dar zoom e exportar o dossiê, mas não editar.
+              </p>
+              <div style={{ fontSize: 12, color: "var(--muted)" }}>
+                {cena.itens.length} equipamentos · {BRL(r.subtotal)}
+              </div>
+              <button className="btn btn-gold" onClick={() => nav("/novo")}>＋ Começar meu Heritage</button>
+              <div style={{ fontSize: 11, color: "#6e6e73", lineHeight: 1.5 }}>Use o pinch/scroll para dar zoom e arrastar a vista.</div>
+            </div>
+          ) : selItem ? (
             <div style={{ display: "grid", gap: 12 }}>
               <div className="brandface" style={{ fontSize: 16, color: "var(--gold)" }}>{selItem.nome}</div>
               <div style={{ fontSize: 12, color: "var(--muted)" }}>

@@ -140,16 +140,12 @@ export default function HomeScreen() {
             Modo local (Supabase não configurado) — exibindo apenas o modelo Heritage.
           </p>
         )}
-        {!temHeritageReal && (
-          <p style={{ color: "var(--muted)", fontSize: 12.5, marginBottom: 12 }}>
-            O <b style={{ color: "#c9c9c4" }}>Heritage</b> abaixo é um modelo. Toque em <b style={{ color: "var(--gold)" }}>Criar meu Heritage</b> para começar um projeto real, editável e salvável.
-          </p>
-        )}
+        <p style={{ color: "var(--muted)", fontSize: 12.5, marginBottom: 12 }}>
+          O <b style={{ color: "#c9c9c4" }}>Heritage</b> é o projeto de <b style={{ color: "var(--gold)" }}>referência</b> — o estudo que deu origem a esta plataforma. Fica aqui só para consulta. Para tocar o seu, comece pela <b style={{ color: "var(--gold)" }}>Nova leitura</b> e siga a trilha.
+        </p>
         {erro && <p style={{ color: "var(--red)", fontSize: 12.5, marginBottom: 12 }}>{erro}</p>}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 16 }}>
-          {!temHeritageReal && (
-            <ProjetoCard projeto={heritage} modelo onAbrir={() => nav("/projeto/heritage")} onSelecionar={() => setAtivoId("heritage")} ativo={ativoId === "heritage"} onDuplicar={abrirHeritage} dupBusy={dupBusy} />
-          )}
+          <ProjetoCard projeto={heritage} modelo onAbrir={() => nav("/projeto/heritage")} onSelecionar={() => setAtivoId("heritage")} ativo={ativoId === "heritage"} />
           {carregando && <div style={{ color: "var(--muted)", alignSelf: "center" }}>Carregando…</div>}
           {projetos.map((p) => (
             <ProjetoCard key={p.id} projeto={p}
@@ -215,7 +211,7 @@ function ProjetoCard({ projeto, modelo, ativo, onAbrir, onSelecionar, onDuplicar
     <div className={`card${ativo ? " card-gold" : ""}`} style={{ padding: 18, display: "flex", flexDirection: "column", gap: 10 }}>
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8 }}>
         <div className="brandface" style={{ fontSize: 22, color: "var(--gold)" }}>{projeto.nome}</div>
-        {modelo && <span className="chip" style={{ padding: "2px 9px", fontSize: 10.5 }}>modelo</span>}
+        {modelo && <span className="chip" style={{ padding: "2px 9px", fontSize: 10.5, borderColor: "#8A8A8F", color: "#b6b6b1" }}>referência · legado</span>}
       </div>
       {projeto.sindico && <div style={{ fontSize: 12, color: "var(--muted)", marginTop: -4 }}>Síndico: {projeto.sindico}</div>}
 
@@ -239,10 +235,10 @@ function ProjetoCard({ projeto, modelo, ativo, onAbrir, onSelecionar, onDuplicar
       <div style={{ display: "flex", gap: 8, marginTop: 2 }}>
         {modelo ? (
           <>
-            <button className="btn btn-gold" style={{ flex: 1 }} onClick={onDuplicar} disabled={dupBusy}>
-              {dupBusy ? "Criando…" : "＋ Criar meu Heritage"}
+            <button className="btn" style={{ flex: 1 }} onClick={onAbrir}>👁 Ver referência</button>
+            <button className="btn" onClick={onSelecionar} style={ativo ? { borderColor: "var(--gold)", color: "var(--gold)" } : undefined}>
+              {ativo ? "✓ Na trilha" : "Ver trilha"}
             </button>
-            <button className="btn" onClick={onAbrir}>Ver modelo</button>
           </>
         ) : (
           <>

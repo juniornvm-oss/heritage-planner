@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { Projeto, Cena, ItemPosicionado, PlantaFundo, AreaAcabamento } from "../lib/types";
+import type { Projeto, Cena, ItemPosicionado, PlantaFundo, AreaAcabamento, PlantaVetorial } from "../lib/types";
 import { salvarCena } from "../lib/supabase";
 
 const CENA_VAZIA: Cena = { sala: { largura_cm: 1000, profundidade_cm: 800 }, planta: null, itens: [] };
@@ -29,6 +29,9 @@ interface ProjetoState {
 
   setPlanta: (planta: PlantaFundo | null) => void;
   updatePlanta: (patch: Partial<PlantaFundo>) => void;
+  setPlantaVetorial: (pv: PlantaVetorial | null) => void;
+  updatePlantaVetorial: (patch: Partial<PlantaVetorial>) => void;
+  toggleCamada: (nome: string) => void;
 
   undo: () => void;
   redo: () => void;
@@ -106,13 +109,34 @@ export const useProjeto = create<ProjetoState>((set, get) => ({
   },
 
   setPlanta(planta) {
-    set((s) => ({ past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, planta }, dirty: true }));
+    // planta raster e vetorial são mutuamente exclusivas
+    set((s) => ({ past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, planta, plantaVetorial: planta ? null : s.cena.plantaVetorial }, dirty: true }));
   },
 
   updatePlanta(patch) {
     set((s) => {
       if (!s.cena.planta) return {};
       return { cena: { ...s.cena, planta: { ...s.cena.planta, ...patch } }, dirty: true };
+    });
+  },
+
+  setPlantaVetorial(pv) {
+    set((s) => ({ past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, plantaVetorial: pv, planta: pv ? null : s.cena.planta }, dirty: true }));
+  },
+
+  updatePlantaVetorial(patch) {
+    set((s) => {
+      if (!s.cena.plantaVetorial) return {};
+      return { cena: { ...s.cena, plantaVetorial: { ...s.cena.plantaVetorial, ...patch } }, dirty: true };
+    });
+  },
+
+  toggleCamada(nome) {
+    set((s) => {
+      const pv = s.cena.plantaVetorial;
+      if (!pv) return {};
+      const camadas = pv.camadas.map((c) => (c.nome === nome ? { ...c, visivel: !c.visivel } : c));
+      return { cena: { ...s.cena, plantaVetorial: { ...pv, camadas } }, dirty: true };
     });
   },
 

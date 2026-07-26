@@ -45,14 +45,16 @@ export default function BibliotecaEquipamentosScreen() {
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 10 }}>
         {equipamentos.map((m, i) => (
-          <div key={(m.id || m.nome) + i} style={{ display: "flex", alignItems: "center", gap: 10,
+          <Link key={(m.id || m.nome) + i} to={`/equipamentos/${encodeURIComponent(m.id || m.nome)}`}
+            style={{ display: "flex", alignItems: "center", gap: 10, textDecoration: "none", color: "inherit",
             background: "var(--panel-2)", border: "1px solid var(--line)", borderRadius: 9, padding: "9px 12px" }}>
             <span style={{ width: 9, height: 9, borderRadius: 2, background: ZONAS[m.zona]?.cor || "#888" }} />
             <span style={{ flex: 1, fontWeight: 600, fontSize: 13 }}>{m.nome}</span>
             {(m.contorno || m.imagem) && <span title="tem desenho" style={{ fontSize: 11, color: "var(--gold)" }}>◱</span>}
             <span style={{ color: "var(--muted)", fontSize: 12 }}>{m.largura_cm}×{m.profundidade_cm}</span>
             {m.preco ? <span style={{ color: "var(--gold)", fontSize: 12 }}>{BRL(m.preco)}</span> : null}
-          </div>
+            <span style={{ color: "var(--muted)", fontSize: 12, marginLeft: 2 }}>✎</span>
+          </Link>
         ))}
       </div>
     </Shell>

@@ -9,8 +9,13 @@ interface LibraryState {
   carregado: boolean;
   carregar: () => Promise<void>;
   addEquipamentos: (rows: Equipamento[]) => void;
+  updateEquipamento: (ref: string, eq: Equipamento) => void;
+  removerEquipamento: (ref: string) => void;
   addAcabamentos: (rows: Acabamento[]) => void;
 }
+
+// Casa um equipamento pelo id (banco) ou, na falta, pelo nome (catálogo local).
+const casa = (e: Equipamento, ref: string) => (e.id ? e.id === ref : e.nome === ref);
 
 export const useLibrary = create<LibraryState>((set, get) => ({
   equipamentos: CATALOGO_LOCAL,
@@ -31,6 +36,12 @@ export const useLibrary = create<LibraryState>((set, get) => ({
   },
   addEquipamentos(rows) {
     set((s) => ({ equipamentos: [...s.equipamentos, ...rows] }));
+  },
+  updateEquipamento(ref, eq) {
+    set((s) => ({ equipamentos: s.equipamentos.map((e) => (casa(e, ref) ? eq : e)) }));
+  },
+  removerEquipamento(ref) {
+    set((s) => ({ equipamentos: s.equipamentos.filter((e) => !casa(e, ref)) }));
   },
   addAcabamentos(rows) {
     set((s) => ({ acabamentos: [...s.acabamentos, ...rows] }));

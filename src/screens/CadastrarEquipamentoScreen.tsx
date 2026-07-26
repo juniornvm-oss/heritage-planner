@@ -1,8 +1,8 @@
-import { useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 import Shell from "../ui/Shell";
 import { useLibrary } from "../store/libraryStore";
-import { inserirEquipamentos, online } from "../lib/supabase";
+import { inserirEquipamentos, atualizarEquipamento, removerEquipamento, online } from "../lib/supabase";
 import { reduzirImagem, limparDesenho, recortarImagem } from "../lib/imagem";
 import { contornoDeArquivo } from "../lib/plantaVetorial";
 import { ZONAS, type Equipamento, type Zona } from "../lib/types";
@@ -16,11 +16,18 @@ const Campo = ({ label, children }: { label: string; children: React.ReactNode }
 
 export default function CadastrarEquipamentoScreen() {
   const nav = useNavigate();
+  const { ref } = useParams();
+  const editando = !!ref;
   const addEquipamentos = useLibrary((s) => s.addEquipamentos);
+  const updateEquipamentoStore = useLibrary((s) => s.updateEquipamento);
+  const removerEquipamentoStore = useLibrary((s) => s.removerEquipamento);
+  const equipamentos = useLibrary((s) => s.equipamentos);
+  const existente = useMemo(() => (ref ? equipamentos.find((e) => (e.id ? e.id === ref : e.nome === ref)) : undefined), [ref, equipamentos]);
 
   const [f, setF] = useState({ nome: "", marca: "", modelo: "", zona: "livre" as Zona, preco: "", largura: "100", profundidade: "100" });
   const [imagem, setImagem] = useState<string | null>(null);
   const [imagemOriginal, setImagemOriginal] = useState<string | null>(null);
+  const preenchido = useRef(false);
   const [limiar, setLimiar] = useState(135);
   const [contorno, setContorno] = useState<number[][]>([]);
   const [tracando, setTracando] = useState(false);
@@ -32,6 +39,19 @@ export default function CadastrarEquipamentoScreen() {
   const [erro, setErro] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
+
+  // Preenche o formulário com o equipamento existente (modo edição) — uma vez.
+  useEffect(() => {
+    if (!editando || preenchido.current || !existente) return;
+    preenchido.current = true;
+    setF({
+      nome: existente.nome ?? "", marca: existente.marca ?? "", modelo: existente.modelo ?? "",
+      zona: existente.zona ?? "livre", preco: existente.preco ? String(existente.preco) : "",
+      largura: String(existente.largura_cm ?? 100), profundidade: String(existente.profundidade_cm ?? 100),
+    });
+    if (existente.imagem) { setImagem(existente.imagem); setImagemOriginal(existente.imagem); }
+    if (existente.contorno) setContorno(existente.contorno);
+  }, [editando, existente]);
 
   const set = (k: keyof typeof f) => (v: string) => setF((x) => ({ ...x, [k]: v }));
   const larg = Number(f.largura) || 100, prof = Number(f.profundidade) || 100;
@@ -105,12 +125,27 @@ export default function CadastrarEquipamentoScreen() {
     if (!f.nome.trim()) { setErro("Informe o nome."); return; }
     setBusy("Salvando…"); setErro(null);
     const eq: Equipamento = {
+      ...(existente?.id ? { id: existente.id } : {}),
       nome: f.nome.trim(), marca: f.marca || null, modelo: f.modelo || null,
       largura_cm: larg, profundidade_cm: prof, zona: f.zona, preco: Number(f.preco) || 0,
       imagem, contorno: contorno.length ? contorno : null,
     };
-    addEquipamentos([eq]);
-    if (online) { try { await inserirEquipamentos([eq]); } catch (e) { setErro("Salvo localmente (Supabase: " + (e as Error).message + ")"); setBusy(null); return; } }
+    if (editando) {
+      updateEquipamentoStore(ref!, eq);
+      if (online && eq.id) { try { await atualizarEquipamento(eq); } catch (e) { setErro("Salvo localmente (Supabase: " + (e as Error).message + ")"); setBusy(null); return; } }
+    } else {
+      addEquipamentos([eq]);
+      if (online) { try { await inserirEquipamentos([eq]); } catch (e) { setErro("Salvo localmente (Supabase: " + (e as Error).message + ")"); setBusy(null); return; } }
+    }
+    nav("/equipamentos");
+  }
+
+  async function excluir() {
+    if (!editando) return;
+    if (!window.confirm(`Excluir "${f.nome || "este equipamento"}" da biblioteca?`)) return;
+    setBusy("Excluindo…"); setErro(null);
+    removerEquipamentoStore(ref!);
+    if (online && existente?.id) { try { await removerEquipamento(existente.id); } catch (e) { setErro("Removido localmente (Supabase: " + (e as Error).message + ")"); setBusy(null); return; } }
     nav("/equipamentos");
   }
 
@@ -120,7 +155,7 @@ export default function CadastrarEquipamentoScreen() {
     <Shell actions={<button className="btn" onClick={() => nav("/equipamentos")}>← Biblioteca</button>}>
       <div style={{ maxWidth: 860, margin: "0 auto" }}>
         <div className="microlabel">Biblioteca · Equipamentos</div>
-        <h1 className="brandface" style={{ fontSize: 30, color: "var(--gold)", marginTop: 6, marginBottom: 4 }}>Cadastrar equipamento</h1>
+        <h1 className="brandface" style={{ fontSize: 30, color: "var(--gold)", marginTop: 6, marginBottom: 4 }}>{editando ? "Editar equipamento" : "Cadastrar equipamento"}</h1>
         <p style={{ color: "var(--muted)", fontSize: 13, marginBottom: 20, maxWidth: 620, lineHeight: 1.5 }}>
           Suba um <b>DWG/PDF</b> (extraio o contorno) ou uma <b>imagem</b> (você informa as medidas e traça o contorno por cima). Depois é só posicionar e calibrar na planta.
         </p>
@@ -146,7 +181,7 @@ export default function CadastrarEquipamentoScreen() {
               <Campo label="Preço (R$)"><input className="fld" type="text" inputMode="numeric" value={f.preco} onChange={(e) => set("preco")(e.target.value.replace(/[^\d]/g, ""))} /></Campo>
             </div>
             <div>
-              <input ref={fileRef} type="file" accept=".dwg,.dxf,.pdf,image/*" style={{ display: "none" }} onChange={(e) => onUpload(e.target.files?.[0])} />
+              <input ref={fileRef} type="file" style={{ display: "none" }} onChange={(e) => onUpload(e.target.files?.[0])} />
               <button className="btn btn-blue" onClick={() => fileRef.current?.click()}>{busy || "⭱ Subir arquivo (DWG/PDF/imagem)"}</button>
             </div>
             {erro && <div style={{ color: "var(--red)", fontSize: 12.5 }}>{erro}</div>}
@@ -200,8 +235,9 @@ export default function CadastrarEquipamentoScreen() {
         </div>
 
         <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
-          <button className="btn btn-gold" disabled={!!busy} onClick={salvar}>Salvar equipamento</button>
+          <button className="btn btn-gold" disabled={!!busy} onClick={salvar}>{editando ? "Salvar alterações" : "Salvar equipamento"}</button>
           <button className="btn" onClick={() => nav("/equipamentos")}>Cancelar</button>
+          {editando && <button className="btn" disabled={!!busy} onClick={excluir} style={{ marginLeft: "auto", borderColor: "var(--red)", color: "var(--red)" }}>🗑 Excluir</button>}
         </div>
       </div>
     </Shell>

@@ -183,6 +183,7 @@ export default function CadastrarEquipamentoScreen() {
             <div>
               <input ref={fileRef} type="file" style={{ display: "none" }} onChange={(e) => onUpload(e.target.files?.[0])} />
               <button className="btn btn-blue" onClick={() => fileRef.current?.click()}>{busy || "⭱ Subir arquivo (DWG/PDF/imagem)"}</button>
+              <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 6 }}>Aceita DWG, DXF, PDF ou imagem (PNG/JPG).</div>
             </div>
             {erro && <div style={{ color: "var(--red)", fontSize: 12.5 }}>{erro}</div>}
           </div>

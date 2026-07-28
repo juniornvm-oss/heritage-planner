@@ -1,5 +1,5 @@
 import { PDFDocument, PDFFont, PDFPage, StandardFonts, rgb, type RGB } from "pdf-lib";
-import type { Projeto, Equipamento, ItemPosicionado } from "../types";
+import type { Projeto, Equipamento, ItemPosicionado, ConfigConsultor } from "../types";
 import { ZONAS, CENARIOS, TAXA_ASSESSORIA } from "../types";
 import { resumo, matrizDaCena } from "../validation";
 import { BRL, formatLength } from "../units";
@@ -44,7 +44,12 @@ export async function montarDossie(
   projeto: Projeto,
   plantaPng?: string | null,
   catalogo?: Equipamento[],
+  config?: ConfigConsultor | null,
 ): Promise<Uint8Array> {
+  // Rodapé/assinatura vindos do Cadastro do consultor (fallback: padrão Heritage).
+  const assinatura = (config?.rodape && config.rodape.trim())
+    || [config?.empresa, "Assessoria Técnica de Implantação"].filter(Boolean).join(" · ")
+    || "Heritage Planner · Assessoria Técnica de Implantação";
   const cena = projeto.cena!;
   const r = resumo(cena);
   const doc = await PDFDocument.create();
@@ -78,7 +83,7 @@ export async function montarDossie(
 
   const footer = () => {
     page.drawLine({ start: { x: M, y: 54 }, end: { x: A4.w - M, y: 54 }, thickness: 0.5, color: LINE });
-    at("Heritage Planner · Assessoria Técnica de Implantação", M, 44, 8, font, MUTED);
+    at(assinatura, M, 44, 8, font, MUTED);
     rightAt(`p. ${pageNo}`, A4.w - M, 44, 8, font, MUTED);
   };
   const novaPagina = () => { page = doc.addPage([A4.w, A4.h]); pageNo++; y = A4.h - 64; footer(); };
@@ -133,7 +138,14 @@ export async function montarDossie(
   ].filter(Boolean) as string[];
   for (const m of capaMeta) { at(m, M, y, 12, font, rgb(0.3, 0.3, 0.3)); y -= 18; }
   y -= 10;
-  at(`Dossiê Executivo · Fase 04    ·    ${dataBR(projeto.criado_em)}`, M, y, 11, bold, MUTED); y -= 40;
+  at(`Dossiê Executivo · Fase 04    ·    ${dataBR(projeto.criado_em)}`, M, y, 11, bold, MUTED); y -= 22;
+  const preparado = [
+    config?.consultor && `Preparado por ${config.consultor}`,
+    config?.registro && `(${config.registro})`,
+    config?.whatsapp && `· ${config.whatsapp}`,
+  ].filter(Boolean).join(" ");
+  if (preparado) at(preparado, M, y, 10, font, rgb(0.35, 0.35, 0.35));
+  y -= 18;
 
   const teto = Number(projeto.orcamento_teto) || 0;
   if (teto) {
@@ -324,8 +336,8 @@ export async function montarDossie(
 }
 
 /** Gera o Dossiê e dispara o download no navegador. */
-export async function exportarPdf(projeto: Projeto, plantaPng?: string | null, catalogo?: Equipamento[]) {
-  const bytes = await montarDossie(projeto, plantaPng, catalogo);
+export async function exportarPdf(projeto: Projeto, plantaPng?: string | null, catalogo?: Equipamento[], config?: ConfigConsultor | null) {
+  const bytes = await montarDossie(projeto, plantaPng, catalogo, config);
   const blob = new Blob([bytes as unknown as BlobPart], { type: "application/pdf" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");

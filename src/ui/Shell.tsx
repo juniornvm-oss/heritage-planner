@@ -6,8 +6,10 @@ import { sair, useAuth } from "../lib/auth";
 const nav = [
   { to: "/", label: "Início" },
   { to: "/projetos", label: "Projetos" },
+  { to: "/solicitacoes", label: "Solicitações" },
   { to: "/equipamentos", label: "Equipamentos" },
   { to: "/acabamentos", label: "Acabamentos" },
+  { to: "/cadastro", label: "Cadastro" },
 ];
 
 export default function Shell({ children, actions }: { children: ReactNode; actions?: ReactNode }) {

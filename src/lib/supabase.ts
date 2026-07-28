@@ -143,3 +143,94 @@ export async function removerCotacao(id: string): Promise<void> {
   const { error } = await sb.from("cotacoes").delete().eq("id", id);
   if (error) throw error;
 }
+
+// ── Formulário público do síndico → caixa de entrada ─────────────────────────
+import type { Solicitacao, ConfigConsultor } from "./types";
+
+/** Envio do formulário público. Roda como anon (síndico sem login). */
+export async function criarSolicitacao(s: Solicitacao): Promise<void> {
+  if (!sb) throw new Error("Envio indisponível (Supabase não configurado).");
+  const { id: _i, criado_em: _c, status: _s, projeto_id: _p, ...limpo } = s;
+  const { error } = await sb.from("solicitacoes").insert(limpo);
+  if (error) throw error;
+}
+
+/** Lista as solicitações (consultor logado). */
+export async function listarSolicitacoes(): Promise<Solicitacao[]> {
+  if (!sb) return [];
+  const { data, error } = await sb.from("solicitacoes").select("*").order("criado_em", { ascending: false });
+  if (error) throw error;
+  return (data as Solicitacao[]) || [];
+}
+
+export async function atualizarStatusSolicitacao(
+  id: string, status: Solicitacao["status"], projeto_id?: string,
+): Promise<void> {
+  if (!sb) throw new Error("Supabase não configurado");
+  const patch: Record<string, unknown> = { status };
+  if (projeto_id) patch.projeto_id = projeto_id;
+  const { error } = await sb.from("solicitacoes").update(patch).eq("id", id);
+  if (error) throw error;
+}
+
+/** "11,0 x 11,2" (metros) → { largura_cm, profundidade_cm }. */
+function dimensoesParaCm(txt?: string | null): { largura_cm: number; profundidade_cm: number } {
+  const nums = String(txt ?? "").replace(",", ".").match(/[\d.]+/g)?.map(Number) ?? [];
+  const l = nums[0] ? Math.round(nums[0] * 100) : 1000;
+  const p = nums[1] ? Math.round(nums[1] * 100) : 800;
+  return { largura_cm: l, profundidade_cm: p };
+}
+
+/** Converte uma solicitação em projeto editável e marca a solicitação. */
+export async function converterSolicitacaoEmProjeto(s: Solicitacao): Promise<Projeto> {
+  if (!sb) throw new Error("Supabase não configurado");
+  const { largura_cm, profundidade_cm } = dimensoesParaCm(s.dimensoes);
+  const foto = (s.anexos ?? []).find((a) => a.tipo === "foto")?.dataUrl ?? null;
+  const obs = [
+    s.visao && `Visão do síndico: ${s.visao}`,
+    s.objetivo && `Objetivo: ${s.objetivo}`,
+    s.estilos?.length && `Estilo de treino: ${s.estilos.join(", ")}`,
+    s.aprovacao && `Aprovação: ${s.aprovacao}`,
+    s.unidades != null && `Unidades: ${s.unidades}`,
+    s.localizacao && `Localização: ${s.localizacao}`,
+    s.observacoes && `Obs.: ${s.observacoes}`,
+  ].filter(Boolean).join("\n");
+
+  const projeto: Partial<Projeto> = {
+    nome: s.condominio,
+    sindico: s.sindico,
+    contato: s.whatsapp,
+    endereco: s.cidade ?? null,
+    orcamento_teto: s.orcamento_teto ?? null,
+    foto_fachada: foto,
+    perfil: { faixa_etaria: s.faixa_etaria ?? undefined, objetivo: s.objetivo ?? undefined },
+    infraestrutura: { climatizacao: s.climatizacao ?? undefined },
+    observacoes: obs || null,
+    cena: { sala: { largura_cm, profundidade_cm }, itens: [], planta: null },
+  };
+  const p = await criarProjeto(projeto);
+  if (s.id) await atualizarStatusSolicitacao(s.id, "convertida", p.id);
+  return p;
+}
+
+// ── Cadastro do consultor (dados do PDF) ─────────────────────────────────────
+export async function obterConfigConsultor(): Promise<ConfigConsultor | null> {
+  if (!sb) return null;
+  const { data, error } = await sb.from("config_consultor").select("*").eq("id", 1).maybeSingle();
+  if (error) return null; // tabela pode não existir ainda
+  return (data as ConfigConsultor) || null;
+}
+
+export async function salvarConfigConsultor(patch: ConfigConsultor): Promise<void> {
+  if (!sb) throw new Error("Supabase não configurado");
+  const { id: _i, atualizado_em: _a, ...limpo } = patch;
+  const { error } = await sb.from("config_consultor").update({ ...limpo, atualizado_em: new Date().toISOString() }).eq("id", 1);
+  if (error) throw error;
+}
+
+/** Troca a senha do consultor logado. */
+export async function trocarSenha(nova: string): Promise<void> {
+  if (!sb) throw new Error("Supabase não configurado");
+  const { error } = await sb.auth.updateUser({ password: nova });
+  if (error) throw error;
+}

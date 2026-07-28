@@ -4,6 +4,9 @@ import OrientationGuard from "./screens/OrientationGuard";
 import ErrorBoundary from "./ui/ErrorBoundary";
 import AuthGuard from "./ui/AuthGuard";
 import LoginScreen from "./screens/LoginScreen";
+import FormularioScreen from "./screens/FormularioScreen";
+import SolicitacoesScreen from "./screens/SolicitacoesScreen";
+import CadastroScreen from "./screens/CadastroScreen";
 import HomeScreen from "./screens/HomeScreen";
 import ProjetosScreen from "./screens/ProjetosScreen";
 import LeituraScreen from "./screens/LeituraScreen";
@@ -21,7 +24,7 @@ export default function App() {
     <Routes>
       {/* Rotas públicas — fora do login e sem exigir orientação paisagem. */}
       <Route path="/login" element={<LoginScreen />} />
-      {/* O formulário público do síndico entra aqui, também fora do AuthGuard. */}
+      <Route path="/formulario" element={<FormularioScreen />} />
 
       {/* Todo o resto é a plataforma, protegida por login. */}
       <Route path="/*" element={<Plataforma />} />
@@ -46,6 +49,8 @@ function Plataforma() {
           <Routes>
             <Route path="/" element={<HomeScreen />} />
             <Route path="/projetos" element={<ProjetosScreen />} />
+            <Route path="/solicitacoes" element={<SolicitacoesScreen />} />
+            <Route path="/cadastro" element={<CadastroScreen />} />
             <Route path="/novo" element={<LeituraScreen />} />
             <Route path="/projeto/:id/leitura" element={<LeituraScreen />} />
             <Route path="/projeto/:id/curadoria" element={<CuradoriaScreen />} />

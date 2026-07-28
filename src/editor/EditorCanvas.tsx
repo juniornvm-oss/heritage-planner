@@ -20,13 +20,16 @@ function useHtmlImage(src?: string) {
 
 interface Cam { zoom: number; x: number; y: number } // x,y = posição da layer em px
 
-export default function EditorCanvas({ modoCalibrar, onCalibrar, modoAcabamento, onArea, modoRecorte, onRecorte, stageRef, somenteLeitura }: {
+export default function EditorCanvas({ modoCalibrar, onCalibrar, modoAcabamento, onArea, modoRecorte, onRecorte, modoParede, onParede, modoMoverPlanta, stageRef, somenteLeitura }: {
   modoCalibrar: boolean;
   onCalibrar: (distanciaMundoCm: number) => void;
   modoAcabamento: boolean;
   onArea: (rect: { x: number; y: number; w: number; h: number }) => void;
   modoRecorte: boolean;
   onRecorte: (rect: { x: number; y: number; w: number; h: number }) => void;
+  modoParede: boolean;
+  onParede: (p1: { x: number; y: number }, p2: { x: number; y: number }) => void;
+  modoMoverPlanta: boolean;
   stageRef?: React.RefObject<Konva.Stage>;
   somenteLeitura?: boolean;
 }) {
@@ -37,6 +40,8 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, modoAcabamento,
   const selecionarAcab = useProjeto((s) => s.selecionarAcab);
   const updateItem = useProjeto((s) => s.updateItem);
   const updateArea = useProjeto((s) => s.updateArea);
+  const updatePlanta = useProjeto((s) => s.updatePlanta);
+  const updatePlantaVetorial = useProjeto((s) => s.updatePlantaVetorial);
 
   const wrapRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: 800, h: 600 });
@@ -46,6 +51,7 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, modoAcabamento,
   const [calPts, setCalPts] = useState<{ x: number; y: number }[]>([]);
   const [areaPts, setAreaPts] = useState<{ x: number; y: number }[]>([]);
   const [recPts, setRecPts] = useState<{ x: number; y: number }[]>([]);
+  const [pardPts, setPardPts] = useState<{ x: number; y: number }[]>([]);
   const areaRefs = useRef<Record<string, Konva.Group>>({});
   const trRef = useRef<Konva.Transformer>(null);
 
@@ -126,6 +132,15 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, modoAcabamento,
       } else setRecPts(pts);
       return;
     }
+    if (modoParede) {
+      const w = toWorld(p.x, p.y);
+      const pts = [...pardPts, w];
+      if (pts.length === 2) {
+        setPardPts([]);
+        if (Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y) > 1) onParede(pts[0], pts[1]);
+      } else setPardPts(pts);
+      return;
+    }
     const touches = (e.evt as TouchEvent).touches;
     if (touches && touches.length === 2) {
       const [a, b] = [touches[0], touches[1]];
@@ -170,8 +185,8 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, modoAcabamento,
   const cfg = sala.config || {};
   const planta = cena.planta;
   const pv = cena.plantaVetorial;
-  const drawing = modoCalibrar || modoAcabamento || modoRecorte; // enquanto desenha, itens/áreas não capturam o toque
-  const bloquear = drawing || somenteLeitura; // read-only (legado): navega/zoom, mas não move/seleciona/edita
+  const drawing = modoCalibrar || modoAcabamento || modoRecorte || modoParede; // enquanto desenha, itens/áreas não capturam o toque
+  const bloquear = drawing || somenteLeitura || modoMoverPlanta; // read-only ou movendo planta: itens/áreas não capturam o toque
   const camVis = useMemo(() => new Map((pv?.camadas ?? []).map((c) => [c.nome, c.visivel])), [pv]);
 
   // Prende o Transformer à área de acabamento selecionada (some durante o desenho).
@@ -181,7 +196,7 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, modoAcabamento,
   }, [selectedAcabId, drawing, cena.acabamentos]);
 
   return (
-    <div ref={wrapRef} style={{ position: "absolute", inset: 0, cursor: drawing ? "crosshair" : pan.current ? "grabbing" : "default", background: "#0C0C0E" }}>
+    <div ref={wrapRef} style={{ position: "absolute", inset: 0, cursor: drawing ? "crosshair" : modoMoverPlanta ? "grab" : pan.current ? "grabbing" : "default", background: "#0C0C0E" }}>
       <Stage ref={stageRef} width={size.w} height={size.h} onWheel={onWheel}
         onMouseDown={stageDown} onMouseMove={stageMove} onMouseUp={stageUp}
         onTouchStart={stageDown} onTouchMove={stageMove} onTouchEnd={stageUp}>
@@ -196,14 +211,17 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, modoAcabamento,
 
           {/* planta baixa (fundo em escala real) */}
           {planta && plantaImg && (
-            <KImage name="bg" image={plantaImg} x={planta.x_cm} y={planta.y_cm}
+            <KImage image={plantaImg} x={planta.x_cm} y={planta.y_cm} rotation={planta.rotacao || 0}
               width={planta.larguraPx * planta.cmPorPx} height={planta.alturaPx * planta.cmPorPx}
-              opacity={planta.opacidade} listening={false} />
+              opacity={planta.opacidade} listening={modoMoverPlanta && !planta.bloqueada} draggable={modoMoverPlanta && !planta.bloqueada}
+              onDragEnd={(e) => updatePlanta({ x_cm: e.target.x(), y_cm: e.target.y() })} />
           )}
 
           {/* planta VETORIAL (desenho separado do texto) */}
           {pv && (
-            <Group x={pv.x_cm} y={pv.y_cm} scaleX={pv.escala || 1} scaleY={pv.escala || 1} opacity={pv.opacidade} listening={false}>
+            <Group x={pv.x_cm} y={pv.y_cm} rotation={pv.rotacao || 0} scaleX={pv.escala || 1} scaleY={pv.escala || 1} opacity={pv.opacidade}
+              listening={modoMoverPlanta && !pv.bloqueada} draggable={modoMoverPlanta && !pv.bloqueada}
+              onDragEnd={(e) => updatePlantaVetorial({ x_cm: e.target.x(), y_cm: e.target.y() })}>
               {pv.tracos.map((tr, i) => (
                 camVis.get(tr.camada ?? "0") === false ? null :
                 <Line key={i} points={tr.pts} closed={tr.fechado} stroke={tr.cor || "#9FB4C7"} strokeWidth={1 / (cam.zoom * (pv.escala || 1))} />
@@ -272,6 +290,10 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, modoAcabamento,
           {/* marcadores de recorte */}
           {recPts.map((p, i) => <Circle key={`r${i}`} x={p.x} y={p.y} radius={7 / cam.zoom} fill="#5FBF7A" />)}
           {recPts.length === 1 && <Text x={recPts[0].x} y={recPts[0].y} text=" toque o canto oposto (recorte)" fontSize={16 / cam.zoom} fill="#5FBF7A" />}
+
+          {/* marcadores da parede de referência */}
+          {pardPts.map((p, i) => <Circle key={`p${i}`} x={p.x} y={p.y} radius={7 / cam.zoom} fill="#C97BE0" />)}
+          {pardPts.length === 1 && <Text x={pardPts[0].x} y={pardPts[0].y} text=" toque a outra ponta da parede" fontSize={16 / cam.zoom} fill="#C97BE0" />}
         </Layer>
       </Stage>
     </div>

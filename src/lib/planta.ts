@@ -2,13 +2,7 @@
 // para o editor. A ESCALA real é definida depois, por calibração no canvas.
 // Parsers pesados carregam sob demanda via CDN (fora do bundle).
 
-const CDN = {
-  pdf: "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.7.76/build/pdf.min.mjs",
-  pdfWorker: "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.7.76/build/pdf.worker.min.mjs",
-  dxf: "https://cdn.jsdelivr.net/npm/dxf-parser@1.1.2/+esm",
-  dwg: "https://cdn.jsdelivr.net/npm/@mlightcad/libredwg-web/+esm",
-};
-const dyn = (u: string) => import(/* @vite-ignore */ u);
+import { carregarPdfjs, carregarDxfParser, carregarLibreDwg } from "./parsers";
 
 export interface PlantaBitmap {
   dataUrl: string;
@@ -19,8 +13,7 @@ export interface PlantaBitmap {
 const MAX_PX = 2400;
 
 async function lerPdf(file: File): Promise<PlantaBitmap> {
-  const pdfjs: any = await dyn(CDN.pdf);
-  pdfjs.GlobalWorkerOptions.workerSrc = CDN.pdfWorker;
+  const pdfjs: any = await carregarPdfjs();
   const doc = await pdfjs.getDocument({ data: await file.arrayBuffer() }).promise;
   const page = await doc.getPage(1);
   const base = page.getViewport({ scale: 1 });
@@ -77,15 +70,13 @@ function desenharEntidades(entities: any[], blocks: Record<string, any>): Planta
 }
 
 async function lerDxf(file: File): Promise<PlantaBitmap> {
-  const mod: any = await dyn(CDN.dxf);
-  const DxfParser = mod.default || mod.DxfParser || mod;
-  const parsed = new DxfParser().parseSync(await file.text());
+  const DxfParser = await carregarDxfParser();
+  const parsed = (new DxfParser().parseSync(await file.text())) as any;
   return desenharEntidades(parsed.entities, parsed.blocks || {});
 }
 
 async function lerDwg(file: File): Promise<PlantaBitmap> {
-  const { LibreDwg, Dwg_File_Type }: any = await dyn(CDN.dwg);
-  const lib = await LibreDwg.create();
+  const { lib, Dwg_File_Type }: any = await carregarLibreDwg();
   const dwg = lib.dwg_read_data(new Uint8Array(await file.arrayBuffer()), Dwg_File_Type.DWG);
   const db = lib.convert(dwg);
   const blocks: Record<string, any> = {};

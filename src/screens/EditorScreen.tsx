@@ -24,6 +24,7 @@ export default function EditorScreen() {
   const acabamentos = useLibrary((s) => s.acabamentos);
 
   const [erro, setErro] = useState<string | null>(null);
+  const [aviso, setAviso] = useState<string | null>(null); // mensagem não-fatal (import/export) — não derruba o editor
   const [modoCalibrar, setModoCalibrar] = useState(false);
   const [modoAcabamento, setModoAcabamento] = useState(false);
   const [modoRecorte, setModoRecorte] = useState(false);
@@ -86,9 +87,9 @@ export default function EditorScreen() {
   async function importarPlanta(file?: File | null) {
     if (!file) return;
     setBusy("Lendo planta…");
-    setErro(null);
+    setAviso(null);
+    const ext = (file.name.split(".").pop() || "").toLowerCase();
     try {
-      const ext = (file.name.split(".").pop() || "").toLowerCase();
       if (ext === "dxf" || ext === "dwg" || ext === "pdf") {
         const pv = await lerPlantaVetorial(file); // desenho vetorial separado do texto
         if (pv) { setPlantaVetorial(pv); return; }
@@ -97,7 +98,14 @@ export default function EditorScreen() {
       const bmp = await lerPlanta(file);
       const cmPorPx = cena.sala.largura_cm / bmp.larguraPx; // começa do tamanho da sala; calibre depois
       setPlanta({ dataUrl: bmp.dataUrl, larguraPx: bmp.larguraPx, alturaPx: bmp.alturaPx, x_cm: 0, y_cm: 0, cmPorPx, rotacao: 0, opacidade: 0.55, bloqueada: false });
-    } catch (e) { setErro((e as Error).message); } finally { setBusy(null); }
+    } catch (e) {
+      // Falha ao ler a planta NÃO derruba o editor: mostra um aviso dispensável e
+      // mantém o layout (equipamentos/acabamentos) intacto.
+      const msg = (e as Error)?.message || "Falha ao ler o arquivo.";
+      setAviso(ext === "dwg"
+        ? "Não consegui ler este DWG. Tente exportar como DXF ou PDF no seu CAD e importar novamente."
+        : `Não consegui importar esta planta (${ext.toUpperCase() || "arquivo"}): ${msg}`);
+    } finally { setBusy(null); }
   }
 
   function onCalibrar(distanciaMundoCm: number) {
@@ -182,7 +190,7 @@ export default function EditorScreen() {
     try {
       const png = stageRef.current ? stageRef.current.toDataURL({ pixelRatio: 2 }) : null;
       await exportarPdf({ ...projeto, cena }, png, equipamentos);
-    } catch (e) { setErro((e as Error).message); } finally { setBusy(null); }
+    } catch (e) { setAviso(`Falha ao gerar o PDF: ${(e as Error).message}`); } finally { setBusy(null); }
   }
 
   if (erro) return <Centro><p style={{ color: "var(--red)" }}>{erro}</p><button className="btn" onClick={() => nav("/")}>Voltar</button></Centro>;
@@ -236,6 +244,14 @@ export default function EditorScreen() {
           <button className="btn btn-blue" onClick={exportar}>⤓ Dossiê</button>
         </div>
       </div>
+
+      {aviso && (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px calc(12px + var(--sar)) 9px calc(12px + var(--sal))", background: "rgba(224,154,69,.12)", borderBottom: "1px solid var(--line)", flexShrink: 0 }}>
+          <span style={{ fontSize: 15 }}>⚠️</span>
+          <span style={{ fontSize: 12.5, color: "#E09A45", lineHeight: 1.5, flex: 1 }}>{aviso}</span>
+          <button className="btn" onClick={() => setAviso(null)} style={{ padding: "5px 10px", fontSize: 11.5 }}>Dispensar</button>
+        </div>
+      )}
 
       {somenteLeitura && (
         <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px calc(12px + var(--sar)) 8px calc(12px + var(--sal))", background: "var(--panel-2)", borderBottom: "1px solid var(--line)", flexShrink: 0 }}>

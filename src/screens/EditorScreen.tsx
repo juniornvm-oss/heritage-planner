@@ -27,6 +27,8 @@ export default function EditorScreen() {
   const [modoCalibrar, setModoCalibrar] = useState(false);
   const [modoAcabamento, setModoAcabamento] = useState(false);
   const [modoRecorte, setModoRecorte] = useState(false);
+  const [modoParede, setModoParede] = useState(false);
+  const [modoMoverPlanta, setModoMoverPlanta] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const stageRef = useRef<Konva.Stage>(null);
@@ -107,6 +109,65 @@ export default function EditorScreen() {
     if (cena.planta) updatePlanta({ cmPorPx: cena.planta.cmPorPx * (real / distanciaMundoCm) });
   }
 
+  // Enquadrar por parede de referência: escala (parede = comprimento real),
+  // rotaciona (parede na horizontal) e encaixa o início da parede no canto (0,0) da sala.
+  function onParede(p1: { x: number; y: number }, p2: { x: number; y: number }) {
+    setModoParede(false);
+    const dist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+    if (dist <= 0) return;
+    const entrada = window.prompt("Comprimento real dessa parede (ex.: 500 ou 5 m):", "500");
+    const real = entrada ? parseLength(entrada) : null;
+    if (!real) return;
+
+    const s = real / dist;
+    const theta = -Math.atan2(p2.y - p1.y, p2.x - p1.x); // deixa a parede na horizontal (+X)
+    const cos = Math.cos(theta), sin = Math.sin(theta);
+    const S = (qx: number, qy: number) => {
+      const dx = qx - p1.x, dy = qy - p1.y;
+      return { x: s * (cos * dx - sin * dy), y: s * (sin * dx + cos * dy) }; // âncora A = (0,0)
+    };
+    let thetaDeg = (theta * 180) / Math.PI;
+
+    // rot atual + centro atual (para virar 180° se a planta cair acima da sala)
+    const rot0 = cena.plantaVetorial?.rotacao ?? cena.planta?.rotacao ?? 0;
+    const centro = centroPlanta();
+    let nt = S(cena.plantaVetorial?.x_cm ?? cena.planta?.x_cm ?? 0, cena.plantaVetorial?.y_cm ?? cena.planta?.y_cm ?? 0);
+    if (centro && S(centro.x, centro.y).y < 0) { // corpo caiu acima da parede → gira 180° em torno do meio da parede
+      nt = { x: real - nt.x, y: -nt.y }; thetaDeg += 180;
+    }
+
+    if (cena.plantaVetorial) {
+      const pv = cena.plantaVetorial;
+      updatePlantaVetorial({ x_cm: nt.x, y_cm: nt.y, rotacao: (rot0 || 0) + thetaDeg, escala: (pv.escala || 1) * s });
+    } else if (cena.planta) {
+      const pl = cena.planta;
+      updatePlanta({ x_cm: nt.x, y_cm: nt.y, rotacao: (rot0 || 0) + thetaDeg, cmPorPx: pl.cmPorPx * s });
+    }
+  }
+
+  // Centro da planta no mundo atual (para heurística de virar 180°).
+  function centroPlanta(): { x: number; y: number } | null {
+    const rot = (g: number) => (g * Math.PI) / 180;
+    if (cena.planta) {
+      const pl = cena.planta;
+      const hx = (pl.larguraPx * pl.cmPorPx) / 2, hy = (pl.alturaPx * pl.cmPorPx) / 2;
+      const a = rot(pl.rotacao || 0);
+      return { x: pl.x_cm + Math.cos(a) * hx - Math.sin(a) * hy, y: pl.y_cm + Math.sin(a) * hx + Math.cos(a) * hy };
+    }
+    if (cena.plantaVetorial) {
+      const pv = cena.plantaVetorial;
+      let mnx = Infinity, mny = Infinity, mxx = -Infinity, mxy = -Infinity;
+      for (const t of pv.tracos) for (let i = 0; i < t.pts.length; i += 2) {
+        mnx = Math.min(mnx, t.pts[i]); mxx = Math.max(mxx, t.pts[i]); mny = Math.min(mny, t.pts[i + 1]); mxy = Math.max(mxy, t.pts[i + 1]);
+      }
+      if (!Number.isFinite(mnx)) return { x: pv.x_cm, y: pv.y_cm };
+      const cx = ((mnx + mxx) / 2) * (pv.escala || 1), cy = ((mny + mxy) / 2) * (pv.escala || 1);
+      const a = rot(pv.rotacao || 0);
+      return { x: pv.x_cm + Math.cos(a) * cx - Math.sin(a) * cy, y: pv.y_cm + Math.sin(a) * cx + Math.cos(a) * cy };
+    }
+    return null;
+  }
+
   async function salvarComoNovo() {
     setBusy("Salvando…"); setErro(null);
     try {
@@ -151,9 +212,11 @@ export default function EditorScreen() {
             <span style={{ width: 1, height: 22, background: "var(--line-2)", margin: "0 4px" }} />
             <input ref={fileRef} type="file" style={{ display: "none" }} onChange={(e) => importarPlanta(e.target.files?.[0])} />
             <button className="btn btn-blue" onClick={() => fileRef.current?.click()}>⭱ Planta</button>
-            <button className="btn" disabled={!cena.planta && !cena.plantaVetorial} onClick={() => { setModoCalibrar((v) => !v); setModoAcabamento(false); }} style={modoCalibrar ? { borderColor: "#5FC8E8", color: "#8fd6f0" } : undefined}>📐 Calibrar</button>
-            <button className="btn" onClick={() => { setModoAcabamento((v) => !v); setModoCalibrar(false); setModoRecorte(false); }} style={modoAcabamento ? { borderColor: "#C9A227", color: "#C9A227" } : undefined}>▦ Acabamento</button>
-            {cena.plantaVetorial && <button className="btn" onClick={() => { setModoRecorte((v) => !v); setModoCalibrar(false); setModoAcabamento(false); }} style={modoRecorte ? { borderColor: "#5FBF7A", color: "#5FBF7A" } : undefined}>✂ Recortar</button>}
+            <button className="btn" disabled={!cena.planta && !cena.plantaVetorial} onClick={() => { const v = !modoCalibrar; setModoCalibrar(v); setModoAcabamento(false); setModoRecorte(false); setModoParede(false); setModoMoverPlanta(false); }} style={modoCalibrar ? { borderColor: "#5FC8E8", color: "#8fd6f0" } : undefined}>📐 Calibrar</button>
+            <button className="btn" disabled={!cena.planta && !cena.plantaVetorial} onClick={() => { const v = !modoParede; setModoParede(v); setModoCalibrar(false); setModoAcabamento(false); setModoRecorte(false); setModoMoverPlanta(false); }} style={modoParede ? { borderColor: "#C97BE0", color: "#C97BE0" } : undefined} title="Enquadrar a planta por uma parede de referência">📏 Parede</button>
+            <button className="btn" disabled={!cena.planta && !cena.plantaVetorial} onClick={() => { const v = !modoMoverPlanta; setModoMoverPlanta(v); setModoCalibrar(false); setModoAcabamento(false); setModoRecorte(false); setModoParede(false); }} style={modoMoverPlanta ? { borderColor: "#5FBF7A", color: "#5FBF7A" } : undefined} title="Arrastar a planta de fundo para posicionar">🖐 Mover</button>
+            <button className="btn" onClick={() => { setModoAcabamento((v) => !v); setModoCalibrar(false); setModoRecorte(false); setModoParede(false); setModoMoverPlanta(false); }} style={modoAcabamento ? { borderColor: "#C9A227", color: "#C9A227" } : undefined}>▦ Acabamento</button>
+            {cena.plantaVetorial && <button className="btn" onClick={() => { setModoRecorte((v) => !v); setModoCalibrar(false); setModoAcabamento(false); setModoParede(false); setModoMoverPlanta(false); }} style={modoRecorte ? { borderColor: "#5FBF7A", color: "#5FBF7A" } : undefined}>✂ Recortar</button>}
             <button className="btn" disabled={!selItem} onClick={() => girarSelecionado()}>↻ Girar</button>
             <button className="btn" disabled={!selItem} onClick={removerSelecionado}>✕</button>
             <span style={{ width: 1, height: 22, background: "var(--line-2)", margin: "0 4px" }} />
@@ -164,6 +227,8 @@ export default function EditorScreen() {
         <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
           {busy && <span style={{ fontSize: 12, color: "var(--gold)" }}>{busy}</span>}
           {modoCalibrar && <span style={{ fontSize: 12, color: "#8fd6f0" }}>toque 2 pontos de medida conhecida</span>}
+          {modoParede && <span style={{ fontSize: 12, color: "#C97BE0" }}>toque as 2 pontas de uma parede de medida conhecida</span>}
+          {modoMoverPlanta && <span style={{ fontSize: 12, color: "#5FBF7A" }}>arraste a planta para posicionar</span>}
           {modoAcabamento && <span style={{ fontSize: 12, color: "var(--gold)" }}>toque 2 cantos da área a revestir</span>}
           {somenteLeitura
             ? <button className="btn btn-gold" onClick={() => nav("/novo")}>＋ Começar meu Heritage</button>
@@ -207,7 +272,9 @@ export default function EditorScreen() {
         {/* Canvas */}
         <div style={{ flex: 1, position: "relative", minWidth: 0 }}>
           <EditorCanvas modoCalibrar={modoCalibrar} onCalibrar={onCalibrar} modoAcabamento={modoAcabamento} onArea={onArea}
-            modoRecorte={modoRecorte} onRecorte={(rect) => { recortarVetorial(rect); setModoRecorte(false); }} stageRef={stageRef} somenteLeitura={somenteLeitura} />
+            modoRecorte={modoRecorte} onRecorte={(rect) => { recortarVetorial(rect); setModoRecorte(false); }}
+            modoParede={modoParede} onParede={onParede} modoMoverPlanta={modoMoverPlanta}
+            stageRef={stageRef} somenteLeitura={somenteLeitura} />
         </div>
 
         {/* Inspetor direito */}
@@ -298,6 +365,28 @@ export default function EditorScreen() {
   );
 }
 
+// Ajuste fino da planta de fundo: rotação e posição (usado por raster e vetorial).
+function AjustePlanta({ rotacao, onRot, onNudge }: { rotacao: number; onRot: (delta: number) => void; onNudge: (dx: number, dy: number) => void }) {
+  const passo = 20; // cm por toque
+  return (
+    <Bloco label={`ROTAÇÃO ${Math.round(((rotacao % 360) + 360) % 360)}°`}>
+      <div style={{ display: "flex", gap: 5, marginBottom: 8 }}>
+        <button className="btn" style={{ flex: 1, padding: "7px 4px", fontSize: 11 }} onClick={() => onRot(-90)}>↺ 90°</button>
+        <button className="btn" style={{ flex: 1, padding: "7px 4px", fontSize: 11 }} onClick={() => onRot(-1)}>−1°</button>
+        <button className="btn" style={{ flex: 1, padding: "7px 4px", fontSize: 11 }} onClick={() => onRot(1)}>+1°</button>
+        <button className="btn" style={{ flex: 1, padding: "7px 4px", fontSize: 11 }} onClick={() => onRot(90)}>90° ↻</button>
+      </div>
+      <span className="microlabel">POSIÇÃO (nudge {passo} cm)</span>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 5, marginTop: 5, maxWidth: 150 }}>
+        <span /><button className="btn" style={{ padding: "6px 0" }} onClick={() => onNudge(0, -passo)}>↑</button><span />
+        <button className="btn" style={{ padding: "6px 0" }} onClick={() => onNudge(-passo, 0)}>←</button>
+        <button className="btn" style={{ padding: "6px 0" }} onClick={() => onNudge(0, passo)}>↓</button>
+        <button className="btn" style={{ padding: "6px 0" }} onClick={() => onNudge(passo, 0)}>→</button>
+      </div>
+    </Bloco>
+  );
+}
+
 function PlantaInspector() {
   const planta = useProjeto((s) => s.cena.planta)!;
   const updatePlanta = useProjeto((s) => s.updatePlanta);
@@ -305,7 +394,13 @@ function PlantaInspector() {
   return (
     <div style={{ display: "grid", gap: 12 }}>
       <div className="brandface" style={{ fontSize: 16, color: "var(--gold)" }}>PLANTA BAIXA</div>
-      <div style={{ fontSize: 12, color: "var(--muted)" }}>Escala: <b style={{ color: "#e9e9e6" }}>{planta.cmPorPx.toFixed(3)} cm/px</b><br />Use "Calibrar" na barra para ajustar.</div>
+      <div style={{ fontSize: 12, color: "var(--muted)" }}>Escala: <b style={{ color: "#e9e9e6" }}>{planta.cmPorPx.toFixed(3)} cm/px</b></div>
+      <div style={{ fontSize: 11.5, color: "#b6b6b1", lineHeight: 1.5 }}>
+        Para encaixar na sala: <b>📏 Parede</b> (toque as 2 pontas de uma parede e informe a medida — a planta é escalada, girada e encaixada). <b>🖐 Mover</b> arrasta; ajuste fino abaixo.
+      </div>
+      <AjustePlanta rotacao={planta.rotacao || 0}
+        onRot={(d) => updatePlanta({ rotacao: (planta.rotacao || 0) + d })}
+        onNudge={(dx, dy) => updatePlanta({ x_cm: planta.x_cm + dx, y_cm: planta.y_cm + dy })} />
       <Bloco label={`OPACIDADE ${Math.round(planta.opacidade * 100)}%`}>
         <input type="range" min={0} max={1} step={0.05} value={planta.opacidade} onChange={(e) => updatePlanta({ opacidade: +e.target.value })} style={{ width: "100%" }} />
       </Bloco>
@@ -327,9 +422,12 @@ function PlantaVetorialInspector() {
       </div>
       {Math.abs((pv.escala || 1) - 1) > 1e-6 && <div style={{ fontSize: 11, color: "var(--muted)" }}>Escala calibrada: ×{(pv.escala || 1).toFixed(3)}</div>}
       <div style={{ fontSize: 11.5, color: "#b6b6b1", lineHeight: 1.5 }}>
-        Se a escala estiver errada, use <b>📐 Calibrar</b>: toque 2 pontos de uma medida conhecida.
-        {pv.origem === "pdf" && <> Use <b>✂ Recortar</b> para isolar a planta do carimbo/observações.</>}
+        Para encaixar na sala use <b>📏 Parede</b> (toque as 2 pontas de uma parede e informe a medida — escala, gira e encaixa). <b>🖐 Mover</b> arrasta; <b>📐 Calibrar</b> ajusta só a escala.
+        {pv.origem === "pdf" && <> <b>✂ Recortar</b> isola a planta do carimbo/observações.</>}
       </div>
+      <AjustePlanta rotacao={pv.rotacao || 0}
+        onRot={(d) => updatePV({ rotacao: (pv.rotacao || 0) + d })}
+        onNudge={(dx, dy) => updatePV({ x_cm: pv.x_cm + dx, y_cm: pv.y_cm + dy })} />
       <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: "#c9c9c4" }}>
         <input type="checkbox" checked={pv.mostrarTexto} onChange={(e) => updatePV({ mostrarTexto: e.target.checked })} />
         Mostrar texto / anotações

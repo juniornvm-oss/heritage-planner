@@ -1,8 +1,23 @@
 import { create } from "zustand";
 import type { Projeto, Cena, ItemPosicionado, PlantaFundo, AreaAcabamento, PlantaVetorial } from "../lib/types";
+import { CENARIOS, ZONAS } from "../lib/types";
 import { salvarCena } from "../lib/supabase";
 
 const CENA_VAZIA: Cena = { sala: { largura_cm: 1000, profundidade_cm: 800 }, planta: null, itens: [] };
+
+// Normaliza uma cena vinda do banco: garante arrays e campos válidos por item
+// (dados antigos podem não ter cenario/zona → antes derrubavam o editor com tela preta).
+function normalizarCena(bruta: Cena | null | undefined): Cena {
+  const base = bruta && bruta.sala ? clone(bruta) : clone(CENA_VAZIA);
+  const sala = base.sala ?? { ...CENA_VAZIA.sala };
+  const itens: ItemPosicionado[] = (Array.isArray(base.itens) ? base.itens : []).map((it) => ({
+    ...it,
+    cenario: it.cenario && CENARIOS[it.cenario] ? it.cenario : "balanceado",
+    zona: it.zona && ZONAS[it.zona] ? it.zona : "livre",
+  }));
+  const acabamentos = Array.isArray(base.acabamentos) ? base.acabamentos : [];
+  return { ...base, sala, itens, acabamentos };
+}
 
 interface ProjetoState {
   projeto: Projeto | null;
@@ -52,7 +67,7 @@ export const useProjeto = create<ProjetoState>((set, get) => ({
   future: [],
 
   abrir(projeto) {
-    const cena = projeto.cena && projeto.cena.sala ? clone(projeto.cena) : clone(CENA_VAZIA);
+    const cena = normalizarCena(projeto.cena);
     set({ projeto, cena, selectedId: null, selectedAcabId: null, dirty: false, past: [], future: [] });
   },
 

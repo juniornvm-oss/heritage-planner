@@ -1,6 +1,7 @@
 import { Routes, Route, Navigate } from "react-router-dom";
 import { useEffect } from "react";
 import OrientationGuard from "./screens/OrientationGuard";
+import ErrorBoundary from "./ui/ErrorBoundary";
 import HomeScreen from "./screens/HomeScreen";
 import ProjetosScreen from "./screens/ProjetosScreen";
 import LeituraScreen from "./screens/LeituraScreen";
@@ -19,6 +20,7 @@ export default function App() {
 
   return (
     <OrientationGuard>
+      <ErrorBoundary>
       <Routes>
         <Route path="/" element={<HomeScreen />} />
         <Route path="/projetos" element={<ProjetosScreen />} />
@@ -32,6 +34,7 @@ export default function App() {
         <Route path="/acabamentos" element={<BibliotecaAcabamentosScreen />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
+      </ErrorBoundary>
     </OrientationGuard>
   );
 }

@@ -7,7 +7,8 @@ const overlap = (a: ItemPosicionado, b: { x_cm: number; y_cm: number; w_cm: numb
 export type Problema = "colisao" | "corredor" | null;
 
 export function problemasDaCena(cena: Cena): Record<string, Problema> {
-  const { sala, itens } = cena;
+  const sala = cena.sala;
+  const itens = cena.itens ?? [];
   const p = sala.config?.pilar;
   const pilarRect = p ? { x_cm: p.x, y_cm: p.y, w_cm: p.w, h_cm: p.h } : null;
   const corredor = sala.config?.corredor;
@@ -22,21 +23,27 @@ export function problemasDaCena(cena: Cena): Record<string, Problema> {
   return res;
 }
 
+// Tolerante a dados antigos: item sem cenário válido conta como "balanceado".
 export function totalCenario(itens: ItemPosicionado[], tier: Cenario): number {
-  return itens.reduce((s, i) => (CENARIOS[i.cenario].ordem <= CENARIOS[tier].ordem ? s + (i.preco || 0) : s), 0);
+  const tierOrd = (CENARIOS[tier] ?? CENARIOS.balanceado).ordem;
+  return (itens ?? []).reduce((s, i) => {
+    const c = CENARIOS[i.cenario] ?? CENARIOS.balanceado;
+    return c.ordem <= tierOrd ? s + (i.preco || 0) : s;
+  }, 0);
 }
 
 /** Item com prioridade calculada (impacto+valor_percebido+necessidade), ordenado desc.
  *  Só entram itens com pelo menos um dos três campos preenchidos. */
 export function matrizDaCena(cena: Cena): (ItemPosicionado & { prio: number })[] {
-  return cena.itens
+  return (cena.itens ?? [])
     .filter((i) => i.impacto || i.valor_percebido || i.necessidade)
     .map((i) => ({ ...i, prio: (i.impacto || 0) + (i.valor_percebido || 0) + (i.necessidade || 0) }))
     .sort((a, b) => b.prio - a.prio);
 }
 
 export function resumo(cena: Cena) {
-  const { sala, itens } = cena;
+  const sala = cena.sala;
+  const itens = cena.itens ?? [];
   const problemas = problemasDaCena(cena);
   const nCol = Object.values(problemas).filter((v) => v === "colisao").length;
   const nCor = Object.values(problemas).filter((v) => v === "corredor").length;

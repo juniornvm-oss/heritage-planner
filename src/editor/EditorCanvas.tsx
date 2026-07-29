@@ -277,7 +277,14 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, modoAcabamento,
   }, [selectedAcabId, drawing, cena.acabamentos]);
 
   return (
-    <div ref={wrapRef} style={{ position: "absolute", inset: 0, cursor: apagando ? "not-allowed" : drawing ? "crosshair" : modoMoverPlanta ? "grab" : pan.current ? "grabbing" : "default", background: "#0C0C0E" }}>
+    <div ref={wrapRef} style={{
+      position: "absolute", inset: 0,
+      cursor: apagando ? "not-allowed" : drawing ? "crosshair" : modoMoverPlanta ? "grab" : pan.current ? "grabbing" : "default",
+      background: "#0C0C0E",
+      // Apple Pencil / toque no iPad: sem isso o Safari trata o traço como
+      // rolagem/gesto da página e o canvas nunca recebe o evento.
+      touchAction: "none", WebkitUserSelect: "none", userSelect: "none",
+    }}>
       <Stage ref={stageRef} width={size.w} height={size.h} onWheel={onWheel}
         onMouseDown={stageDown} onMouseMove={stageMove} onMouseUp={stageUp}
         onTouchStart={stageDown} onTouchMove={stageMove} onTouchEnd={stageUp}>
@@ -320,8 +327,18 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, modoAcabamento,
           {/* corredor */}
           {cfg.corredor && <Rect name="bg" x={cfg.corredor.x} y={0} width={cfg.corredor.w} height={sala.profundidade_cm} fill="#C9A227" opacity={0.06} listening={false} />}
 
-          {/* contorno da sala */}
-          <Rect x={0} y={0} width={sala.largura_cm} height={sala.profundidade_cm} stroke="#3A3A3C" strokeWidth={12 / cam.zoom} listening={false} />
+          {/* contorno da sala — só uma GUIA de referência (dimensões do projeto);
+              some quando existem paredes reais desenhadas na Etapa 1 */}
+          {!(cena.estrutura?.paredes.length) && (
+            <>
+              <Rect x={0} y={0} width={sala.largura_cm} height={sala.profundidade_cm} stroke="#3A3A3C" strokeWidth={4 / cam.zoom}
+                dash={[18 / cam.zoom, 12 / cam.zoom]} listening={false} />
+              {etapaAtual === "planta" && (
+                <Text x={0} y={-26 / cam.zoom} text={`sala (guia) · ${formatLength(sala.largura_cm)} × ${formatLength(sala.profundidade_cm)} — edite no painel ao lado`}
+                  fontSize={14 / cam.zoom} fill="#6e6e73" listening={false} />
+              )}
+            </>
+          )}
 
           {/* pilar (config legado) */}
           {cfg.pilar && !cena.estrutura && <Rect name="bg" x={cfg.pilar.x} y={cfg.pilar.y} width={cfg.pilar.w} height={cfg.pilar.h} fill="#2B2B2E" stroke="#8A8A8F" strokeWidth={2 / cam.zoom} listening={false} />}

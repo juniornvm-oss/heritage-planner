@@ -22,8 +22,9 @@ export default function Shell({ children, actions }: { children: ReactNode; acti
         padding: "calc(16px + var(--sat)) calc(24px + var(--sar)) 16px calc(24px + var(--sal))",
         borderBottom: "2px solid var(--gold)", flexWrap: "wrap",
       }}>
-        <Link to="/" className="brandface" style={{ fontSize: 26 }}>
-          HERITAGE <span style={{ color: "var(--gold)" }}>PLANNER</span>
+        <Link to="/" style={{ display: "flex", alignItems: "center", gap: 10, textDecoration: "none", color: "var(--text)" }}>
+          <img src="/icons/icon-192.png" alt="" style={{ width: 34, height: 34, borderRadius: 8, border: "1px solid var(--line-2)" }} />
+          <span className="brandface" style={{ fontSize: 24 }}>HERITAGE <span style={{ color: "var(--gold)" }}>GYM BUILDER</span></span>
         </Link>
         <nav style={{ display: "flex", gap: 6 }}>
           {nav.map((n) => {

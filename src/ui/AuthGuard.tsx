@@ -14,7 +14,7 @@ export default function AuthGuard({ children }: { children: ReactNode }) {
   if (carregando) {
     return (
       <div style={{ minHeight: "100vh", display: "grid", placeItems: "center", color: "var(--muted)" }}>
-        <span className="brandface" style={{ fontSize: 22, letterSpacing: "0.06em" }}>HERITAGE PLANNER</span>
+        <span className="brandface" style={{ fontSize: 22, letterSpacing: "0.06em" }}>HERITAGE GYM BUILDER</span>
       </div>
     );
   }

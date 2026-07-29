@@ -36,11 +36,11 @@ export default function LoginScreen() {
       minHeight: "100vh", display: "grid", placeItems: "center",
       padding: "calc(24px + var(--sat)) calc(24px + var(--sar)) calc(24px + var(--sab)) calc(24px + var(--sal))",
     }}>
-      <form onSubmit={submeter} className="card" style={{ padding: 28, display: "grid", gap: 18, width: "min(380px, 100%)" }}>
-        <div style={{ textAlign: "center", display: "grid", gap: 6 }}>
-          <span className="brandface" style={{ fontSize: 30 }}>
-            HERITAGE <span style={{ color: "var(--gold)" }}>PLANNER</span>
-          </span>
+      <div style={{ display: "grid", gap: 18, width: "min(380px, 100%)", justifyItems: "center" }}>
+      <img src="/logo.png" alt="Heritage Gym Builder"
+        style={{ width: "min(300px, 84%)", height: "auto", borderRadius: 14, border: "1px solid var(--line)" }} />
+      <form onSubmit={submeter} className="card" style={{ padding: 28, display: "grid", gap: 18, width: "100%" }}>
+        <div style={{ textAlign: "center" }}>
           <span style={{ color: "var(--muted)", fontSize: 12 }}>Acesso restrito — entre para continuar.</span>
         </div>
 
@@ -64,6 +64,7 @@ export default function LoginScreen() {
           {busy ? "Entrando…" : "Entrar"}
         </button>
       </form>
+      </div>
     </div>
   );
 }

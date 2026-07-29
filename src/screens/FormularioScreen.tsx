@@ -202,10 +202,10 @@ function Casca({ children }: { children: React.ReactNode }) {
     <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
       <header style={{
         padding: "calc(18px + var(--sat)) calc(20px + var(--sar)) 16px calc(20px + var(--sal))",
-        borderBottom: "2px solid var(--gold)", textAlign: "center",
+        borderBottom: "2px solid var(--gold)", textAlign: "center", display: "grid", justifyItems: "center", gap: 8,
       }}>
-        <div className="brandface" style={{ fontSize: 24 }}>HERITAGE <span style={{ color: "var(--gold)" }}>PLANNER</span></div>
-        <div style={{ color: "var(--muted)", fontSize: 12, marginTop: 4 }}>Diagnóstico de Academia · Assessoria Técnica</div>
+        <img src="/logo.png" alt="Heritage Gym Builder" style={{ width: "min(240px, 70%)", height: "auto", borderRadius: 12 }} />
+        <div style={{ color: "var(--muted)", fontSize: 12 }}>Diagnóstico de Academia · Assessoria Técnica</div>
       </header>
       <main style={{ flex: 1, overflow: "auto", padding: "20px calc(16px + var(--sar)) calc(24px + var(--sab)) calc(16px + var(--sal))" }}>
         {children}

@@ -1,17 +1,18 @@
 :root {
   --bg: #0a0a0b;
-  --panel: #111214;
+  --panel: #101113;
   --panel-2: #131416;
-  --line: #26272b;
-  --line-2: #33343a;
-  --text: #e9e9e6;
-  --muted: #8a8a8f;
-  --gold: #b8704a; /* cobre da marca Heritage Gym Builder */
-  --gold-soft: rgba(184, 112, 74, 0.15);
+  --line: #212227;
+  --line-2: #303138;
+  --text: #ececea;
+  --muted: #8a8a90;
+  --gold: #b8704a; /* cobre da marca Heritage GymBuilder */
+  --gold-soft: rgba(184, 112, 74, 0.14);
   --blue: #4a90c4;
   --green: #5fbf7a;
   --red: #e04545;
   --purple: #8b78bc;
+  --radius: 14px;
   /* insets da status bar / home indicator do iPad (viewport-fit=cover) */
   --sat: env(safe-area-inset-top);
   --sar: env(safe-area-inset-right);
@@ -24,56 +25,87 @@ body {
   background: var(--bg);
   color: var(--text);
   font-family: "DM Sans", system-ui, -apple-system, sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   overscroll-behavior: none;
   touch-action: manipulation;
 }
-h1, h2, h3 { font-weight: 700; }
+h1, h2, h3 { font-weight: 700; letter-spacing: -0.01em; }
 button { font-family: inherit; cursor: pointer; }
 a { color: inherit; text-decoration: none; }
 
-.brandface { font-family: "Bebas Neue", sans-serif; letter-spacing: 0.04em; }
+.brandface { font-family: "Bebas Neue", sans-serif; letter-spacing: 0.05em; }
 
+/* Botões — hierarquia clara: primário (cobre sólido) e secundário (fantasma) */
 .btn {
-  background: #1a1b1e; border: 1px solid var(--line-2); border-radius: 10px;
-  color: #d9d9d4; font: 700 13px "DM Sans"; padding: 11px 16px; letter-spacing: 0.04em;
-  transition: border-color 0.12s, color 0.12s;
+  background: transparent; border: 1px solid var(--line-2); border-radius: 11px;
+  color: #d7d7d2; font: 600 13px "DM Sans"; padding: 10px 16px; letter-spacing: 0.02em;
+  display: inline-flex; align-items: center; gap: 8px;
+  transition: border-color 0.14s, color 0.14s, background 0.14s;
 }
-.btn:hover { border-color: var(--gold); }
+.btn:hover { border-color: var(--line-2); background: rgba(255,255,255,0.03); color: var(--text); }
 .btn:disabled { opacity: 0.4; }
 .btn-gold { border-color: var(--gold); color: var(--gold); }
+.btn-gold:hover { border-color: var(--gold); background: var(--gold-soft); color: var(--gold); }
 .btn-blue { border-color: var(--blue); color: #8fc3e8; }
+/* Ação principal: cobre sólido, usar UMA por tela */
+.btn-primary {
+  background: var(--gold); border-color: var(--gold); color: #17110c; font-weight: 700;
+}
+.btn-primary:hover { background: #c67d55; border-color: #c67d55; color: #17110c; }
 
 .fld {
-  background: #0f1012; border: 1px solid var(--line-2); border-radius: 9px;
-  color: var(--text); font: 600 14px "DM Sans"; padding: 11px 13px; width: 100%;
+  background: #0e0f11; border: 1px solid var(--line-2); border-radius: 10px;
+  color: var(--text); font: 500 14px "DM Sans"; padding: 12px 14px; width: 100%;
+  transition: border-color 0.12s, box-shadow 0.12s;
 }
-.fld:focus-visible { outline: 2px solid var(--gold); outline-offset: 1px; }
-textarea.fld { resize: vertical; min-height: 64px; line-height: 1.5; }
+.fld::placeholder { color: #63636a; }
+.fld:focus-visible, .fld:focus { outline: none; border-color: var(--gold); box-shadow: 0 0 0 3px var(--gold-soft); }
+textarea.fld { resize: vertical; min-height: 68px; line-height: 1.55; }
+select.fld { appearance: none; -webkit-appearance: none; }
 
 /* Respeita a status bar / home indicator do iPad em telas de rolagem (Shell) */
 .safe-top { padding-top: var(--sat); }
 
-/* Cartão base (unifica o padrão usado nas telas) */
+/* Barra de navegação (Shell) */
+.appbar {
+  border-bottom: 1px solid var(--line);
+  background: rgba(10,10,11,0.72); backdrop-filter: saturate(1.1) blur(8px);
+}
+.nav { display: flex; gap: 2px; flex-wrap: wrap; }
+.nav-link {
+  position: relative; padding: 8px 13px; border-radius: 9px;
+  color: #b9b9be; font: 600 13.5px "DM Sans"; letter-spacing: 0.01em;
+  transition: color 0.12s, background 0.12s;
+}
+.nav-link:hover { color: var(--text); background: rgba(255,255,255,0.04); }
+.nav-link.active { color: var(--gold); }
+.nav-link.active::after {
+  content: ""; position: absolute; left: 13px; right: 13px; bottom: 3px;
+  height: 2px; border-radius: 2px; background: var(--gold);
+}
+
+/* Cartão base */
 .card {
-  background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
   transition: border-color 0.14s, transform 0.14s;
 }
 .card-btn { cursor: pointer; text-align: left; }
-.card-btn:hover { border-color: var(--gold); transform: translateY(-1px); }
+.card-btn:hover { border-color: var(--line-2); transform: translateY(-1px); }
 .card-gold { border-color: var(--gold); }
 
 /* Micro-rótulo em caixa alta com tracking */
 .microlabel {
-  font-size: 10.5px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted);
+  font-size: 10.5px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--muted);
 }
 
 /* Chip/pílula */
-.chip {
+.chip, .pill {
   display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line-2);
-  color: var(--muted); border-radius: 999px; padding: 4px 11px; font: 700 12px "DM Sans";
+  color: var(--muted); border-radius: 999px; padding: 4px 11px; font: 600 12px "DM Sans";
   letter-spacing: 0.02em; white-space: nowrap;
 }
 
-/* Fio dourado fino, para réguas/separadores de alto padrão */
-.hairline { height: 1px; background: linear-gradient(90deg, var(--gold), transparent); border: 0; }
+/* Fio de cobre fino, para réguas/separadores */
+.hairline { height: 1px; background: linear-gradient(90deg, var(--gold), transparent); border: 0; opacity: 0.7; }

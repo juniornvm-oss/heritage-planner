@@ -16,7 +16,7 @@ export default defineConfig({
         maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
       },
       manifest: {
-        name: "Heritage Gym Builder",
+        name: "Heritage GymBuilder",
         short_name: "Heritage",
         description: "Assessoria de implantação de academias — editor de projeto visual",
         theme_color: "#0A0A0B",

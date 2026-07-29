@@ -93,7 +93,7 @@ export default function CadastroScreen() {
 
           {erro && <div style={{ color: "#e88", fontSize: 13 }}>{erro}</div>}
           {msg && <div style={{ color: "#7ec98f", fontSize: 13 }}>{msg}</div>}
-          <div><button className="btn btn-gold" disabled={busy} onClick={() => void salvar()}>{busy ? "Salvando…" : "Salvar cadastro"}</button></div>
+          <div><button className="btn btn-primary" disabled={busy} onClick={() => void salvar()}>{busy ? "Salvando…" : "Salvar cadastro"}</button></div>
         </section>
 
         <section className="card" style={{ padding: 20, display: "grid", gap: 14 }}>

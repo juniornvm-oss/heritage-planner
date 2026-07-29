@@ -187,7 +187,7 @@ export default function FormularioScreen() {
 
         {erro && <div style={{ color: "#e88", fontSize: 13, textAlign: "center" }}>{erro}</div>}
 
-        <button className="btn btn-gold" disabled={busy} onClick={() => void enviar()} style={{ justifyContent: "center", padding: 14, fontSize: 15 }}>
+        <button className="btn btn-primary" disabled={busy} onClick={() => void enviar()} style={{ justifyContent: "center", padding: 15, fontSize: 15 }}>
           {busy ? "Enviando…" : "Enviar diagnóstico"}
         </button>
         <div style={{ height: 12 }} />
@@ -202,9 +202,9 @@ function Casca({ children }: { children: React.ReactNode }) {
     <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
       <header style={{
         padding: "calc(18px + var(--sat)) calc(20px + var(--sar)) 16px calc(20px + var(--sal))",
-        borderBottom: "2px solid var(--gold)", textAlign: "center", display: "grid", justifyItems: "center", gap: 8,
+        borderBottom: "1px solid var(--line)", textAlign: "center", display: "grid", justifyItems: "center", gap: 8,
       }}>
-        <img src="/logo.png" alt="Heritage Gym Builder" style={{ width: "min(240px, 70%)", height: "auto", borderRadius: 12 }} />
+        <img src="/logo.png" alt="Heritage GymBuilder" style={{ width: "min(230px, 66%)", height: "auto", borderRadius: 14 }} />
         <div style={{ color: "var(--muted)", fontSize: 12 }}>Diagnóstico de Academia · Assessoria Técnica</div>
       </header>
       <main style={{ flex: 1, overflow: "auto", padding: "20px calc(16px + var(--sar)) calc(24px + var(--sab)) calc(16px + var(--sal))" }}>

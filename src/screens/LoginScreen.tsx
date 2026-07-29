@@ -37,9 +37,9 @@ export default function LoginScreen() {
       padding: "calc(24px + var(--sat)) calc(24px + var(--sar)) calc(24px + var(--sab)) calc(24px + var(--sal))",
     }}>
       <div style={{ display: "grid", gap: 18, width: "min(380px, 100%)", justifyItems: "center" }}>
-      <img src="/logo.png" alt="Heritage Gym Builder"
-        style={{ width: "min(300px, 84%)", height: "auto", borderRadius: 14, border: "1px solid var(--line)" }} />
-      <form onSubmit={submeter} className="card" style={{ padding: 28, display: "grid", gap: 18, width: "100%" }}>
+      <img src="/logo.png" alt="Heritage GymBuilder"
+        style={{ width: "min(280px, 82%)", height: "auto", borderRadius: 16 }} />
+      <form onSubmit={submeter} className="card" style={{ padding: 30, display: "grid", gap: 18, width: "100%" }}>
         <div style={{ textAlign: "center" }}>
           <span style={{ color: "var(--muted)", fontSize: 12 }}>Acesso restrito — entre para continuar.</span>
         </div>
@@ -60,7 +60,7 @@ export default function LoginScreen() {
 
         {erro && <div style={{ color: "#e88", fontSize: 13, textAlign: "center" }}>{erro}</div>}
 
-        <button className="btn btn-gold" type="submit" disabled={busy} style={{ justifyContent: "center", padding: "12px" }}>
+        <button className="btn btn-primary" type="submit" disabled={busy} style={{ justifyContent: "center", padding: "13px" }}>
           {busy ? "Entrando…" : "Entrar"}
         </button>
       </form>

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Stage, Layer, Rect, Line, Group, Text, Image as KImage, Circle, Transformer } from "react-konva";
+import { Stage, Layer, Rect, Line, Group, Text, Image as KImage, Circle } from "react-konva";
 import type Konva from "konva";
 import { useProjeto } from "../store/projetoStore";
 import { ZONAS, type ItemPosicionado, type Parede, type PilarPlanta, type Abertura } from "../lib/types";
@@ -7,9 +7,12 @@ import { problemasDaCena } from "../lib/validation";
 import { snapCm, GRID_CM } from "../lib/canvas";
 import { formatLength } from "../lib/units";
 import { arred } from "../lib/estrutura";
+import { areaPoligonoM2, perimetroCm, projetarNoSegmento, m2, type Ponto } from "../lib/geometria";
+import { MATERIAIS_PISO } from "../lib/types";
 
 export type Etapa = "planta" | "acabamento" | "layout";
 export type FerramentaEstrutura = "parede" | "porta" | "janela" | "pilar" | "apagar" | null;
+export type FerramentaAcab = "rect" | "poligono" | "cota" | "apagar" | null;
 
 // Ponto mais próximo sobre um segmento (parede) e distância — para encaixar aberturas.
 function projetarNaParede(px: number, py: number, w: Parede) {
@@ -33,11 +36,12 @@ function useHtmlImage(src?: string) {
 
 interface Cam { zoom: number; x: number; y: number } // x,y = posição da layer em px
 
-export default function EditorCanvas({ modoCalibrar, onCalibrar, modoAcabamento, onArea, modoRecorte, onRecorte, modoParede, onParede, modoMoverPlanta, stageRef, somenteLeitura, etapa, ferrEstrutura }: {
+export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, snapPasso, onArea, modoRecorte, onRecorte, modoParede, onParede, modoMoverPlanta, stageRef, somenteLeitura, etapa, ferrEstrutura }: {
   modoCalibrar: boolean;
   onCalibrar: (distanciaMundoCm: number) => void;
-  modoAcabamento: boolean;
-  onArea: (rect: { x: number; y: number; w: number; h: number }) => void;
+  ferrAcab?: FerramentaAcab; // ferramentas da Etapa 2 (área/polígono/cota/apagar)
+  snapPasso?: number; // 0 = snap de grade desligado; 1/5/10 cm
+  onArea: (pontos: Ponto[]) => void;
   modoRecorte: boolean;
   onRecorte: (rect: { x: number; y: number; w: number; h: number }) => void;
   modoParede: boolean;
@@ -66,6 +70,10 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, modoAcabamento,
   const removerAbertura = useProjeto((s) => s.removerAbertura);
   const updateItem = useProjeto((s) => s.updateItem);
   const updateArea = useProjeto((s) => s.updateArea);
+  const moverArea = useProjeto((s) => s.moverArea);
+  const removerArea = useProjeto((s) => s.removerArea);
+  const addCota = useProjeto((s) => s.addCota);
+  const removerCota = useProjeto((s) => s.removerCota);
   const updatePlanta = useProjeto((s) => s.updatePlanta);
   const updatePlantaVetorial = useProjeto((s) => s.updatePlantaVetorial);
 
@@ -79,8 +87,8 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, modoAcabamento,
   const [recPts, setRecPts] = useState<{ x: number; y: number }[]>([]);
   const [pardPts, setPardPts] = useState<{ x: number; y: number }[]>([]);
   const [estPts, setEstPts] = useState<{ x: number; y: number }[]>([]); // paredes/pilares da Etapa 1
-  const areaRefs = useRef<Record<string, Konva.Group>>({});
-  const trRef = useRef<Konva.Transformer>(null);
+  const [polyPts, setPolyPts] = useState<Ponto[]>([]); // polígono de piso em desenho
+  const [cotaPts, setCotaPts] = useState<Ponto[]>([]); // cota em desenho
 
   const plantaImg = useHtmlImage(cena.planta?.dataUrl);
 
@@ -104,6 +112,31 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, modoAcabamento,
   }, [sala.largura_cm, sala.profundidade_cm, size.w, size.h]);
 
   const toWorld = (sx: number, sy: number) => ({ x: (sx - cam.x) / cam.zoom, y: (sy - cam.y) / cam.zoom });
+
+  // ── Snap avançado (Fase 1): vértice → parede → grade ─────────────────────
+  // Vértices (de áreas e pontas de parede) têm prioridade, depois a linha da
+  // parede, depois a grade (1/5/10 cm; 0 = desligada, valor cru).
+  function snapPonto(w: Ponto): Ponto {
+    const thr = 14 / cam.zoom; // raio de imã em px de tela
+    let melhor: { p: Ponto; d: number } | null = null;
+    const tenta = (x: number, y: number) => {
+      const d = Math.hypot(w.x - x, w.y - y);
+      if (d < thr && (!melhor || d < melhor.d)) melhor = { p: { x, y }, d };
+    };
+    for (const pr of cena.estrutura?.paredes ?? []) { tenta(pr.x1, pr.y1); tenta(pr.x2, pr.y2); }
+    for (const a of cena.acabamentos ?? []) for (const pt of a.pontos ?? []) tenta(pt.x, pt.y);
+    if (melhor) return (melhor as { p: Ponto; d: number }).p;
+    // linha da parede
+    let melhorSeg: { p: Ponto; d: number } | null = null;
+    for (const pr of cena.estrutura?.paredes ?? []) {
+      const pj = projetarNoSegmento(w, { x: pr.x1, y: pr.y1 }, { x: pr.x2, y: pr.y2 });
+      if (pj.dist < thr && (!melhorSeg || pj.dist < melhorSeg.d)) melhorSeg = { p: { x: pj.x, y: pj.y }, d: pj.dist };
+    }
+    if (melhorSeg) return (melhorSeg as { p: Ponto; d: number }).p; // fica exatamente sobre a parede
+    const passo = snapPasso ?? 0;
+    if (passo > 0) return { x: Math.round(w.x / passo) * passo, y: Math.round(w.y / passo) * passo };
+    return { x: Math.round(w.x * 10) / 10, y: Math.round(w.y * 10) / 10 }; // sem snap: precisão de 1 mm
+  }
 
   const zoomAt = (sx: number, sy: number, factor: number) => {
     setCam((c) => {
@@ -140,15 +173,45 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, modoAcabamento,
       } else setCalPts(pts);
       return;
     }
-    if (modoAcabamento && emVazio) {
-      const w = toWorld(p.x, p.y);
+    // ── Etapa 2: área retangular (2 toques, com snap) ─────────────────────
+    if (ferrAcab === "rect" && emVazio) {
+      const w = snapPonto(toWorld(p.x, p.y));
       const pts = [...areaPts, w];
       if (pts.length === 2) {
-        const x = snapCm(Math.min(pts[0].x, pts[1].x)), y = snapCm(Math.min(pts[0].y, pts[1].y));
-        const wcm = snapCm(Math.abs(pts[1].x - pts[0].x)), hcm = snapCm(Math.abs(pts[1].y - pts[0].y));
+        const x = Math.min(pts[0].x, pts[1].x), y = Math.min(pts[0].y, pts[1].y);
+        const wcm = Math.abs(pts[1].x - pts[0].x), hcm = Math.abs(pts[1].y - pts[0].y);
         setAreaPts([]);
-        if (wcm >= GRID_CM && hcm >= GRID_CM) onArea({ x, y, w: wcm, h: hcm });
+        if (wcm >= 10 && hcm >= 10) onArea([{ x, y }, { x: x + wcm, y }, { x: x + wcm, y: y + hcm }, { x, y: y + hcm }]);
       } else setAreaPts(pts);
+      return;
+    }
+    // ── Etapa 2: polígono (vários toques; toque no 1º ponto fecha) ────────
+    if (ferrAcab === "poligono" && emVazio) {
+      const w = snapPonto(toWorld(p.x, p.y));
+      if (polyPts.length >= 3) {
+        const d0 = Math.hypot(w.x - polyPts[0].x, w.y - polyPts[0].y);
+        if (d0 < 20 / cam.zoom) { // fechou no 1º ponto
+          const pts = polyPts;
+          setPolyPts([]);
+          onArea(pts);
+          return;
+        }
+      }
+      setPolyPts([...polyPts, w]);
+      return;
+    }
+    // ── Etapa 2: cota (2 toques; quase-reto vira reto) ────────────────────
+    if (ferrAcab === "cota" && emVazio) {
+      const w = snapPonto(toWorld(p.x, p.y));
+      const pts = [...cotaPts, w];
+      if (pts.length === 2) {
+        let [a, b] = pts;
+        const dx = Math.abs(b.x - a.x), dy = Math.abs(b.y - a.y);
+        if (dy < dx * 0.09) b = { x: b.x, y: a.y }; // ortogonaliza cotas quase retas
+        else if (dx < dy * 0.09) b = { x: a.x, y: b.y };
+        setCotaPts([]);
+        if (Math.hypot(b.x - a.x, b.y - a.y) >= 2) addCota({ id: crypto.randomUUID(), x1: a.x, y1: a.y, x2: b.x, y2: b.y });
+      } else setCotaPts(pts);
       return;
     }
     if (modoRecorte && emVazio) {
@@ -255,7 +318,8 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, modoAcabamento,
   const planta = cena.planta;
   const pv = cena.plantaVetorial;
   const desenhandoEst = ferrEstrutura === "parede" || ferrEstrutura === "pilar" || ferrEstrutura === "porta" || ferrEstrutura === "janela";
-  const drawing = modoCalibrar || modoAcabamento || modoRecorte || modoParede || desenhandoEst; // enquanto desenha, nada captura o toque
+  const desenhandoAcab = ferrAcab === "rect" || ferrAcab === "poligono" || ferrAcab === "cota";
+  const drawing = modoCalibrar || desenhandoAcab || modoRecorte || modoParede || desenhandoEst; // enquanto desenha, nada captura o toque
   // Interatividade por etapa: só o que pertence à etapa ativa responde ao toque.
   const itensAtivos = etapaAtual === "layout" && !drawing && !somenteLeitura && !modoMoverPlanta;
   const areasAtivas = etapaAtual === "acabamento" && !drawing && !somenteLeitura && !modoMoverPlanta;
@@ -267,19 +331,17 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, modoAcabamento,
       if (tipo === "parede") removerParede(id); else if (tipo === "pilar") removerPilar(id); else removerAbertura(id);
     } else selecionarEstrutura({ tipo, id });
   };
-  const bloquear = !areasAtivas; // usado pelas áreas de acabamento (compat.)
+  const apagandoAcab = etapaAtual === "acabamento" && ferrAcab === "apagar" && !somenteLeitura;
+  const areasEscutam = areasAtivas || apagandoAcab; // no modo apagar, o toque precisa chegar na área
   const camVis = useMemo(() => new Map((pv?.camadas ?? []).map((c) => [c.nome, c.visivel])), [pv]);
 
-  // Prende o Transformer à área de acabamento selecionada (some durante o desenho).
-  useEffect(() => {
-    const node = !bloquear && selectedAcabId ? areaRefs.current[selectedAcabId] : null;
-    if (trRef.current) { trRef.current.nodes(node ? [node] : []); trRef.current.getLayer()?.batchDraw(); }
-  }, [selectedAcabId, drawing, cena.acabamentos]);
+  // Trocar de ferramenta cancela desenhos parciais.
+  useEffect(() => { setAreaPts([]); setPolyPts([]); setCotaPts([]); }, [ferrAcab, etapaAtual]);
 
   return (
     <div ref={wrapRef} style={{
       position: "absolute", inset: 0,
-      cursor: apagando ? "not-allowed" : drawing ? "crosshair" : modoMoverPlanta ? "grab" : pan.current ? "grabbing" : "default",
+      cursor: apagando || apagandoAcab ? "not-allowed" : drawing ? "crosshair" : modoMoverPlanta ? "grab" : pan.current ? "grabbing" : "default",
       background: "#0C0C0E",
       // Apple Pencil / toque no iPad: sem isso o Safari trata o traço como
       // rolagem/gesto da página e o canvas nunca recebe o evento.
@@ -419,29 +481,83 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, modoAcabamento,
           {/* áreas de acabamento (piso/parede pintados) */}
           {(cena.acabamentos ?? []).map((a) => {
             const sel = selectedAcabId === a.id;
-            const m2 = (a.w_cm / 100) * (a.h_cm / 100);
+            const pts = a.pontos ?? [];
+            if (pts.length < 3) return null;
+            const flat = pts.flatMap((p) => [p.x, p.y]);
+            const areaM2v = areaPoligonoM2(pts);
+            const cor = a.material && a.material !== "outro" ? MATERIAIS_PISO[a.material].cor : a.cor;
+            const podeMexer = areasAtivas && !a.bloqueado;
+            const rot = ((a.rotacaoTextura ?? 0) * Math.PI) / 180;
+            // linhas do sentido do piso, recortadas pelo polígono (clipFunc)
+            const diag = Math.hypot(a.w_cm, a.h_cm), cxA = a.x_cm + a.w_cm / 2, cyA = a.y_cm + a.h_cm / 2;
+            const nTex = Math.max(2, Math.ceil(diag / 40));
+            const texLines: number[][] = [];
+            for (let i = -nTex; i <= nTex; i++) {
+              const off = i * 40;
+              const ox = -Math.sin(rot) * off, oy = Math.cos(rot) * off;
+              texLines.push([cxA + ox - Math.cos(rot) * diag, cyA + oy - Math.sin(rot) * diag, cxA + ox + Math.cos(rot) * diag, cyA + oy + Math.sin(rot) * diag]);
+            }
             return (
-              <Group key={a.id} x={a.x_cm} y={a.y_cm} listening={!bloquear} draggable={!bloquear}
-                ref={(n) => { if (n) areaRefs.current[a.id] = n; else delete areaRefs.current[a.id]; }}
-                onMouseDown={() => selecionarAcab(a.id)} onTouchStart={() => selecionarAcab(a.id)} onClick={() => selecionarAcab(a.id)} onTap={() => selecionarAcab(a.id)}
-                onDragEnd={(e) => updateArea(a.id, { x_cm: snapCm(e.target.x()), y_cm: snapCm(e.target.y()) })}
-                onTransformEnd={(e) => {
-                  const node = e.target; const sx = node.scaleX(), sy = node.scaleY();
-                  node.scaleX(1); node.scaleY(1);
-                  updateArea(a.id, { x_cm: snapCm(node.x()), y_cm: snapCm(node.y()), w_cm: Math.max(GRID_CM, snapCm(a.w_cm * sx)), h_cm: Math.max(GRID_CM, snapCm(a.h_cm * sy)) });
-                }}>
-                <Rect width={a.w_cm} height={a.h_cm} fill={a.cor} opacity={a.tipo === "parede" ? 0.3 : 0.5}
-                  stroke={sel ? "#C9A227" : a.cor} strokeWidth={(sel ? 6 : 2) / cam.zoom} dash={a.tipo === "parede" ? [14 / cam.zoom, 8 / cam.zoom] : undefined} />
-                <Text x={0} y={a.h_cm / 2 - 9} width={a.w_cm} align="center" text={`${a.nome}\n${m2.toFixed(1)} m²`}
-                  fontSize={13} fill="#F2F2F0" fontStyle="600" listening={false} />
+              <Group key={a.id} listening={areasEscutam}>
+                <Group
+                  onMouseDown={() => (apagandoAcab ? removerArea(a.id) : selecionarAcab(a.id))}
+                  onTap={() => (apagandoAcab ? removerArea(a.id) : selecionarAcab(a.id))}
+                  draggable={podeMexer}
+                  onDragEnd={(e) => {
+                    const dx = e.target.x(), dy = e.target.y();
+                    e.target.position({ x: 0, y: 0 });
+                    const passo = snapPasso ?? 0;
+                    const sn = (v: number) => (passo > 0 ? Math.round(v / passo) * passo : Math.round(v * 10) / 10);
+                    if (dx || dy) moverArea(a.id, sn(dx), sn(dy));
+                  }}>
+                  <Line points={flat} closed fill={cor} opacity={a.tipo === "parede" ? 0.3 : 0.45}
+                    stroke={sel ? "#C9A227" : cor} strokeWidth={(sel ? 6 : 2) / cam.zoom}
+                    dash={a.tipo === "parede" ? [14 / cam.zoom, 8 / cam.zoom] : undefined} />
+                  {/* sentido do piso */}
+                  <Group listening={false} clipFunc={(ctx) => { ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y); for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y); ctx.closePath(); }}>
+                    {texLines.map((l, i) => <Line key={i} points={l} stroke="#000000" opacity={0.14} strokeWidth={1.2 / cam.zoom} />)}
+                  </Group>
+                  <Text x={a.x_cm} y={a.y_cm + a.h_cm / 2 - 9} width={a.w_cm} align="center"
+                    text={`${a.nome}${a.bloqueado ? " 🔒" : ""}\n${m2(areaM2v)}`}
+                    fontSize={13} fill="#F2F2F0" fontStyle="600" listening={false} />
+                </Group>
+                {/* vértices editáveis */}
+                {sel && podeMexer && pts.map((pt, i) => (
+                  <Circle key={i} x={pt.x} y={pt.y} radius={8 / cam.zoom} fill="#0C0C0E" stroke="#C9A227" strokeWidth={2 / cam.zoom} draggable
+                    onDragMove={(e) => {
+                      const novo = [...pts]; novo[i] = { x: e.target.x(), y: e.target.y() };
+                      updateArea(a.id, { pontos: novo }, false);
+                    }}
+                    onDragEnd={(e) => {
+                      const w = snapPonto({ x: e.target.x(), y: e.target.y() });
+                      e.target.position(w);
+                      const novo = [...pts]; novo[i] = w;
+                      updateArea(a.id, { pontos: novo });
+                    }} />
+                ))}
               </Group>
             );
           })}
 
-          {/* handles de mover/redimensionar da área de acabamento selecionada */}
-          <Transformer ref={trRef} rotateEnabled={false} keepRatio={false} ignoreStroke
-            anchorSize={12 / cam.zoom} anchorStroke="#C9A227" borderStroke="#C9A227" borderStrokeWidth={1.5 / cam.zoom}
-            boundBoxFunc={(oldBox, newBox) => (newBox.width < GRID_CM || newBox.height < GRID_CM ? oldBox : newBox)} />
+          {/* cotas fixadas na planta */}
+          {(cena.cotas ?? []).map((c) => {
+            const len = Math.hypot(c.x2 - c.x1, c.y2 - c.y1);
+            const mx = (c.x1 + c.x2) / 2, my = (c.y1 + c.y2) / 2;
+            const ux = (c.x2 - c.x1) / (len || 1), uy = (c.y2 - c.y1) / (len || 1);
+            const px = -uy, py = ux, t = 8 / cam.zoom; // traços das pontas
+            const escutando = etapaAtual === "acabamento" && (apagandoAcab || areasAtivas);
+            return (
+              <Group key={c.id} listening={escutando}
+                onMouseDown={() => { if (apagandoAcab) removerCota(c.id); }}
+                onTap={() => { if (apagandoAcab) removerCota(c.id); }}>
+                <Line points={[c.x1, c.y1, c.x2, c.y2]} stroke="#5FC8E8" strokeWidth={1.4 / cam.zoom} hitStrokeWidth={26 / cam.zoom} />
+                <Line points={[c.x1 - px * t, c.y1 - py * t, c.x1 + px * t, c.y1 + py * t]} stroke="#5FC8E8" strokeWidth={1.4 / cam.zoom} listening={false} />
+                <Line points={[c.x2 - px * t, c.y2 - py * t, c.x2 + px * t, c.y2 + py * t]} stroke="#5FC8E8" strokeWidth={1.4 / cam.zoom} listening={false} />
+                <Text x={mx + px * (14 / cam.zoom)} y={my + py * (14 / cam.zoom) - 8 / cam.zoom} text={formatLength(len)}
+                  fontSize={14 / cam.zoom} fill="#8fd6f0" listening={false} />
+              </Group>
+            );
+          })}
 
           {/* equipamentos */}
           {cena.itens.map((it) => (
@@ -454,9 +570,27 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, modoAcabamento,
           {calPts.map((p, i) => <Circle key={i} x={p.x} y={p.y} radius={7 / cam.zoom} fill="#5FC8E8" />)}
           {calPts.length === 1 && <Text x={calPts[0].x} y={calPts[0].y} text=" toque o 2º ponto" fontSize={16 / cam.zoom} fill="#5FC8E8" />}
 
-          {/* marcadores de área de acabamento */}
+          {/* marcadores de área de acabamento (retângulo) */}
           {areaPts.map((p, i) => <Circle key={i} x={p.x} y={p.y} radius={7 / cam.zoom} fill="#C9A227" />)}
           {areaPts.length === 1 && <Text x={areaPts[0].x} y={areaPts[0].y} text=" toque o canto oposto" fontSize={16 / cam.zoom} fill="#C9A227" />}
+
+          {/* polígono em desenho */}
+          {polyPts.length > 0 && (
+            <Group listening={false}>
+              <Line points={polyPts.flatMap((p) => [p.x, p.y])} stroke="#C9A227" strokeWidth={2 / cam.zoom} dash={[8 / cam.zoom, 6 / cam.zoom]} />
+              {polyPts.map((p, i) => (
+                <Circle key={i} x={p.x} y={p.y} radius={(i === 0 && polyPts.length >= 3 ? 11 : 7) / cam.zoom}
+                  fill={i === 0 && polyPts.length >= 3 ? "#5FBF7A" : "#C9A227"} />
+              ))}
+              <Text x={polyPts[polyPts.length - 1].x} y={polyPts[polyPts.length - 1].y}
+                text={polyPts.length >= 3 ? " toque o ponto verde para fechar" : " toque os próximos cantos"}
+                fontSize={16 / cam.zoom} fill="#C9A227" />
+            </Group>
+          )}
+
+          {/* cota em desenho */}
+          {cotaPts.map((p, i) => <Circle key={`c${i}`} x={p.x} y={p.y} radius={7 / cam.zoom} fill="#5FC8E8" listening={false} />)}
+          {cotaPts.length === 1 && <Text x={cotaPts[0].x} y={cotaPts[0].y} text=" toque o 2º ponto da medida" fontSize={16 / cam.zoom} fill="#5FC8E8" listening={false} />}
 
           {/* marcadores de recorte */}
           {recPts.map((p, i) => <Circle key={`r${i}`} x={p.x} y={p.y} radius={7 / cam.zoom} fill="#5FBF7A" />)}

@@ -20,7 +20,8 @@ export default function EditorScreen() {
   const somenteLeitura = id === "heritage"; // projeto legado: só visualização (evita os bugs de edição)
   const { projeto, cena, selectedId, selectedAcabId, selEstrutura, dirty, salvando } = useProjeto();
   const { abrir, selecionar, addItem, updateItem, removerSelecionado, girarSelecionado, setPlanta, updatePlanta, setPlantaVetorial, updatePlantaVetorial, recortarVetorial, addArea, undo, redo, salvar } = useProjeto();
-  const { gerarEstruturaAuto, limparEstrutura } = useProjeto();
+  const { gerarEstruturaAuto, limparEstrutura, girarEstruturaSel, selecionarEstrutura } = useProjeto();
+  const { removerParede, removerPilar, removerAbertura, removerArea } = useProjeto();
   const equipamentos = useLibrary((s) => s.equipamentos);
   const acabamentos = useLibrary((s) => s.acabamentos);
 
@@ -41,6 +42,31 @@ export default function EditorScreen() {
     setModoParede(false); setModoMoverPlanta(false); setFerrEstrutura(null);
   }
   function irParaEtapa(e: Etapa) { limparModos(); selecionar(null); setEtapa(e); }
+
+  // Apaga o que estiver selecionado (estrutura, equipamento ou área de acabamento).
+  function apagarSelecionado() {
+    const s = useProjeto.getState();
+    if (s.selEstrutura) {
+      const { tipo, id } = s.selEstrutura;
+      if (tipo === "parede") removerParede(id); else if (tipo === "pilar") removerPilar(id); else removerAbertura(id);
+    } else if (s.selectedId) removerSelecionado();
+    else if (s.selectedAcabId) removerArea(s.selectedAcabId);
+  }
+
+  // Tecla Delete/Backspace apaga o selecionado (fora de campos de texto).
+  useEffect(() => {
+    if (somenteLeitura) return;
+    const onKey = (ev: KeyboardEvent) => {
+      if (ev.key !== "Delete" && ev.key !== "Backspace") return;
+      const alvo = ev.target as HTMLElement | null;
+      if (alvo && (alvo.tagName === "INPUT" || alvo.tagName === "TEXTAREA" || alvo.tagName === "SELECT" || alvo.isContentEditable)) return;
+      ev.preventDefault();
+      apagarSelecionado();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [somenteLeitura]);
   const fileRef = useRef<HTMLInputElement>(null);
   const stageRef = useRef<Konva.Stage>(null);
 
@@ -247,9 +273,16 @@ export default function EditorScreen() {
               {cena.plantaVetorial && <button className="btn" onClick={() => { limparModos(); setModoRecorte(true); }} style={modoRecorte ? { borderColor: "#5FBF7A", color: "#5FBF7A" } : undefined}>✂ Recortar</button>}
               <span style={{ width: 1, height: 22, background: "var(--line-2)", margin: "0 4px" }} />
               <button className="btn" onClick={() => gerarEstruturaAuto()} disabled={!cena.planta && !cena.plantaVetorial} title="Gerar paredes/pilares a partir da planta importada">✨ Auto</button>
-              {([["parede", "▮ Parede"], ["porta", "🚪 Porta"], ["janela", "🪟 Janela"], ["pilar", "◼ Pilar"]] as [FerramentaEstrutura, string][]).map(([f, lbl]) => (
-                <button key={f} className="btn" onClick={() => { const v = ferrEstrutura === f ? null : f; limparModos(); setFerrEstrutura(v); }} style={ferrEstrutura === f ? { borderColor: "var(--gold)", color: "var(--gold)" } : undefined}>{lbl}</button>
+              {/* Selecionar: modo padrão (nenhuma ferramenta ativa) */}
+              <button className="btn" onClick={() => { limparModos(); }} style={!ferrEstrutura && !modoCalibrar && !modoParede && !modoMoverPlanta && !modoRecorte ? { borderColor: "var(--gold)", color: "var(--gold)" } : undefined} title="Selecionar/mover elementos (toque para selecionar, arraste para mover)">➤ Selecionar</button>
+              {([["parede", "▮ Parede"], ["porta", "🚪 Porta"], ["janela", "🪟 Janela"], ["pilar", "◼ Pilar"], ["apagar", "⌫ Apagar"]] as [FerramentaEstrutura, string][]).map(([f, lbl]) => (
+                <button key={f} className="btn" onClick={() => { const v = ferrEstrutura === f ? null : f; limparModos(); setFerrEstrutura(v); }} style={ferrEstrutura === f ? (f === "apagar" ? { borderColor: "var(--red)", color: "var(--red)" } : { borderColor: "var(--gold)", color: "var(--gold)" }) : undefined}>{lbl}</button>
               ))}
+              <button className="btn" disabled={!selEstrutura || selEstrutura.tipo === "abertura"} onClick={() => girarEstruturaSel()} title="Girar 90° a parede/pilar selecionado">↻ Girar</button>
+              <span style={{ width: 1, height: 22, background: "var(--line-2)", margin: "0 4px" }} />
+              {(cena.planta || cena.plantaVetorial) && (
+                <button className="btn" onClick={() => { if (confirm("Remover o arquivo de fundo? O que você desenhou (paredes/portas/pilares) fica.")) { if (cena.plantaVetorial) setPlantaVetorial(null); else setPlanta(null); selecionarEstrutura(null); } }} title="Apagar o arquivo importado, mantendo o desenho">🗋 Tirar fundo</button>
+              )}
               {cena.estrutura && <button className="btn" onClick={() => { if (confirm("Apagar toda a estrutura (paredes/portas/pilares)?")) limparEstrutura(); }} title="Limpar estrutura">🗑</button>}
             </>}
 
@@ -278,6 +311,7 @@ export default function EditorScreen() {
           {ferrEstrutura === "parede" && <span style={{ fontSize: 12, color: "var(--gold)" }}>toque as 2 pontas da parede</span>}
           {ferrEstrutura === "pilar" && <span style={{ fontSize: 12, color: "var(--gold)" }}>toque 2 cantos do pilar</span>}
           {(ferrEstrutura === "porta" || ferrEstrutura === "janela") && <span style={{ fontSize: 12, color: "var(--gold)" }}>toque sobre a parede onde fica {ferrEstrutura === "porta" ? "a porta" : "a janela"}</span>}
+          {ferrEstrutura === "apagar" && <span style={{ fontSize: 12, color: "var(--red)" }}>toque no elemento para apagar</span>}
           {somenteLeitura
             ? <button className="btn btn-gold" onClick={() => nav("/novo")}>＋ Começar meu Heritage</button>
             : <button className="btn btn-gold" disabled={salvando} onClick={() => void salvar()}>{salvando ? "Salvando…" : dirty ? "💾 Salvar" : "✓ Salvo"}</button>}

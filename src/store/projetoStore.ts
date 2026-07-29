@@ -68,6 +68,7 @@ interface ProjetoState {
   updatePilar: (id: string, patch: Partial<PilarPlanta>, commit?: boolean) => void;
   removerPilar: (id: string) => void;
   girarEstruturaSel: () => void;
+  updateSala: (patch: Partial<Cena["sala"]>) => void;
   addAbertura: (a: Abertura) => void;
   updateAbertura: (id: string, patch: Partial<Abertura>, commit?: boolean) => void;
   removerAbertura: (id: string) => void;
@@ -253,6 +254,11 @@ export const useProjeto = create<ProjetoState>((set, get) => ({
 
   // Gira 90° o elemento estrutural selecionado, em torno do próprio centro:
   // parede gira o segmento; pilar troca largura ↔ profundidade.
+  // Redimensiona a sala-guia (retângulo de referência do projeto).
+  updateSala(patch) {
+    set((s) => ({ past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, sala: { ...s.cena.sala, ...patch } }, dirty: true }));
+  },
+
   girarEstruturaSel() {
     const sel = get().selEstrutura;
     if (!sel) return;

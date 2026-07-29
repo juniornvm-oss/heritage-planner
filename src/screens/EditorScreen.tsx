@@ -547,9 +547,27 @@ function PlantaVetorialInspector() {
 
 // Inspetor da Etapa 1 sem seleção: orientação + gerar estrutura.
 function PlantaEtapaInspector({ temPlanta, temEstrutura }: { temPlanta: boolean; temEstrutura: boolean }) {
+  const sala = useProjeto((s) => s.cena.sala);
+  const temParedes = useProjeto((s) => !!s.cena.estrutura?.paredes.length);
+  const updateSala = useProjeto((s) => s.updateSala);
   return (
     <div style={{ display: "grid", gap: 12 }}>
       <div className="brandface" style={{ fontSize: 16, color: "var(--gold)" }}>ETAPA 1 · PLANTA</div>
+      {!temParedes && (
+        <Bloco label="SALA (GUIA) — LARGURA × PROFUNDIDADE">
+          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            <input className="fld" type="number" min={100} step={10} value={sala.largura_cm}
+              onChange={(e) => updateSala({ largura_cm: Math.max(100, +e.target.value || 0) })} />
+            <span style={{ color: "var(--muted)" }}>×</span>
+            <input className="fld" type="number" min={100} step={10} value={sala.profundidade_cm}
+              onChange={(e) => updateSala({ profundidade_cm: Math.max(100, +e.target.value || 0) })} />
+          </div>
+          <span style={{ fontSize: 11, color: "#6e6e73", lineHeight: 1.5 }}>
+            O retângulo tracejado é só uma <b>guia</b> com as dimensões do projeto (em cm) — não é parede.
+            Ele some sozinho quando você desenhar as paredes reais.
+          </span>
+        </Bloco>
+      )}
       <p style={{ color: "#b6b6b1", fontSize: 12.5, lineHeight: 1.6 }}>
         <b style={{ color: "#e9e9e6" }}>1.</b> Suba o arquivo em <b>⭱ Planta</b> (PDF, DWG, DXF ou imagem).<br />
         <b style={{ color: "#e9e9e6" }}>2.</b> Ajuste a escala com <b>📐 Calibrar</b> e posicione com <b>🖐 Mover</b>.<br />

@@ -246,3 +246,55 @@ export interface Projeto {
   cena?: Cena | null;
   criado_em?: string;
 }
+
+/** Anexo do formulário do síndico (planta/foto) embutido como dataURL. */
+export interface AnexoSolicitacao {
+  tipo: "foto" | "planta";
+  nome: string;
+  dataUrl: string;
+}
+
+/** Solicitação do formulário público do síndico (planner.solicitacoes). */
+export interface Solicitacao {
+  id?: string;
+  criado_em?: string;
+  status?: "nova" | "convertida" | "arquivada";
+  // Bloco 1
+  condominio: string;
+  cidade?: string | null;
+  sindico: string;
+  whatsapp: string;
+  email?: string | null;
+  unidades?: number | null;
+  // Bloco 2
+  dimensoes: string; // "11,0 x 11,2" (m)
+  localizacao?: string | null;
+  climatizacao?: string | null;
+  faixa_etaria?: string | null;
+  estilos?: string[] | null;
+  // Bloco 3
+  visao: string;
+  objetivo?: string | null;
+  orcamento_teto?: number | null;
+  aprovacao?: string | null;
+  observacoes?: string | null;
+  anexos?: AnexoSolicitacao[] | null;
+  projeto_id?: string | null;
+}
+
+/** Cadastro do consultor aplicado ao PDF (planner.config_consultor). */
+export interface ConfigConsultor {
+  id?: number;
+  consultor?: string | null;
+  empresa?: string | null;
+  registro?: string | null;
+  documento?: string | null;
+  whatsapp?: string | null;
+  email?: string | null;
+  site?: string | null;
+  cidade_uf?: string | null;
+  honorario_pct?: number | null;
+  logo?: string | null;
+  rodape?: string | null;
+  atualizado_em?: string;
+}

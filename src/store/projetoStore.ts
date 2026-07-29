@@ -1,7 +1,10 @@
 import { create } from "zustand";
-import type { Projeto, Cena, ItemPosicionado, PlantaFundo, AreaAcabamento, PlantaVetorial } from "../lib/types";
+import type { Projeto, Cena, ItemPosicionado, PlantaFundo, AreaAcabamento, PlantaVetorial, EstruturaPlanta, Parede, Abertura, PilarPlanta } from "../lib/types";
 import { CENARIOS, ZONAS } from "../lib/types";
+import { gerarEstrutura, estruturaVazia } from "../lib/estrutura";
 import { salvarCena } from "../lib/supabase";
+
+export type SelEstrutura = { tipo: "parede" | "pilar" | "abertura"; id: string } | null;
 
 const CENA_VAZIA: Cena = { sala: { largura_cm: 1000, profundidade_cm: 800 }, planta: null, itens: [] };
 
@@ -16,7 +19,11 @@ function normalizarCena(bruta: Cena | null | undefined): Cena {
     zona: it.zona && ZONAS[it.zona] ? it.zona : "livre",
   }));
   const acabamentos = Array.isArray(base.acabamentos) ? base.acabamentos : [];
-  return { ...base, sala, itens, acabamentos };
+  const e = base.estrutura;
+  const estrutura: EstruturaPlanta | null = e && (Array.isArray(e.paredes) || Array.isArray(e.pilares))
+    ? { paredes: e.paredes ?? [], aberturas: e.aberturas ?? [], pilares: e.pilares ?? [] }
+    : null;
+  return { ...base, sala, itens, acabamentos, estrutura };
 }
 
 interface ProjetoState {
@@ -24,6 +31,7 @@ interface ProjetoState {
   cena: Cena;
   selectedId: string | null;
   selectedAcabId: string | null;
+  selEstrutura: SelEstrutura;
   dirty: boolean;
   salvando: boolean;
   past: Cena[];
@@ -49,6 +57,20 @@ interface ProjetoState {
   toggleCamada: (nome: string) => void;
   recortarVetorial: (rect: { x: number; y: number; w: number; h: number }) => void;
 
+  // Etapa 1 — estrutura
+  selecionarEstrutura: (sel: SelEstrutura) => void;
+  gerarEstruturaAuto: () => void;
+  limparEstrutura: () => void;
+  addParede: (p: Parede) => void;
+  updateParede: (id: string, patch: Partial<Parede>, commit?: boolean) => void;
+  removerParede: (id: string) => void;
+  addPilar: (p: PilarPlanta) => void;
+  updatePilar: (id: string, patch: Partial<PilarPlanta>, commit?: boolean) => void;
+  removerPilar: (id: string) => void;
+  addAbertura: (a: Abertura) => void;
+  updateAbertura: (id: string, patch: Partial<Abertura>, commit?: boolean) => void;
+  removerAbertura: (id: string) => void;
+
   undo: () => void;
   redo: () => void;
   salvar: () => Promise<void>;
@@ -61,6 +83,7 @@ export const useProjeto = create<ProjetoState>((set, get) => ({
   cena: CENA_VAZIA,
   selectedId: null,
   selectedAcabId: null,
+  selEstrutura: null,
   dirty: false,
   salvando: false,
   past: [],
@@ -68,15 +91,15 @@ export const useProjeto = create<ProjetoState>((set, get) => ({
 
   abrir(projeto) {
     const cena = normalizarCena(projeto.cena);
-    set({ projeto, cena, selectedId: null, selectedAcabId: null, dirty: false, past: [], future: [] });
+    set({ projeto, cena, selectedId: null, selectedAcabId: null, selEstrutura: null, dirty: false, past: [], future: [] });
   },
 
   selecionar(id) {
-    set({ selectedId: id, selectedAcabId: null });
+    set({ selectedId: id, selectedAcabId: null, selEstrutura: null });
   },
 
   selecionarAcab(id) {
-    set({ selectedAcabId: id, selectedId: null });
+    set({ selectedAcabId: id, selectedId: null, selEstrutura: null });
   },
 
   addArea(area) {
@@ -174,11 +197,84 @@ export const useProjeto = create<ProjetoState>((set, get) => ({
     });
   },
 
+  // ── Etapa 1 — estrutura (paredes / pilares / aberturas) ────────────────────
+  selecionarEstrutura(sel) {
+    set({ selEstrutura: sel, selectedId: null, selectedAcabId: null });
+  },
+
+  gerarEstruturaAuto() {
+    set((s) => ({ past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, estrutura: gerarEstrutura(s.cena) }, selEstrutura: null, dirty: true }));
+  },
+
+  limparEstrutura() {
+    set((s) => ({ past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, estrutura: estruturaVazia() }, selEstrutura: null, dirty: true }));
+  },
+
+  addParede(p) {
+    set((s) => {
+      const est = s.cena.estrutura ?? estruturaVazia();
+      return { past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, estrutura: { ...est, paredes: [...est.paredes, p] } }, selEstrutura: { tipo: "parede", id: p.id }, selectedId: null, selectedAcabId: null, dirty: true };
+    });
+  },
+  updateParede(id, patch, commit = true) {
+    set((s) => {
+      const est = s.cena.estrutura ?? estruturaVazia();
+      const paredes = est.paredes.map((p) => (p.id === id ? { ...p, ...patch } : p));
+      return { past: commit ? [...s.past, clone(s.cena)] : s.past, future: commit ? [] : s.future, cena: { ...s.cena, estrutura: { ...est, paredes } }, dirty: true };
+    });
+  },
+  removerParede(id) {
+    set((s) => {
+      const est = s.cena.estrutura ?? estruturaVazia();
+      return { past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, estrutura: { ...est, paredes: est.paredes.filter((p) => p.id !== id), aberturas: est.aberturas.filter((a) => a.paredeId !== id) } }, selEstrutura: null, dirty: true };
+    });
+  },
+
+  addPilar(p) {
+    set((s) => {
+      const est = s.cena.estrutura ?? estruturaVazia();
+      return { past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, estrutura: { ...est, pilares: [...est.pilares, p] } }, selEstrutura: { tipo: "pilar", id: p.id }, selectedId: null, selectedAcabId: null, dirty: true };
+    });
+  },
+  updatePilar(id, patch, commit = true) {
+    set((s) => {
+      const est = s.cena.estrutura ?? estruturaVazia();
+      const pilares = est.pilares.map((p) => (p.id === id ? { ...p, ...patch } : p));
+      return { past: commit ? [...s.past, clone(s.cena)] : s.past, future: commit ? [] : s.future, cena: { ...s.cena, estrutura: { ...est, pilares } }, dirty: true };
+    });
+  },
+  removerPilar(id) {
+    set((s) => {
+      const est = s.cena.estrutura ?? estruturaVazia();
+      return { past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, estrutura: { ...est, pilares: est.pilares.filter((p) => p.id !== id) } }, selEstrutura: null, dirty: true };
+    });
+  },
+
+  addAbertura(a) {
+    set((s) => {
+      const est = s.cena.estrutura ?? estruturaVazia();
+      return { past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, estrutura: { ...est, aberturas: [...est.aberturas, a] } }, selEstrutura: { tipo: "abertura", id: a.id }, selectedId: null, selectedAcabId: null, dirty: true };
+    });
+  },
+  updateAbertura(id, patch, commit = true) {
+    set((s) => {
+      const est = s.cena.estrutura ?? estruturaVazia();
+      const aberturas = est.aberturas.map((a) => (a.id === id ? { ...a, ...patch } : a));
+      return { past: commit ? [...s.past, clone(s.cena)] : s.past, future: commit ? [] : s.future, cena: { ...s.cena, estrutura: { ...est, aberturas } }, dirty: true };
+    });
+  },
+  removerAbertura(id) {
+    set((s) => {
+      const est = s.cena.estrutura ?? estruturaVazia();
+      return { past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, estrutura: { ...est, aberturas: est.aberturas.filter((a) => a.id !== id) } }, selEstrutura: null, dirty: true };
+    });
+  },
+
   undo() {
     set((s) => {
       if (!s.past.length) return {};
       const previous = s.past[s.past.length - 1];
-      return { cena: previous, past: s.past.slice(0, -1), future: [clone(s.cena), ...s.future], dirty: true, selectedId: null };
+      return { cena: previous, past: s.past.slice(0, -1), future: [clone(s.cena), ...s.future], dirty: true, selectedId: null, selEstrutura: null };
     });
   },
 
@@ -186,7 +282,7 @@ export const useProjeto = create<ProjetoState>((set, get) => ({
     set((s) => {
       if (!s.future.length) return {};
       const next = s.future[0];
-      return { cena: next, future: s.future.slice(1), past: [...s.past, clone(s.cena)], dirty: true, selectedId: null };
+      return { cena: next, future: s.future.slice(1), past: [...s.past, clone(s.cena)], dirty: true, selectedId: null, selEstrutura: null };
     });
   },
 

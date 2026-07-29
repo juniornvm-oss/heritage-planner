@@ -3,14 +3,7 @@
 // tools/importar.js e no IsTextEntity do dxf-viewer. PDF vetorial fica para outro ciclo.
 
 import type { Traco, Rotulo, Camada, PlantaVetorial } from "./types";
-
-const CDN = {
-  dxf: "https://cdn.jsdelivr.net/npm/dxf-parser@1.1.2/+esm",
-  dwg: "https://cdn.jsdelivr.net/npm/@mlightcad/libredwg-web/+esm",
-  pdf: "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.7.76/build/pdf.min.mjs",
-  pdfWorker: "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.7.76/build/pdf.worker.min.mjs",
-};
-const dyn = (u: string) => import(/* @vite-ignore */ u);
+import { carregarPdfjs, carregarDxfParser, carregarLibreDwg } from "./parsers";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Ent = any;
@@ -111,8 +104,7 @@ const mulM = (m: number[], n: number[]) => [m[0] * n[0] + m[2] * n[1], m[1] * n[
 const apM = (m: number[], x: number, y: number): [number, number] => [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]];
 
 async function lerPdfVetorial(file: File): Promise<PlantaVetorial | null> {
-  const pdfjs: Ent = await dyn(CDN.pdf);
-  try { pdfjs.GlobalWorkerOptions.workerSrc = CDN.pdfWorker; } catch { /* ok */ }
+  const pdfjs: Ent = await carregarPdfjs();
   const doc = await pdfjs.getDocument({ data: await file.arrayBuffer() }).promise;
   const page = await doc.getPage(1);
   const ol = await page.getOperatorList();
@@ -175,17 +167,15 @@ export async function lerPlantaVetorial(file: File): Promise<PlantaVetorial | nu
   const ext = (file.name.split(".").pop() || "").toLowerCase();
   if (ext === "pdf") return lerPdfVetorial(file);
   if (ext === "dxf") {
-    const mod: Ent = await dyn(CDN.dxf);
-    const DxfParser = mod.default || mod.DxfParser || mod;
-    const parsed = new DxfParser().parseSync(await file.text());
+    const DxfParser = await carregarDxfParser();
+    const parsed = (new DxfParser().parseSync(await file.text())) as Ent;
     const insunits = Number(parsed.header?.["$INSUNITS"] ?? 0);
     const g = dxfEntidadesParaVetorial(parsed.entities, parsed.blocks || {}, unitToCm(insunits));
     return g.tracos.length ? montar("dxf", g) : null;
   }
   if (ext === "dwg") {
-    const { LibreDwg, Dwg_File_Type }: Ent = await dyn(CDN.dwg);
-    const lib = await LibreDwg.create();
-    const dwg = lib.dwg_read_data(await file.arrayBuffer(), Dwg_File_Type.DWG);
+    const { lib, Dwg_File_Type }: Ent = await carregarLibreDwg();
+    const dwg = lib.dwg_read_data(new Uint8Array(await file.arrayBuffer()), Dwg_File_Type.DWG);
     const db = lib.convert(dwg);
     const blocks: Record<string, Ent> = {};
     (db.blocks || []).forEach((b: Ent) => { if (b?.name) blocks[b.name] = { entities: b.entities || [] }; });

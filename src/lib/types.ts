@@ -160,6 +160,33 @@ export interface PlantaVetorial {
   mostrarTexto: boolean; // separa desenho (sempre) de texto/anotações (toggle)
 }
 
+// ── Etapa 1: estrutura da planta (paredes, aberturas, pilares) ──────────────
+/** Parede: segmento de reta em cm (mundo), com espessura. */
+export interface Parede {
+  id: string;
+  x1: number; y1: number; x2: number; y2: number;
+  espessura_cm: number;
+}
+/** Abertura (porta/janela) posicionada sobre uma parede. */
+export interface Abertura {
+  id: string;
+  paredeId: string;
+  centro_cm: number; // distância do início da parede (x1,y1) até o centro da abertura
+  largura_cm: number;
+  tipo: "porta" | "janela";
+}
+/** Pilar estrutural (retângulo em cm). */
+export interface PilarPlanta {
+  id: string;
+  x_cm: number; y_cm: number; w_cm: number; h_cm: number;
+}
+/** Estrutura construtiva gerada/editada na Etapa 1. */
+export interface EstruturaPlanta {
+  paredes: Parede[];
+  aberturas: Abertura[];
+  pilares: PilarPlanta[];
+}
+
 /** Área de acabamento pintada na planta (piso/parede) — retângulo em cm. */
 export interface AreaAcabamento {
   id: string;
@@ -181,6 +208,7 @@ export interface Cena {
   plantaVetorial?: PlantaVetorial | null;
   itens: ItemPosicionado[];
   acabamentos?: AreaAcabamento[];
+  estrutura?: EstruturaPlanta | null; // Etapa 1: paredes/aberturas/pilares
 }
 
 /** Diagnóstico — perfil de uso do condomínio (planner.projetos.perfil jsonb). */

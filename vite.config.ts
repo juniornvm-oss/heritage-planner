@@ -8,6 +8,13 @@ export default defineConfig({
     VitePWA({
       registerType: "autoUpdate",
       includeAssets: ["config.js"],
+      workbox: {
+        // Parsers de planta (pdf.js worker, wasm do DWG) são chunks grandes e
+        // sob demanda — não faz sentido pré-cachear. Ficam fora do precache e
+        // são buscados na 1ª importação (mesma origem do app, sem CDN).
+        globIgnores: ["**/*.wasm"],
+        maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
+      },
       manifest: {
         name: "Heritage Planner",
         short_name: "Heritage",

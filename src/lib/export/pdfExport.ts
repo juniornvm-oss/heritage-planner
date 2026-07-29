@@ -5,7 +5,7 @@ import { resumo, matrizDaCena } from "../validation";
 import { BRL, formatLength } from "../units";
 
 // Paleta do dossiê
-const GOLD = rgb(0.788, 0.635, 0.153);
+const GOLD = rgb(0.722, 0.439, 0.290); // cobre da marca Heritage GymBuilder
 const DARK = rgb(0.11, 0.11, 0.11);
 const MUTED = rgb(0.45, 0.45, 0.45);
 const LINE = rgb(0.85, 0.85, 0.85);
@@ -49,7 +49,7 @@ export async function montarDossie(
   // Rodapé/assinatura vindos do Cadastro do consultor (fallback: padrão Heritage).
   const assinatura = (config?.rodape && config.rodape.trim())
     || [config?.empresa, "Assessoria Técnica de Implantação"].filter(Boolean).join(" · ")
-    || "Heritage Planner · Assessoria Técnica de Implantação";
+    || "Heritage GymBuilder · Assessoria Técnica de Implantação";
   const cena = projeto.cena!;
   const r = resumo(cena);
   const doc = await PDFDocument.create();

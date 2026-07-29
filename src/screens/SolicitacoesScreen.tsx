@@ -100,7 +100,7 @@ function Detalhe({ s, busy, onConverter, onArquivar }: { s: Solicitacao; busy: b
         <h2 className="brandface" style={{ fontSize: 22 }}>{s.condominio}</h2>
         <div style={{ display: "flex", gap: 8 }}>
           {s.status !== "arquivada" && <button className="btn" disabled={busy} onClick={onArquivar}>Arquivar</button>}
-          {s.status !== "convertida" && <button className="btn btn-gold" disabled={busy} onClick={onConverter}>Converter em projeto</button>}
+          {s.status !== "convertida" && <button className="btn btn-primary" disabled={busy} onClick={onConverter}>Converter em projeto</button>}
           {s.status === "convertida" && <span className="pill" style={{ color: "#7ec98f" }}>Já convertida</span>}
         </div>
       </div>

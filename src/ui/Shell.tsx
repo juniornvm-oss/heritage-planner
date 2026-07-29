@@ -17,22 +17,22 @@ export default function Shell({ children, actions }: { children: ReactNode; acti
   const { sessao } = useAuth();
   return (
     <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
-      <header style={{
-        display: "flex", alignItems: "center", gap: 22,
-        padding: "calc(16px + var(--sat)) calc(24px + var(--sar)) 16px calc(24px + var(--sal))",
-        borderBottom: "2px solid var(--gold)", flexWrap: "wrap",
+      <header className="appbar safe-top" style={{
+        display: "flex", alignItems: "center", gap: 20,
+        padding: "14px calc(22px + var(--sar)) 14px calc(22px + var(--sal))",
+        flexWrap: "wrap", position: "sticky", top: 0, zIndex: 20,
       }}>
-        <Link to="/" className="brandface" style={{ fontSize: 26 }}>
-          HERITAGE <span style={{ color: "var(--gold)" }}>PLANNER</span>
+        <Link to="/" style={{ display: "flex", alignItems: "center", gap: 11 }}>
+          <img src="/icons/icon-192.png" alt="" style={{ width: 32, height: 32, borderRadius: 8 }} />
+          <span className="brandface" style={{ fontSize: 22, lineHeight: 1 }}>
+            HERITAGE <span style={{ color: "var(--gold)" }}>GYMBUILDER</span>
+          </span>
         </Link>
-        <nav style={{ display: "flex", gap: 6 }}>
+        <nav className="nav">
           {nav.map((n) => {
             const active = n.to === "/" ? loc.pathname === "/" : loc.pathname.startsWith(n.to);
             return (
-              <Link key={n.to} to={n.to} className="btn" style={{
-                borderColor: active ? "var(--gold)" : "var(--line-2)",
-                color: active ? "var(--gold)" : "#d9d9d4",
-              }}>{n.label}</Link>
+              <Link key={n.to} to={n.to} className={"nav-link" + (active ? " active" : "")}>{n.label}</Link>
             );
           })}
         </nav>

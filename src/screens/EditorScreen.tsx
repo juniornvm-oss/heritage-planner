@@ -4,7 +4,7 @@ import type Konva from "konva";
 import EditorCanvas from "../editor/EditorCanvas";
 import { useProjeto } from "../store/projetoStore";
 import { useLibrary } from "../store/libraryStore";
-import { obterProjeto, criarProjeto } from "../lib/supabase";
+import { obterProjeto, criarProjeto, obterConfigConsultor } from "../lib/supabase";
 import { heritageProjeto } from "../lib/seed";
 import { lerPlanta } from "../lib/planta";
 import { lerPlantaVetorial } from "../lib/plantaVetorial";
@@ -181,7 +181,8 @@ export default function EditorScreen() {
     setBusy("Gerando PDF…");
     try {
       const png = stageRef.current ? stageRef.current.toDataURL({ pixelRatio: 2 }) : null;
-      await exportarPdf({ ...projeto, cena }, png, equipamentos);
+      const config = await obterConfigConsultor();
+      await exportarPdf({ ...projeto, cena }, png, equipamentos, config);
     } catch (e) { setErro((e as Error).message); } finally { setBusy(null); }
   }
 

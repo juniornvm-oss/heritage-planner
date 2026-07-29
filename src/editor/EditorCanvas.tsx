@@ -9,7 +9,7 @@ import { formatLength } from "../lib/units";
 import { arred } from "../lib/estrutura";
 
 export type Etapa = "planta" | "acabamento" | "layout";
-export type FerramentaEstrutura = "parede" | "porta" | "janela" | "pilar" | null;
+export type FerramentaEstrutura = "parede" | "porta" | "janela" | "pilar" | "apagar" | null;
 
 // Ponto mais próximo sobre um segmento (parede) e distância — para encaixar aberturas.
 function projetarNaParede(px: number, py: number, w: Parede) {
@@ -61,6 +61,9 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, modoAcabamento,
   const addAbertura = useProjeto((s) => s.addAbertura);
   const updateParede = useProjeto((s) => s.updateParede);
   const updatePilar = useProjeto((s) => s.updatePilar);
+  const removerParede = useProjeto((s) => s.removerParede);
+  const removerPilar = useProjeto((s) => s.removerPilar);
+  const removerAbertura = useProjeto((s) => s.removerAbertura);
   const updateItem = useProjeto((s) => s.updateItem);
   const updateArea = useProjeto((s) => s.updateArea);
   const updatePlanta = useProjeto((s) => s.updatePlanta);
@@ -257,6 +260,13 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, modoAcabamento,
   const itensAtivos = etapaAtual === "layout" && !drawing && !somenteLeitura && !modoMoverPlanta;
   const areasAtivas = etapaAtual === "acabamento" && !drawing && !somenteLeitura && !modoMoverPlanta;
   const estAtiva = etapaAtual === "planta" && !drawing && !somenteLeitura && !modoMoverPlanta;
+  const apagando = estAtiva && ferrEstrutura === "apagar"; // toque no elemento = apagar
+  // Toque num elemento da estrutura: apaga (modo ⌫) ou seleciona.
+  const tocarEstrutura = (tipo: "parede" | "pilar" | "abertura", id: string) => {
+    if (apagando) {
+      if (tipo === "parede") removerParede(id); else if (tipo === "pilar") removerPilar(id); else removerAbertura(id);
+    } else selecionarEstrutura({ tipo, id });
+  };
   const bloquear = !areasAtivas; // usado pelas áreas de acabamento (compat.)
   const camVis = useMemo(() => new Map((pv?.camadas ?? []).map((c) => [c.nome, c.visivel])), [pv]);
 
@@ -267,7 +277,7 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, modoAcabamento,
   }, [selectedAcabId, drawing, cena.acabamentos]);
 
   return (
-    <div ref={wrapRef} style={{ position: "absolute", inset: 0, cursor: drawing ? "crosshair" : modoMoverPlanta ? "grab" : pan.current ? "grabbing" : "default", background: "#0C0C0E" }}>
+    <div ref={wrapRef} style={{ position: "absolute", inset: 0, cursor: apagando ? "not-allowed" : drawing ? "crosshair" : modoMoverPlanta ? "grab" : pan.current ? "grabbing" : "default", background: "#0C0C0E" }}>
       <Stage ref={stageRef} width={size.w} height={size.h} onWheel={onWheel}
         onMouseDown={stageDown} onMouseMove={stageMove} onMouseUp={stageUp}
         onTouchStart={stageDown} onTouchMove={stageMove} onTouchEnd={stageUp}>
@@ -329,8 +339,8 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, modoAcabamento,
                   return (
                     <Rect key={p.id} x={p.x_cm} y={p.y_cm} width={p.w_cm} height={p.h_cm} fill="#2B2B2E"
                       stroke={sel ? "#C9A227" : "#8A8A8F"} strokeWidth={(sel ? 4 : 2) / cam.zoom}
-                      listening={estAtiva} draggable={estAtiva}
-                      onMouseDown={() => selecionarEstrutura({ tipo: "pilar", id: p.id })} onTap={() => selecionarEstrutura({ tipo: "pilar", id: p.id })}
+                      listening={estAtiva} draggable={estAtiva && !apagando}
+                      onMouseDown={() => tocarEstrutura("pilar", p.id)} onTap={() => tocarEstrutura("pilar", p.id)}
                       onDragMove={(e) => updatePilar(p.id, { x_cm: e.target.x(), y_cm: e.target.y() }, false)}
                       onDragEnd={(e) => updatePilar(p.id, { x_cm: arred(e.target.x()), y_cm: arred(e.target.y()) })} />
                   );
@@ -343,7 +353,7 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, modoAcabamento,
                     <Group key={w.id}>
                       <Line points={[w.x1, w.y1, w.x2, w.y2]} stroke={sel ? "#C9A227" : "#C9C9C4"} strokeWidth={Math.max(w.espessura_cm, 4)}
                         lineCap="round" hitStrokeWidth={Math.max(w.espessura_cm, 34 / cam.zoom)} listening={estAtiva}
-                        onMouseDown={() => selecionarEstrutura({ tipo: "parede", id: w.id })} onTap={() => selecionarEstrutura({ tipo: "parede", id: w.id })} />
+                        onMouseDown={() => tocarEstrutura("parede", w.id)} onTap={() => tocarEstrutura("parede", w.id)} />
                       {sel && (
                         <Text x={(w.x1 + w.x2) / 2} y={(w.y1 + w.y2) / 2 - 22 / cam.zoom} text={formatLength(len)}
                           fontSize={15 / cam.zoom} fill="#C9A227" listening={false} />
@@ -368,7 +378,7 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, modoAcabamento,
                   const px = -uy, py = ux; // perpendicular (batente da porta)
                   return (
                     <Group key={ab.id} listening={estAtiva}
-                      onMouseDown={() => selecionarEstrutura({ tipo: "abertura", id: ab.id })} onTap={() => selecionarEstrutura({ tipo: "abertura", id: ab.id })}>
+                      onMouseDown={() => tocarEstrutura("abertura", ab.id)} onTap={() => tocarEstrutura("abertura", ab.id)}>
                       {/* "corta" a parede no vão */}
                       <Line points={[ax, ay, bx, by]} stroke="#0C0C0E" strokeWidth={w.espessura_cm + 3} lineCap="butt" listening={false} />
                       {ab.tipo === "janela"

@@ -67,6 +67,7 @@ interface ProjetoState {
   addPilar: (p: PilarPlanta) => void;
   updatePilar: (id: string, patch: Partial<PilarPlanta>, commit?: boolean) => void;
   removerPilar: (id: string) => void;
+  girarEstruturaSel: () => void;
   addAbertura: (a: Abertura) => void;
   updateAbertura: (id: string, patch: Partial<Abertura>, commit?: boolean) => void;
   removerAbertura: (id: string) => void;
@@ -247,6 +248,34 @@ export const useProjeto = create<ProjetoState>((set, get) => ({
     set((s) => {
       const est = s.cena.estrutura ?? estruturaVazia();
       return { past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, estrutura: { ...est, pilares: est.pilares.filter((p) => p.id !== id) } }, selEstrutura: null, dirty: true };
+    });
+  },
+
+  // Gira 90° o elemento estrutural selecionado, em torno do próprio centro:
+  // parede gira o segmento; pilar troca largura ↔ profundidade.
+  girarEstruturaSel() {
+    const sel = get().selEstrutura;
+    if (!sel) return;
+    set((s) => {
+      const est = s.cena.estrutura;
+      if (!est) return {};
+      if (sel.tipo === "parede") {
+        const paredes = est.paredes.map((p) => {
+          if (p.id !== sel.id) return p;
+          const cx = (p.x1 + p.x2) / 2, cy = (p.y1 + p.y2) / 2;
+          return { ...p, x1: cx - (p.y1 - cy), y1: cy + (p.x1 - cx), x2: cx - (p.y2 - cy), y2: cy + (p.x2 - cx) };
+        });
+        return { past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, estrutura: { ...est, paredes } }, dirty: true };
+      }
+      if (sel.tipo === "pilar") {
+        const pilares = est.pilares.map((p) => {
+          if (p.id !== sel.id) return p;
+          const cx = p.x_cm + p.w_cm / 2, cy = p.y_cm + p.h_cm / 2;
+          return { ...p, x_cm: cx - p.h_cm / 2, y_cm: cy - p.w_cm / 2, w_cm: p.h_cm, h_cm: p.w_cm };
+        });
+        return { past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, estrutura: { ...est, pilares } }, dirty: true };
+      }
+      return {};
     });
   },
 

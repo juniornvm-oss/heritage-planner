@@ -115,14 +115,17 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, modoAcabamento,
 
   function onWheel(e: Konva.KonvaEventObject<WheelEvent>) {
     e.evt.preventDefault();
-    const stage = e.target.getStage()!;
-    const p = stage.getPointerPosition()!;
+    const stage = e.target.getStage();
+    const p = stage?.getPointerPosition();
+    if (!p) return;
     zoomAt(p.x, p.y, e.evt.deltaY < 0 ? 1.1 : 1 / 1.1);
   }
 
   function stageDown(e: Konva.KonvaEventObject<MouseEvent | TouchEvent>) {
-    const stage = e.target.getStage()!;
-    const p = stage.getPointerPosition()!;
+    const stage = e.target.getStage();
+    if (!stage) return;
+    const p = stage.getPointerPosition();
+    if (!p) return;
     const emVazio = e.target === stage || e.target.name() === "bg";
     if (modoCalibrar && emVazio) {
       const w = toWorld(p.x, p.y);
@@ -209,22 +212,27 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, modoAcabamento,
   }
 
   function stageMove(e: Konva.KonvaEventObject<MouseEvent | TouchEvent>) {
-    const stage = e.target.getStage()!;
+    const stage = e.target.getStage();
+    if (!stage) return;
     const touches = (e.evt as TouchEvent).touches;
-    if (touches && touches.length === 2 && pinch.current) {
+    // Captura os refs em locais ANTES do setCam: o updater roda depois e o
+    // stageUp pode zerar pinch/pan nesse meio-tempo (crash "current.x" no iPad).
+    const pinchAtual = pinch.current;
+    if (touches && touches.length === 2 && pinchAtual) {
       const [a, b] = [touches[0], touches[1]];
       const dist = Math.hypot(b.clientX - a.clientX, b.clientY - a.clientY);
       const cx = (a.clientX + b.clientX) / 2, cy = (a.clientY + b.clientY) / 2;
-      const rect = wrapRef.current!.getBoundingClientRect();
-      const factor = dist / (pinch.current.dist || dist);
-      zoomAt(cx - rect.left, cy - rect.top, factor);
-      setCam((c) => ({ ...c, x: c.x + (cx - pinch.current!.cx), y: c.y + (cy - pinch.current!.cy) }));
+      const rect = wrapRef.current?.getBoundingClientRect();
+      if (rect) zoomAt(cx - rect.left, cy - rect.top, dist / (pinchAtual.dist || dist));
+      setCam((c) => ({ ...c, x: c.x + (cx - pinchAtual.cx), y: c.y + (cy - pinchAtual.cy) }));
       pinch.current = { dist, cx, cy };
       return;
     }
-    if (pan.current) {
-      const p = stage.getPointerPosition()!;
-      setCam((c) => ({ ...c, x: c.x + (p.x - pan.current!.x), y: c.y + (p.y - pan.current!.y) }));
+    const panAtual = pan.current;
+    if (panAtual) {
+      const p = stage.getPointerPosition();
+      if (!p) return;
+      setCam((c) => ({ ...c, x: c.x + (p.x - panAtual.x), y: c.y + (p.y - panAtual.y) }));
       pan.current = { x: p.x, y: p.y };
     }
   }

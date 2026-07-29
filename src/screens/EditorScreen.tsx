@@ -241,7 +241,8 @@ export default function EditorScreen() {
             {etapa === "planta" && <>
               <input ref={fileRef} type="file" style={{ display: "none" }} onChange={(e) => importarPlanta(e.target.files?.[0])} />
               <button className="btn btn-blue" onClick={() => fileRef.current?.click()}>⭱ Planta</button>
-              <button className="btn" disabled={!cena.planta && !cena.plantaVetorial} onClick={() => { limparModos(); setModoCalibrar(true); }} style={modoCalibrar ? { borderColor: "#5FC8E8", color: "#8fd6f0" } : undefined}>📐 Calibrar</button>
+              <button className="btn" disabled={!cena.planta && !cena.plantaVetorial} onClick={() => { limparModos(); setModoParede(true); }} style={modoParede ? { borderColor: "#C97BE0", color: "#C97BE0" } : undefined} title="Alinhar a planta: toque as 2 pontas de uma parede de medida conhecida — a planta é escalada, girada e encaixada">📐 Alinhar</button>
+              <button className="btn" disabled={!cena.planta && !cena.plantaVetorial} onClick={() => { limparModos(); setModoCalibrar(true); }} style={modoCalibrar ? { borderColor: "#5FC8E8", color: "#8fd6f0" } : undefined} title="Ajustar só a escala: toque 2 pontos de medida conhecida">📏 Calibrar</button>
               <button className="btn" disabled={!cena.planta && !cena.plantaVetorial} onClick={() => { limparModos(); setModoMoverPlanta(true); }} style={modoMoverPlanta ? { borderColor: "#5FBF7A", color: "#5FBF7A" } : undefined} title="Arrastar a planta de fundo">🖐 Mover</button>
               {cena.plantaVetorial && <button className="btn" onClick={() => { limparModos(); setModoRecorte(true); }} style={modoRecorte ? { borderColor: "#5FBF7A", color: "#5FBF7A" } : undefined}>✂ Recortar</button>}
               <span style={{ width: 1, height: 22, background: "var(--line-2)", margin: "0 4px" }} />

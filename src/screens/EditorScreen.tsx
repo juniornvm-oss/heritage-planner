@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import type Konva from "konva";
-import EditorCanvas from "../editor/EditorCanvas";
+import EditorCanvas, { type Etapa, type FerramentaEstrutura } from "../editor/EditorCanvas";
 import { useProjeto } from "../store/projetoStore";
 import { useLibrary } from "../store/libraryStore";
 import { obterProjeto, criarProjeto } from "../lib/supabase";
@@ -18,8 +18,9 @@ export default function EditorScreen() {
   const { id } = useParams();
   const nav = useNavigate();
   const somenteLeitura = id === "heritage"; // projeto legado: só visualização (evita os bugs de edição)
-  const { projeto, cena, selectedId, selectedAcabId, dirty, salvando } = useProjeto();
+  const { projeto, cena, selectedId, selectedAcabId, selEstrutura, dirty, salvando } = useProjeto();
   const { abrir, selecionar, addItem, updateItem, removerSelecionado, girarSelecionado, setPlanta, updatePlanta, setPlantaVetorial, updatePlantaVetorial, recortarVetorial, addArea, undo, redo, salvar } = useProjeto();
+  const { gerarEstruturaAuto, limparEstrutura } = useProjeto();
   const equipamentos = useLibrary((s) => s.equipamentos);
   const acabamentos = useLibrary((s) => s.acabamentos);
 
@@ -30,7 +31,16 @@ export default function EditorScreen() {
   const [modoRecorte, setModoRecorte] = useState(false);
   const [modoParede, setModoParede] = useState(false);
   const [modoMoverPlanta, setModoMoverPlanta] = useState(false);
+  const [etapa, setEtapa] = useState<Etapa>("planta");
+  const [ferrEstrutura, setFerrEstrutura] = useState<FerramentaEstrutura>(null);
   const [busy, setBusy] = useState<string | null>(null);
+
+  // Desliga todos os modos/ferramentas (usado ao trocar de etapa).
+  function limparModos() {
+    setModoCalibrar(false); setModoAcabamento(false); setModoRecorte(false);
+    setModoParede(false); setModoMoverPlanta(false); setFerrEstrutura(null);
+  }
+  function irParaEtapa(e: Etapa) { limparModos(); selecionar(null); setEtapa(e); }
   const fileRef = useRef<HTMLInputElement>(null);
   const stageRef = useRef<Konva.Stage>(null);
 
@@ -199,7 +209,7 @@ export default function EditorScreen() {
   return (
     <div style={{ position: "fixed", inset: 0, display: "flex", flexDirection: "column", background: "var(--bg)" }}>
       {/* Toolbar */}
-      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "calc(8px + var(--sat)) calc(12px + var(--sar)) 8px calc(12px + var(--sal))", borderBottom: "1px solid var(--line)", flexShrink: 0 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, rowGap: 6, flexWrap: "wrap", padding: "calc(8px + var(--sat)) calc(12px + var(--sar)) 8px calc(12px + var(--sal))", borderBottom: "1px solid var(--line)", flexShrink: 0 }}>
         <button className="btn" onClick={() => nav("/")}>←</button>
         <span className="brandface" style={{ fontSize: 18, color: "var(--gold)" }}>{projeto.nome}</span>
         {id && id !== "heritage" && (
@@ -218,15 +228,40 @@ export default function EditorScreen() {
         {!somenteLeitura && (
           <>
             <span style={{ width: 1, height: 22, background: "var(--line-2)", margin: "0 4px" }} />
-            <input ref={fileRef} type="file" style={{ display: "none" }} onChange={(e) => importarPlanta(e.target.files?.[0])} />
-            <button className="btn btn-blue" onClick={() => fileRef.current?.click()}>⭱ Planta</button>
-            <button className="btn" disabled={!cena.planta && !cena.plantaVetorial} onClick={() => { const v = !modoCalibrar; setModoCalibrar(v); setModoAcabamento(false); setModoRecorte(false); setModoParede(false); setModoMoverPlanta(false); }} style={modoCalibrar ? { borderColor: "#5FC8E8", color: "#8fd6f0" } : undefined}>📐 Calibrar</button>
-            <button className="btn" disabled={!cena.planta && !cena.plantaVetorial} onClick={() => { const v = !modoParede; setModoParede(v); setModoCalibrar(false); setModoAcabamento(false); setModoRecorte(false); setModoMoverPlanta(false); }} style={modoParede ? { borderColor: "#C97BE0", color: "#C97BE0" } : undefined} title="Enquadrar a planta por uma parede de referência">📏 Parede</button>
-            <button className="btn" disabled={!cena.planta && !cena.plantaVetorial} onClick={() => { const v = !modoMoverPlanta; setModoMoverPlanta(v); setModoCalibrar(false); setModoAcabamento(false); setModoRecorte(false); setModoParede(false); }} style={modoMoverPlanta ? { borderColor: "#5FBF7A", color: "#5FBF7A" } : undefined} title="Arrastar a planta de fundo para posicionar">🖐 Mover</button>
-            <button className="btn" onClick={() => { setModoAcabamento((v) => !v); setModoCalibrar(false); setModoRecorte(false); setModoParede(false); setModoMoverPlanta(false); }} style={modoAcabamento ? { borderColor: "#C9A227", color: "#C9A227" } : undefined}>▦ Acabamento</button>
-            {cena.plantaVetorial && <button className="btn" onClick={() => { setModoRecorte((v) => !v); setModoCalibrar(false); setModoAcabamento(false); setModoParede(false); setModoMoverPlanta(false); }} style={modoRecorte ? { borderColor: "#5FBF7A", color: "#5FBF7A" } : undefined}>✂ Recortar</button>}
-            <button className="btn" disabled={!selItem} onClick={() => girarSelecionado()}>↻ Girar</button>
-            <button className="btn" disabled={!selItem} onClick={removerSelecionado}>✕</button>
+            {/* Abas das 3 etapas */}
+            {([["planta", "1 · Planta"], ["acabamento", "2 · Acabamento"], ["layout", "3 · Layout"]] as [Etapa, string][]).map(([e, lbl]) => (
+              <button key={e} className="btn" onClick={() => irParaEtapa(e)} style={etapa === e
+                ? { borderColor: "var(--gold)", color: "var(--gold)", background: "var(--gold-soft)" }
+                : undefined}>{lbl}</button>
+            ))}
+            <span style={{ width: 1, height: 22, background: "var(--line-2)", margin: "0 4px" }} />
+
+            {/* Ferramentas da ETAPA 1 — PLANTA */}
+            {etapa === "planta" && <>
+              <input ref={fileRef} type="file" style={{ display: "none" }} onChange={(e) => importarPlanta(e.target.files?.[0])} />
+              <button className="btn btn-blue" onClick={() => fileRef.current?.click()}>⭱ Planta</button>
+              <button className="btn" disabled={!cena.planta && !cena.plantaVetorial} onClick={() => { limparModos(); setModoCalibrar(true); }} style={modoCalibrar ? { borderColor: "#5FC8E8", color: "#8fd6f0" } : undefined}>📐 Calibrar</button>
+              <button className="btn" disabled={!cena.planta && !cena.plantaVetorial} onClick={() => { limparModos(); setModoMoverPlanta(true); }} style={modoMoverPlanta ? { borderColor: "#5FBF7A", color: "#5FBF7A" } : undefined} title="Arrastar a planta de fundo">🖐 Mover</button>
+              {cena.plantaVetorial && <button className="btn" onClick={() => { limparModos(); setModoRecorte(true); }} style={modoRecorte ? { borderColor: "#5FBF7A", color: "#5FBF7A" } : undefined}>✂ Recortar</button>}
+              <span style={{ width: 1, height: 22, background: "var(--line-2)", margin: "0 4px" }} />
+              <button className="btn" onClick={() => gerarEstruturaAuto()} disabled={!cena.planta && !cena.plantaVetorial} title="Gerar paredes/pilares a partir da planta importada">✨ Auto</button>
+              {([["parede", "▮ Parede"], ["porta", "🚪 Porta"], ["janela", "🪟 Janela"], ["pilar", "◼ Pilar"]] as [FerramentaEstrutura, string][]).map(([f, lbl]) => (
+                <button key={f} className="btn" onClick={() => { const v = ferrEstrutura === f ? null : f; limparModos(); setFerrEstrutura(v); }} style={ferrEstrutura === f ? { borderColor: "var(--gold)", color: "var(--gold)" } : undefined}>{lbl}</button>
+              ))}
+              {cena.estrutura && <button className="btn" onClick={() => { if (confirm("Apagar toda a estrutura (paredes/portas/pilares)?")) limparEstrutura(); }} title="Limpar estrutura">🗑</button>}
+            </>}
+
+            {/* Ferramentas da ETAPA 2 — ACABAMENTO */}
+            {etapa === "acabamento" && <>
+              <button className="btn" onClick={() => { const v = !modoAcabamento; limparModos(); setModoAcabamento(v); }} style={modoAcabamento ? { borderColor: "#C9A227", color: "#C9A227" } : undefined}>▦ Nova área</button>
+            </>}
+
+            {/* Ferramentas da ETAPA 3 — LAYOUT */}
+            {etapa === "layout" && <>
+              <button className="btn" disabled={!selItem} onClick={() => girarSelecionado()}>↻ Girar 90°</button>
+              <button className="btn" disabled={!selItem} onClick={removerSelecionado}>✕ Remover</button>
+            </>}
+
             <span style={{ width: 1, height: 22, background: "var(--line-2)", margin: "0 4px" }} />
             <button className="btn" onClick={undo}>⤺</button>
             <button className="btn" onClick={redo}>⤻</button>
@@ -238,6 +273,9 @@ export default function EditorScreen() {
           {modoParede && <span style={{ fontSize: 12, color: "#C97BE0" }}>toque as 2 pontas de uma parede de medida conhecida</span>}
           {modoMoverPlanta && <span style={{ fontSize: 12, color: "#5FBF7A" }}>arraste a planta para posicionar</span>}
           {modoAcabamento && <span style={{ fontSize: 12, color: "var(--gold)" }}>toque 2 cantos da área a revestir</span>}
+          {ferrEstrutura === "parede" && <span style={{ fontSize: 12, color: "var(--gold)" }}>toque as 2 pontas da parede</span>}
+          {ferrEstrutura === "pilar" && <span style={{ fontSize: 12, color: "var(--gold)" }}>toque 2 cantos do pilar</span>}
+          {(ferrEstrutura === "porta" || ferrEstrutura === "janela") && <span style={{ fontSize: 12, color: "var(--gold)" }}>toque sobre a parede onde fica {ferrEstrutura === "porta" ? "a porta" : "a janela"}</span>}
           {somenteLeitura
             ? <button className="btn btn-gold" onClick={() => nav("/novo")}>＋ Começar meu Heritage</button>
             : <button className="btn btn-gold" disabled={salvando} onClick={() => void salvar()}>{salvando ? "Salvando…" : dirty ? "💾 Salvar" : "✓ Salvo"}</button>}
@@ -264,8 +302,8 @@ export default function EditorScreen() {
       )}
 
       <div style={{ flex: 1, display: "flex", minHeight: 0 }}>
-        {/* Rail esquerdo: biblioteca (oculto no modo referência) */}
-        {!somenteLeitura && (
+        {/* Rail esquerdo: biblioteca de equipamentos — só na Etapa 3 (Layout) */}
+        {!somenteLeitura && etapa === "layout" && (
           <aside style={{ width: 210, flexShrink: 0, borderRight: "1px solid var(--line)", overflow: "auto", padding: "10px 10px 10px calc(10px + var(--sal))" }}>
             <div className="brandface" style={{ fontSize: 15, color: "var(--gold)", marginBottom: 8 }}>BIBLIOTECA</div>
             <div style={{ display: "grid", gap: 5 }}>
@@ -290,6 +328,7 @@ export default function EditorScreen() {
           <EditorCanvas modoCalibrar={modoCalibrar} onCalibrar={onCalibrar} modoAcabamento={modoAcabamento} onArea={onArea}
             modoRecorte={modoRecorte} onRecorte={(rect) => { recortarVetorial(rect); setModoRecorte(false); }}
             modoParede={modoParede} onParede={onParede} modoMoverPlanta={modoMoverPlanta}
+            etapa={etapa} ferrEstrutura={ferrEstrutura}
             stageRef={stageRef} somenteLeitura={somenteLeitura} />
         </div>
 
@@ -310,6 +349,8 @@ export default function EditorScreen() {
               <button className="btn btn-gold" onClick={() => nav("/novo")}>＋ Começar meu Heritage</button>
               <div style={{ fontSize: 11, color: "#6e6e73", lineHeight: 1.5 }}>Use o pinch/scroll para dar zoom e arrastar a vista.</div>
             </div>
+          ) : etapa === "planta" ? (
+            selEstrutura ? <EstruturaInspector sel={selEstrutura} /> : <PlantaEtapaInspector temPlanta={!!(cena.planta || cena.plantaVetorial)} temEstrutura={!!cena.estrutura} />
           ) : selItem ? (
             <div style={{ display: "grid", gap: 12 }}>
               <div className="brandface" style={{ fontSize: 16, color: "var(--gold)" }}>{selItem.nome}</div>
@@ -464,6 +505,85 @@ function PlantaVetorialInspector() {
         </Bloco>
       )}
       <button className="btn" onClick={() => setPV(null)}>Remover planta</button>
+    </div>
+  );
+}
+
+// Inspetor da Etapa 1 sem seleção: orientação + gerar estrutura.
+function PlantaEtapaInspector({ temPlanta, temEstrutura }: { temPlanta: boolean; temEstrutura: boolean }) {
+  return (
+    <div style={{ display: "grid", gap: 12 }}>
+      <div className="brandface" style={{ fontSize: 16, color: "var(--gold)" }}>ETAPA 1 · PLANTA</div>
+      <p style={{ color: "#b6b6b1", fontSize: 12.5, lineHeight: 1.6 }}>
+        <b style={{ color: "#e9e9e6" }}>1.</b> Suba o arquivo em <b>⭱ Planta</b> (PDF, DWG, DXF ou imagem).<br />
+        <b style={{ color: "#e9e9e6" }}>2.</b> Ajuste a escala com <b>📐 Calibrar</b> e posicione com <b>🖐 Mover</b>.<br />
+        <b style={{ color: "#e9e9e6" }}>3.</b> Toque <b style={{ color: "var(--gold)" }}>✨ Auto</b> para gerar paredes e pilares já em escala.
+      </p>
+      <p style={{ color: "#b6b6b1", fontSize: 12.5, lineHeight: 1.6 }}>
+        Depois refine à mão: <b>▮ Parede</b>, <b>🚪 Porta</b>, <b>🪟 Janela</b> e <b>◼ Pilar</b>. Toque um elemento para editar medida/espessura.
+      </p>
+      {!temPlanta && <div style={{ fontSize: 11.5, color: "#E09A45" }}>Comece subindo a planta em ⭱ Planta.</div>}
+      {temPlanta && !temEstrutura && <div style={{ fontSize: 11.5, color: "var(--gold)" }}>Planta carregada — toque ✨ Auto para gerar a estrutura.</div>}
+    </div>
+  );
+}
+
+// Inspetor de um elemento da estrutura (parede / pilar / porta / janela).
+function EstruturaInspector({ sel }: { sel: { tipo: "parede" | "pilar" | "abertura"; id: string } }) {
+  const est = useProjeto((s) => s.cena.estrutura);
+  const updateParede = useProjeto((s) => s.updateParede);
+  const updatePilar = useProjeto((s) => s.updatePilar);
+  const updateAbertura = useProjeto((s) => s.updateAbertura);
+  const removerParede = useProjeto((s) => s.removerParede);
+  const removerPilar = useProjeto((s) => s.removerPilar);
+  const removerAbertura = useProjeto((s) => s.removerAbertura);
+  if (!est) return null;
+
+  if (sel.tipo === "parede") {
+    const p = est.paredes.find((x) => x.id === sel.id); if (!p) return null;
+    const len = Math.hypot(p.x2 - p.x1, p.y2 - p.y1);
+    return (
+      <div style={{ display: "grid", gap: 12 }}>
+        <div className="brandface" style={{ fontSize: 16, color: "var(--gold)" }}>PAREDE</div>
+        <div style={{ fontSize: 12, color: "var(--muted)" }}>Comprimento<br /><b style={{ color: "#e9e9e6", fontSize: 15 }}>{formatLength(len)}</b></div>
+        <Bloco label="ESPESSURA (cm)">
+          <input className="fld" type="number" min={3} value={p.espessura_cm} onChange={(e) => updateParede(p.id, { espessura_cm: Math.max(3, +e.target.value || 0) })} />
+        </Bloco>
+        <button className="btn" onClick={() => removerParede(p.id)}>✕ Remover parede</button>
+      </div>
+    );
+  }
+  if (sel.tipo === "pilar") {
+    const p = est.pilares.find((x) => x.id === sel.id); if (!p) return null;
+    return (
+      <div style={{ display: "grid", gap: 12 }}>
+        <div className="brandface" style={{ fontSize: 16, color: "var(--gold)" }}>PILAR</div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <Bloco label="LARGURA (cm)"><input className="fld" type="number" min={5} value={p.w_cm} onChange={(e) => updatePilar(p.id, { w_cm: Math.max(5, +e.target.value || 0) })} /></Bloco>
+          <Bloco label="PROFUND. (cm)"><input className="fld" type="number" min={5} value={p.h_cm} onChange={(e) => updatePilar(p.id, { h_cm: Math.max(5, +e.target.value || 0) })} /></Bloco>
+        </div>
+        <button className="btn" onClick={() => removerPilar(p.id)}>✕ Remover pilar</button>
+      </div>
+    );
+  }
+  const a = est.aberturas.find((x) => x.id === sel.id); if (!a) return null;
+  return (
+    <div style={{ display: "grid", gap: 12 }}>
+      <div className="brandface" style={{ fontSize: 16, color: "var(--gold)" }}>{a.tipo === "porta" ? "PORTA" : "JANELA"}</div>
+      <Bloco label="TIPO">
+        <div style={{ display: "flex", gap: 6 }}>
+          {(["porta", "janela"] as const).map((t) => (
+            <button key={t} className="btn" onClick={() => updateAbertura(a.id, { tipo: t })} style={{ flex: 1, padding: "8px 4px", fontSize: 11, borderColor: a.tipo === t ? "var(--gold)" : "var(--line-2)", color: a.tipo === t ? "var(--gold)" : "var(--muted)" }}>{t === "porta" ? "Porta" : "Janela"}</button>
+          ))}
+        </div>
+      </Bloco>
+      <Bloco label="LARGURA (cm)">
+        <input className="fld" type="number" min={40} value={a.largura_cm} onChange={(e) => updateAbertura(a.id, { largura_cm: Math.max(40, +e.target.value || 0) })} />
+      </Bloco>
+      <Bloco label="POSIÇÃO NA PAREDE (cm)">
+        <input className="fld" type="number" min={0} value={Math.round(a.centro_cm)} onChange={(e) => updateAbertura(a.id, { centro_cm: Math.max(0, +e.target.value || 0) })} />
+      </Bloco>
+      <button className="btn" onClick={() => removerAbertura(a.id)}>✕ Remover</button>
     </div>
   );
 }

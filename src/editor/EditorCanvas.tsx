@@ -2,10 +2,23 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Stage, Layer, Rect, Line, Group, Text, Image as KImage, Circle, Transformer } from "react-konva";
 import type Konva from "konva";
 import { useProjeto } from "../store/projetoStore";
-import { ZONAS, type ItemPosicionado } from "../lib/types";
+import { ZONAS, type ItemPosicionado, type Parede, type PilarPlanta, type Abertura } from "../lib/types";
 import { problemasDaCena } from "../lib/validation";
 import { snapCm, GRID_CM } from "../lib/canvas";
 import { formatLength } from "../lib/units";
+import { arred } from "../lib/estrutura";
+
+export type Etapa = "planta" | "acabamento" | "layout";
+export type FerramentaEstrutura = "parede" | "porta" | "janela" | "pilar" | null;
+
+// Ponto mais próximo sobre um segmento (parede) e distância — para encaixar aberturas.
+function projetarNaParede(px: number, py: number, w: Parede) {
+  const dx = w.x2 - w.x1, dy = w.y2 - w.y1, len2 = dx * dx + dy * dy || 1;
+  let t = ((px - w.x1) * dx + (py - w.y1) * dy) / len2;
+  t = Math.max(0, Math.min(1, t));
+  const cx = w.x1 + t * dx, cy = w.y1 + t * dy;
+  return { t, cx, cy, dist: Math.hypot(px - cx, py - cy), len: Math.hypot(dx, dy) };
+}
 
 function useHtmlImage(src?: string) {
   const [img, setImg] = useState<HTMLImageElement | undefined>();
@@ -20,7 +33,7 @@ function useHtmlImage(src?: string) {
 
 interface Cam { zoom: number; x: number; y: number } // x,y = posição da layer em px
 
-export default function EditorCanvas({ modoCalibrar, onCalibrar, modoAcabamento, onArea, modoRecorte, onRecorte, modoParede, onParede, modoMoverPlanta, stageRef, somenteLeitura }: {
+export default function EditorCanvas({ modoCalibrar, onCalibrar, modoAcabamento, onArea, modoRecorte, onRecorte, modoParede, onParede, modoMoverPlanta, stageRef, somenteLeitura, etapa, ferrEstrutura }: {
   modoCalibrar: boolean;
   onCalibrar: (distanciaMundoCm: number) => void;
   modoAcabamento: boolean;
@@ -32,12 +45,22 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, modoAcabamento,
   modoMoverPlanta: boolean;
   stageRef?: React.RefObject<Konva.Stage>;
   somenteLeitura?: boolean;
+  etapa?: Etapa;
+  ferrEstrutura?: FerramentaEstrutura;
 }) {
+  const etapaAtual: Etapa = etapa ?? "layout";
   const cena = useProjeto((s) => s.cena);
   const selectedId = useProjeto((s) => s.selectedId);
   const selectedAcabId = useProjeto((s) => s.selectedAcabId);
+  const selEstrutura = useProjeto((s) => s.selEstrutura);
   const selecionar = useProjeto((s) => s.selecionar);
   const selecionarAcab = useProjeto((s) => s.selecionarAcab);
+  const selecionarEstrutura = useProjeto((s) => s.selecionarEstrutura);
+  const addParede = useProjeto((s) => s.addParede);
+  const addPilar = useProjeto((s) => s.addPilar);
+  const addAbertura = useProjeto((s) => s.addAbertura);
+  const updateParede = useProjeto((s) => s.updateParede);
+  const updatePilar = useProjeto((s) => s.updatePilar);
   const updateItem = useProjeto((s) => s.updateItem);
   const updateArea = useProjeto((s) => s.updateArea);
   const updatePlanta = useProjeto((s) => s.updatePlanta);
@@ -52,6 +75,7 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, modoAcabamento,
   const [areaPts, setAreaPts] = useState<{ x: number; y: number }[]>([]);
   const [recPts, setRecPts] = useState<{ x: number; y: number }[]>([]);
   const [pardPts, setPardPts] = useState<{ x: number; y: number }[]>([]);
+  const [estPts, setEstPts] = useState<{ x: number; y: number }[]>([]); // paredes/pilares da Etapa 1
   const areaRefs = useRef<Record<string, Konva.Group>>({});
   const trRef = useRef<Konva.Transformer>(null);
 
@@ -141,6 +165,40 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, modoAcabamento,
       } else setPardPts(pts);
       return;
     }
+    // ── Etapa 1: ferramentas de estrutura ──────────────────────────────────
+    if (ferrEstrutura === "parede" || ferrEstrutura === "pilar") {
+      const w = toWorld(p.x, p.y);
+      const pts = [...estPts, w];
+      if (pts.length === 2) {
+        setEstPts([]);
+        if (ferrEstrutura === "parede") {
+          // ortogonaliza se estiver quase na horizontal/vertical
+          let x1 = arred(pts[0].x), y1 = arred(pts[0].y), x2 = arred(pts[1].x), y2 = arred(pts[1].y);
+          const dx = Math.abs(x2 - x1), dy = Math.abs(y2 - y1);
+          if (dy < dx * 0.2) y2 = y1; else if (dx < dy * 0.2) x2 = x1;
+          if (Math.hypot(x2 - x1, y2 - y1) >= GRID_CM) addParede({ id: crypto.randomUUID(), x1, y1, x2, y2, espessura_cm: 15 });
+        } else {
+          const x = arred(Math.min(pts[0].x, pts[1].x)), y = arred(Math.min(pts[0].y, pts[1].y));
+          const w2 = arred(Math.abs(pts[1].x - pts[0].x)), h2 = arred(Math.abs(pts[1].y - pts[0].y));
+          if (w2 >= GRID_CM && h2 >= GRID_CM) addPilar({ id: crypto.randomUUID(), x_cm: x, y_cm: y, w_cm: w2, h_cm: h2 });
+        }
+      } else setEstPts(pts);
+      return;
+    }
+    if (ferrEstrutura === "porta" || ferrEstrutura === "janela") {
+      const w = toWorld(p.x, p.y);
+      const paredes = cena.estrutura?.paredes ?? [];
+      let melhor: { parede: Parede; t: number; len: number; dist: number } | null = null;
+      for (const pr of paredes) {
+        const pj = projetarNaParede(w.x, w.y, pr);
+        if (!melhor || pj.dist < melhor.dist) melhor = { parede: pr, t: pj.t, len: pj.len, dist: pj.dist };
+      }
+      if (melhor && melhor.dist < 80) {
+        const largura = ferrEstrutura === "porta" ? 90 : 120;
+        addAbertura({ id: crypto.randomUUID(), paredeId: melhor.parede.id, centro_cm: arred(melhor.t * melhor.len), largura_cm: largura, tipo: ferrEstrutura });
+      }
+      return;
+    }
     const touches = (e.evt as TouchEvent).touches;
     if (touches && touches.length === 2) {
       const [a, b] = [touches[0], touches[1]];
@@ -185,8 +243,13 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, modoAcabamento,
   const cfg = sala.config || {};
   const planta = cena.planta;
   const pv = cena.plantaVetorial;
-  const drawing = modoCalibrar || modoAcabamento || modoRecorte || modoParede; // enquanto desenha, itens/áreas não capturam o toque
-  const bloquear = drawing || somenteLeitura || modoMoverPlanta; // read-only ou movendo planta: itens/áreas não capturam o toque
+  const desenhandoEst = ferrEstrutura === "parede" || ferrEstrutura === "pilar" || ferrEstrutura === "porta" || ferrEstrutura === "janela";
+  const drawing = modoCalibrar || modoAcabamento || modoRecorte || modoParede || desenhandoEst; // enquanto desenha, nada captura o toque
+  // Interatividade por etapa: só o que pertence à etapa ativa responde ao toque.
+  const itensAtivos = etapaAtual === "layout" && !drawing && !somenteLeitura && !modoMoverPlanta;
+  const areasAtivas = etapaAtual === "acabamento" && !drawing && !somenteLeitura && !modoMoverPlanta;
+  const estAtiva = etapaAtual === "planta" && !drawing && !somenteLeitura && !modoMoverPlanta;
+  const bloquear = !areasAtivas; // usado pelas áreas de acabamento (compat.)
   const camVis = useMemo(() => new Map((pv?.camadas ?? []).map((c) => [c.nome, c.visivel])), [pv]);
 
   // Prende o Transformer à área de acabamento selecionada (some durante o desenho).
@@ -242,8 +305,81 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, modoAcabamento,
           {/* contorno da sala */}
           <Rect x={0} y={0} width={sala.largura_cm} height={sala.profundidade_cm} stroke="#3A3A3C" strokeWidth={12 / cam.zoom} listening={false} />
 
-          {/* pilar */}
-          {cfg.pilar && <Rect name="bg" x={cfg.pilar.x} y={cfg.pilar.y} width={cfg.pilar.w} height={cfg.pilar.h} fill="#2B2B2E" stroke="#8A8A8F" strokeWidth={2 / cam.zoom} listening={false} />}
+          {/* pilar (config legado) */}
+          {cfg.pilar && !cena.estrutura && <Rect name="bg" x={cfg.pilar.x} y={cfg.pilar.y} width={cfg.pilar.w} height={cfg.pilar.h} fill="#2B2B2E" stroke="#8A8A8F" strokeWidth={2 / cam.zoom} listening={false} />}
+
+          {/* ── Etapa 1: estrutura (pilares, paredes, portas/janelas) ── */}
+          {cena.estrutura && (() => {
+            const est = cena.estrutura!;
+            const pmap = new Map(est.paredes.map((p) => [p.id, p]));
+            const ctx = etapaAtual === "planta" ? 1 : 0.5; // esmaece fora da Etapa 1
+            return (
+              <Group opacity={ctx}>
+                {/* pilares */}
+                {est.pilares.map((p) => {
+                  const sel = selEstrutura?.tipo === "pilar" && selEstrutura.id === p.id;
+                  return (
+                    <Rect key={p.id} x={p.x_cm} y={p.y_cm} width={p.w_cm} height={p.h_cm} fill="#2B2B2E"
+                      stroke={sel ? "#C9A227" : "#8A8A8F"} strokeWidth={(sel ? 4 : 2) / cam.zoom}
+                      listening={estAtiva} draggable={estAtiva}
+                      onMouseDown={() => selecionarEstrutura({ tipo: "pilar", id: p.id })} onTap={() => selecionarEstrutura({ tipo: "pilar", id: p.id })}
+                      onDragMove={(e) => updatePilar(p.id, { x_cm: e.target.x(), y_cm: e.target.y() }, false)}
+                      onDragEnd={(e) => updatePilar(p.id, { x_cm: arred(e.target.x()), y_cm: arred(e.target.y()) })} />
+                  );
+                })}
+                {/* paredes */}
+                {est.paredes.map((w) => {
+                  const sel = selEstrutura?.tipo === "parede" && selEstrutura.id === w.id;
+                  const len = Math.hypot(w.x2 - w.x1, w.y2 - w.y1);
+                  return (
+                    <Group key={w.id}>
+                      <Line points={[w.x1, w.y1, w.x2, w.y2]} stroke={sel ? "#C9A227" : "#C9C9C4"} strokeWidth={Math.max(w.espessura_cm, 4)}
+                        lineCap="round" hitStrokeWidth={Math.max(w.espessura_cm, 34 / cam.zoom)} listening={estAtiva}
+                        onMouseDown={() => selecionarEstrutura({ tipo: "parede", id: w.id })} onTap={() => selecionarEstrutura({ tipo: "parede", id: w.id })} />
+                      {sel && (
+                        <Text x={(w.x1 + w.x2) / 2} y={(w.y1 + w.y2) / 2 - 22 / cam.zoom} text={formatLength(len)}
+                          fontSize={15 / cam.zoom} fill="#C9A227" listening={false} />
+                      )}
+                      {sel && estAtiva && [{ k: "a", x: w.x1, y: w.y1 }, { k: "b", x: w.x2, y: w.y2 }].map((h) => (
+                        <Circle key={h.k} x={h.x} y={h.y} radius={9 / cam.zoom} fill="#0C0C0E" stroke="#C9A227" strokeWidth={2 / cam.zoom} draggable
+                          onDragMove={(e) => updateParede(w.id, h.k === "a" ? { x1: e.target.x(), y1: e.target.y() } : { x2: e.target.x(), y2: e.target.y() }, false)}
+                          onDragEnd={(e) => updateParede(w.id, h.k === "a" ? { x1: arred(e.target.x()), y1: arred(e.target.y()) } : { x2: arred(e.target.x()), y2: arred(e.target.y()) })} />
+                      ))}
+                    </Group>
+                  );
+                })}
+                {/* aberturas (portas/janelas) */}
+                {est.aberturas.map((ab) => {
+                  const w = pmap.get(ab.paredeId); if (!w) return null;
+                  const len = Math.hypot(w.x2 - w.x1, w.y2 - w.y1) || 1;
+                  const ux = (w.x2 - w.x1) / len, uy = (w.y2 - w.y1) / len;
+                  const cx = w.x1 + ux * ab.centro_cm, cy = w.y1 + uy * ab.centro_cm, half = ab.largura_cm / 2;
+                  const ax = cx - ux * half, ay = cy - uy * half, bx = cx + ux * half, by = cy + uy * half;
+                  const sel = selEstrutura?.tipo === "abertura" && selEstrutura.id === ab.id;
+                  const cor = ab.tipo === "porta" ? "#5FBF7A" : "#5FC8E8";
+                  const px = -uy, py = ux; // perpendicular (batente da porta)
+                  return (
+                    <Group key={ab.id} listening={estAtiva}
+                      onMouseDown={() => selecionarEstrutura({ tipo: "abertura", id: ab.id })} onTap={() => selecionarEstrutura({ tipo: "abertura", id: ab.id })}>
+                      {/* "corta" a parede no vão */}
+                      <Line points={[ax, ay, bx, by]} stroke="#0C0C0E" strokeWidth={w.espessura_cm + 3} lineCap="butt" listening={false} />
+                      {ab.tipo === "janela"
+                        ? <Line points={[ax, ay, bx, by]} stroke={sel ? "#C9A227" : cor} strokeWidth={4 / cam.zoom} listening={false} />
+                        : <>
+                            <Line points={[ax, ay, ax + px * ab.largura_cm, ay + py * ab.largura_cm]} stroke={sel ? "#C9A227" : cor} strokeWidth={3 / cam.zoom} listening={false} />
+                            <Line points={[ax, ay, bx, by]} stroke={sel ? "#C9A227" : cor} strokeWidth={2 / cam.zoom} dash={[6 / cam.zoom, 6 / cam.zoom]} listening={false} />
+                          </>}
+                      {/* alça de clique */}
+                      <Circle x={cx} y={cy} radius={(sel ? 8 : 6) / cam.zoom} fill={sel ? "#C9A227" : cor} listening={estAtiva} />
+                    </Group>
+                  );
+                })}
+                {/* marcadores da ferramenta em uso */}
+                {estPts.map((pp, i) => <Circle key={`e${i}`} x={pp.x} y={pp.y} radius={7 / cam.zoom} fill="#C9A227" listening={false} />)}
+                {estPts.length === 1 && <Text x={estPts[0].x} y={estPts[0].y} text={ferrEstrutura === "pilar" ? " canto oposto do pilar" : " outra ponta da parede"} fontSize={16 / cam.zoom} fill="#C9A227" listening={false} />}
+              </Group>
+            );
+          })()}
 
           {/* áreas de acabamento (piso/parede pintados) */}
           {(cena.acabamentos ?? []).map((a) => {
@@ -274,7 +410,7 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, modoAcabamento,
 
           {/* equipamentos */}
           {cena.itens.map((it) => (
-            <ItemView key={it.id} it={it} zoom={cam.zoom} selected={selectedId === it.id} problema={problemas[it.id]} listening={!bloquear}
+            <ItemView key={it.id} it={it} zoom={cam.zoom} selected={selectedId === it.id} problema={problemas[it.id]} listening={itensAtivos}
               onSelect={() => selecionar(it.id)}
               onDrag={(x, y, commit) => updateItem(it.id, { x_cm: snapCm(x), y_cm: snapCm(y) }, commit)} />
           ))}

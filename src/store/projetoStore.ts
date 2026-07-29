@@ -1,8 +1,16 @@
 import { create } from "zustand";
-import type { Projeto, Cena, ItemPosicionado, PlantaFundo, AreaAcabamento, PlantaVetorial, EstruturaPlanta, Parede, Abertura, PilarPlanta } from "../lib/types";
+import type { Projeto, Cena, ItemPosicionado, PlantaFundo, AreaAcabamento, PlantaVetorial, EstruturaPlanta, Parede, Abertura, PilarPlanta, Cota } from "../lib/types";
 import { CENARIOS, ZONAS } from "../lib/types";
 import { gerarEstrutura, estruturaVazia } from "../lib/estrutura";
+import { bboxPoligono, retanguloParaPontos, transladar } from "../lib/geometria";
 import { salvarCena } from "../lib/supabase";
+
+// Garante o modelo de polígono da área e mantém o bbox (x/y/w/h) em dia.
+function normalizarArea(a: AreaAcabamento): AreaAcabamento {
+  const pontos = a.pontos && a.pontos.length >= 3 ? a.pontos : retanguloParaPontos(a.x_cm, a.y_cm, a.w_cm, a.h_cm);
+  const bb = bboxPoligono(pontos);
+  return { ...a, pontos, x_cm: bb.x, y_cm: bb.y, w_cm: bb.w, h_cm: bb.h };
+}
 
 export type SelEstrutura = { tipo: "parede" | "pilar" | "abertura"; id: string } | null;
 
@@ -18,12 +26,13 @@ function normalizarCena(bruta: Cena | null | undefined): Cena {
     cenario: it.cenario && CENARIOS[it.cenario] ? it.cenario : "balanceado",
     zona: it.zona && ZONAS[it.zona] ? it.zona : "livre",
   }));
-  const acabamentos = Array.isArray(base.acabamentos) ? base.acabamentos : [];
+  const acabamentos = (Array.isArray(base.acabamentos) ? base.acabamentos : []).map(normalizarArea);
+  const cotas = Array.isArray(base.cotas) ? base.cotas : [];
   const e = base.estrutura;
   const estrutura: EstruturaPlanta | null = e && (Array.isArray(e.paredes) || Array.isArray(e.pilares))
     ? { paredes: e.paredes ?? [], aberturas: e.aberturas ?? [], pilares: e.pilares ?? [] }
     : null;
-  return { ...base, sala, itens, acabamentos, estrutura };
+  return { ...base, sala, itens, acabamentos, cotas, estrutura };
 }
 
 interface ProjetoState {
@@ -44,6 +53,10 @@ interface ProjetoState {
   addArea: (area: AreaAcabamento) => void;
   updateArea: (id: string, patch: Partial<AreaAcabamento>, commit?: boolean) => void;
   removerArea: (id: string) => void;
+  duplicarArea: (id: string) => void;
+  moverArea: (id: string, dx: number, dy: number) => void;
+  addCota: (c: Cota) => void;
+  removerCota: (id: string) => void;
 
   addItem: (item: ItemPosicionado) => void;
   updateItem: (id: string, patch: Partial<ItemPosicionado>, commit?: boolean) => void;
@@ -105,12 +118,13 @@ export const useProjeto = create<ProjetoState>((set, get) => ({
   },
 
   addArea(area) {
-    set((s) => ({ past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, acabamentos: [...(s.cena.acabamentos ?? []), area] }, selectedAcabId: area.id, selectedId: null, dirty: true }));
+    const a = normalizarArea(area);
+    set((s) => ({ past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, acabamentos: [...(s.cena.acabamentos ?? []), a] }, selectedAcabId: a.id, selectedId: null, dirty: true }));
   },
 
   updateArea(id, patch, commit = true) {
     set((s) => {
-      const acabamentos = (s.cena.acabamentos ?? []).map((a) => (a.id === id ? { ...a, ...patch } : a));
+      const acabamentos = (s.cena.acabamentos ?? []).map((a) => (a.id === id ? normalizarArea({ ...a, ...patch }) : a));
       const past = commit ? [...s.past, clone(s.cena)] : s.past;
       return { past, future: commit ? [] : s.future, cena: { ...s.cena, acabamentos }, dirty: true };
     });
@@ -118,6 +132,31 @@ export const useProjeto = create<ProjetoState>((set, get) => ({
 
   removerArea(id) {
     set((s) => ({ past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, acabamentos: (s.cena.acabamentos ?? []).filter((a) => a.id !== id) }, selectedAcabId: null, dirty: true }));
+  },
+
+  // Duplica a área com um pequeno deslocamento (30 cm), já selecionando a cópia.
+  duplicarArea(id) {
+    set((s) => {
+      const orig = (s.cena.acabamentos ?? []).find((a) => a.id === id);
+      if (!orig) return {};
+      const nova = normalizarArea({ ...orig, id: crypto.randomUUID(), pontos: transladar(orig.pontos ?? [], 30, 30), bloqueado: false });
+      return { past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, acabamentos: [...(s.cena.acabamentos ?? []), nova] }, selectedAcabId: nova.id, dirty: true };
+    });
+  },
+
+  moverArea(id, dx, dy) {
+    set((s) => {
+      const acabamentos = (s.cena.acabamentos ?? []).map((a) => (a.id === id ? normalizarArea({ ...a, pontos: transladar(a.pontos ?? [], dx, dy) }) : a));
+      return { past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, acabamentos }, dirty: true };
+    });
+  },
+
+  addCota(c) {
+    set((s) => ({ past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, cotas: [...(s.cena.cotas ?? []), c] }, dirty: true }));
+  },
+
+  removerCota(id) {
+    set((s) => ({ past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, cotas: (s.cena.cotas ?? []).filter((c) => c.id !== id) }, dirty: true }));
   },
 
   addItem(item) {

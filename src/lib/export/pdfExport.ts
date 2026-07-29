@@ -3,6 +3,7 @@ import type { Projeto, Equipamento, ItemPosicionado, ConfigConsultor } from "../
 import { ZONAS, CENARIOS, TAXA_ASSESSORIA } from "../types";
 import { resumo, matrizDaCena } from "../validation";
 import { BRL, formatLength } from "../units";
+import { areaPoligonoM2 } from "../geometria";
 
 // Paleta do dossiê
 const GOLD = rgb(0.722, 0.439, 0.290); // cobre da marca Heritage GymBuilder
@@ -232,7 +233,8 @@ export async function montarDossie(
   // ── Revestimentos & acabamentos ──
   const revest = cena.acabamentos ?? [];
   if (revest.length) {
-    const totalRevest = revest.reduce((s, a) => s + (a.w_cm / 100) * (a.h_cm / 100) * (a.preco_m2 || 0), 0);
+    const areaDe = (a: (typeof revest)[number]) => (a.pontos && a.pontos.length >= 3 ? areaPoligonoM2(a.pontos) : (a.w_cm / 100) * (a.h_cm / 100));
+    const totalRevest = revest.reduce((s, a) => s + areaDe(a) * (a.preco_m2 || 0), 0);
     secao("Revestimentos & Acabamentos");
     const rTipo = M + 250, rM2 = M + 340, rUnit = M + 420, rTot = A4.w - M - 6;
     page.drawRectangle({ x: M, y: y - 4, width: CW, height: 18, color: CREAM });
@@ -242,7 +244,7 @@ export async function montarDossie(
     y -= 22;
     for (const a of revest) {
       ensure(18);
-      const m2 = (a.w_cm / 100) * (a.h_cm / 100);
+      const m2 = areaDe(a);
       at(trunc(a.nome, rTipo - (M + 6) - 8, 9.5), M + 6, y, 9.5, font, DARK);
       at(a.tipo === "parede" ? "Parede" : "Piso", rTipo, y, 9, font, MUTED);
       rightAt(m2.toFixed(1), rM2, y, 9, font, MUTED);

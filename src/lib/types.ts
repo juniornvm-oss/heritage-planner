@@ -187,18 +187,44 @@ export interface EstruturaPlanta {
   pilares: PilarPlanta[];
 }
 
-/** Área de acabamento pintada na planta (piso/parede) — retângulo em cm. */
+/** Materiais de piso da Etapa 2 (paleta padrão; "outro" usa a cor da biblioteca). */
+export type MaterialPiso = "vinilico" | "borracha" | "pista" | "ceramico" | "livre" | "outro";
+export const MATERIAIS_PISO: Record<MaterialPiso, { label: string; cor: string }> = {
+  vinilico: { label: "Vinílico amadeirado", cor: "#8A6E4B" },
+  borracha: { label: "Borracha preta", cor: "#3A3B40" },
+  pista: { label: "Pista de corrida", cor: "#6E2A2A" },
+  ceramico: { label: "Cerâmico / existente", cor: "#8F8878" },
+  livre: { label: "Área livre", cor: "#4A5058" },
+  outro: { label: "Personalizado", cor: "#8A7B5C" },
+};
+
+/**
+ * Área de acabamento pintada na planta — POLÍGONO em cm (Fase 2).
+ * `pontos` é a fonte da verdade; x/y/w/h guardam o bbox (compat com dados
+ * antigos e com o PDF). Áreas legadas (só retângulo) são normalizadas na
+ * abertura, ganhando `pontos` a partir do retângulo.
+ */
 export interface AreaAcabamento {
   id: string;
   acabamentoId?: string | null;
   nome: string; // nome do acabamento aplicado
   tipo: "piso" | "parede";
+  material?: MaterialPiso;
   cor: string;
   preco_m2?: number | null;
+  pontos?: { x: number; y: number }[]; // vértices em cm (mundo)
+  rotacaoTextura?: number; // sentido do piso, em graus
+  bloqueado?: boolean;
   x_cm: number;
   y_cm: number;
   w_cm: number;
   h_cm: number;
+}
+
+/** Cota de medida fixada na planta (entre 2 pontos, em cm). */
+export interface Cota {
+  id: string;
+  x1: number; y1: number; x2: number; y2: number;
 }
 
 /** Estado completo do editor de um projeto. */
@@ -208,6 +234,7 @@ export interface Cena {
   plantaVetorial?: PlantaVetorial | null;
   itens: ItemPosicionado[];
   acabamentos?: AreaAcabamento[];
+  cotas?: Cota[]; // medidas fixadas na planta (Etapa 2)
   estrutura?: EstruturaPlanta | null; // Etapa 1: paredes/aberturas/pilares
 }
 

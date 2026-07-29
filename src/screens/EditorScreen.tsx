@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import type Konva from "konva";
-import EditorCanvas, { type Etapa, type FerramentaEstrutura } from "../editor/EditorCanvas";
+import EditorCanvas, { type Etapa, type FerramentaEstrutura, type FerramentaAcab } from "../editor/EditorCanvas";
 import { useProjeto } from "../store/projetoStore";
 import { useLibrary } from "../store/libraryStore";
 import { obterProjeto, criarProjeto, obterConfigConsultor } from "../lib/supabase";
@@ -12,7 +12,8 @@ import { exportarPdf } from "../lib/export/pdfExport";
 import { resumo } from "../lib/validation";
 import { snapCm } from "../lib/canvas";
 import { BRL, formatLength, parseLength } from "../lib/units";
-import { ZONAS, CENARIOS, TAXA_ASSESSORIA, type Zona, type Cenario, type ItemPosicionado, type Equipamento, type AreaAcabamento } from "../lib/types";
+import { ZONAS, CENARIOS, TAXA_ASSESSORIA, MATERIAIS_PISO, type MaterialPiso, type Zona, type Cenario, type ItemPosicionado, type Equipamento, type AreaAcabamento } from "../lib/types";
+import { areaPoligonoM2, perimetroCm, bboxPoligono, ehRetangulo, retanguloParaPontos, transladar, m2 } from "../lib/geometria";
 
 export default function EditorScreen() {
   const { id } = useParams();
@@ -28,7 +29,8 @@ export default function EditorScreen() {
   const [erro, setErro] = useState<string | null>(null);
   const [aviso, setAviso] = useState<string | null>(null); // mensagem não-fatal (import/export) — não derruba o editor
   const [modoCalibrar, setModoCalibrar] = useState(false);
-  const [modoAcabamento, setModoAcabamento] = useState(false);
+  const [ferrAcab, setFerrAcab] = useState<FerramentaAcab>(null); // ferramentas da Etapa 2
+  const [snapPasso, setSnapPasso] = useState(5); // 0 = snap desligado
   const [modoRecorte, setModoRecorte] = useState(false);
   const [modoParede, setModoParede] = useState(false);
   const [modoMoverPlanta, setModoMoverPlanta] = useState(false);
@@ -38,7 +40,7 @@ export default function EditorScreen() {
 
   // Desliga todos os modos/ferramentas (usado ao trocar de etapa).
   function limparModos() {
-    setModoCalibrar(false); setModoAcabamento(false); setModoRecorte(false);
+    setModoCalibrar(false); setFerrAcab(null); setModoRecorte(false);
     setModoParede(false); setModoMoverPlanta(false); setFerrEstrutura(null);
   }
   function irParaEtapa(e: Etapa) { limparModos(); selecionar(null); setEtapa(e); }
@@ -91,19 +93,24 @@ export default function EditorScreen() {
   const teto = Number(projeto?.orcamento_teto) || 0;
   const saldo = teto - r.subtotal;
 
-  function onArea(rect: { x: number; y: number; w: number; h: number }) {
-    const ac = acabamentos[0];
+  // Cria a área de piso a partir dos vértices desenhados (retângulo ou polígono).
+  function onArea(pontos: { x: number; y: number }[]) {
+    const bb = bboxPoligono(pontos);
     const area: AreaAcabamento = {
       id: crypto.randomUUID(),
-      acabamentoId: ac?.id ?? null,
-      nome: ac?.nome ?? "Piso",
-      tipo: (ac?.tipo === "parede" ? "parede" : "piso"),
-      cor: ac?.cor ?? "#8A7B5C",
-      preco_m2: ac?.preco_m2 ?? null,
-      x_cm: rect.x, y_cm: rect.y, w_cm: rect.w, h_cm: rect.h,
+      acabamentoId: null,
+      nome: MATERIAIS_PISO.vinilico.label,
+      tipo: "piso",
+      material: "vinilico",
+      cor: MATERIAIS_PISO.vinilico.cor,
+      preco_m2: null,
+      pontos,
+      rotacaoTextura: 0,
+      bloqueado: false,
+      x_cm: bb.x, y_cm: bb.y, w_cm: bb.w, h_cm: bb.h,
     };
     addArea(area);
-    setModoAcabamento(false);
+    setFerrAcab(null);
   }
 
   function adicionar(m: Equipamento) {
@@ -288,7 +295,18 @@ export default function EditorScreen() {
 
             {/* Ferramentas da ETAPA 2 — ACABAMENTO */}
             {etapa === "acabamento" && <>
-              <button className="btn" onClick={() => { const v = !modoAcabamento; limparModos(); setModoAcabamento(v); }} style={modoAcabamento ? { borderColor: "#C9A227", color: "#C9A227" } : undefined}>▦ Nova área</button>
+              <button className="btn" onClick={() => { limparModos(); }} style={!ferrAcab ? { borderColor: "var(--gold)", color: "var(--gold)" } : undefined} title="Selecionar/mover áreas (toque seleciona, arraste move; vértices editáveis)">➤ Selecionar</button>
+              {([["rect", "▭ Área"], ["poligono", "⬠ Polígono"], ["cota", "📏 Cota"], ["apagar", "⌫ Apagar"]] as [FerramentaAcab, string][]).map(([f, lbl]) => (
+                <button key={f} className="btn" onClick={() => { const v = ferrAcab === f ? null : f; limparModos(); setFerrAcab(v); }}
+                  style={ferrAcab === f ? (f === "apagar" ? { borderColor: "var(--red)", color: "var(--red)" } : { borderColor: "var(--gold)", color: "var(--gold)" }) : undefined}>{lbl}</button>
+              ))}
+              <span style={{ width: 1, height: 22, background: "var(--line-2)", margin: "0 4px" }} />
+              <span style={{ fontSize: 10.5, color: "var(--muted)", letterSpacing: ".06em" }}>SNAP</span>
+              {[[1, "1"], [5, "5"], [10, "10"], [0, "off"]].map(([v, lbl]) => (
+                <button key={v} className="btn" onClick={() => setSnapPasso(v as number)}
+                  style={{ padding: "8px 9px", fontSize: 11, ...(snapPasso === v ? { borderColor: "#5FC8E8", color: "#8fd6f0" } : {}) }}
+                  title={v === 0 ? "Snap desligado (precisão de 1 mm)" : `Encaixe de ${v} cm (+ imã de parede e vértice)`}>{lbl}</button>
+              ))}
             </>}
 
             {/* Ferramentas da ETAPA 3 — LAYOUT */}
@@ -307,7 +325,10 @@ export default function EditorScreen() {
           {modoCalibrar && <span style={{ fontSize: 12, color: "#8fd6f0" }}>toque 2 pontos de medida conhecida</span>}
           {modoParede && <span style={{ fontSize: 12, color: "#C97BE0" }}>toque as 2 pontas de uma parede de medida conhecida</span>}
           {modoMoverPlanta && <span style={{ fontSize: 12, color: "#5FBF7A" }}>arraste a planta para posicionar</span>}
-          {modoAcabamento && <span style={{ fontSize: 12, color: "var(--gold)" }}>toque 2 cantos da área a revestir</span>}
+          {ferrAcab === "rect" && <span style={{ fontSize: 12, color: "var(--gold)" }}>toque 2 cantos da área a revestir</span>}
+          {ferrAcab === "poligono" && <span style={{ fontSize: 12, color: "var(--gold)" }}>toque os cantos; toque o 1º ponto (verde) para fechar</span>}
+          {ferrAcab === "cota" && <span style={{ fontSize: 12, color: "#8fd6f0" }}>toque 2 pontos para fixar a medida</span>}
+          {ferrAcab === "apagar" && etapa === "acabamento" && <span style={{ fontSize: 12, color: "var(--red)" }}>toque na área ou cota para apagar</span>}
           {ferrEstrutura === "parede" && <span style={{ fontSize: 12, color: "var(--gold)" }}>toque as 2 pontas da parede</span>}
           {ferrEstrutura === "pilar" && <span style={{ fontSize: 12, color: "var(--gold)" }}>toque 2 cantos do pilar</span>}
           {(ferrEstrutura === "porta" || ferrEstrutura === "janela") && <span style={{ fontSize: 12, color: "var(--gold)" }}>toque sobre a parede onde fica {ferrEstrutura === "porta" ? "a porta" : "a janela"}</span>}
@@ -361,7 +382,7 @@ export default function EditorScreen() {
 
         {/* Canvas */}
         <div style={{ flex: 1, position: "relative", minWidth: 0 }}>
-          <EditorCanvas modoCalibrar={modoCalibrar} onCalibrar={onCalibrar} modoAcabamento={modoAcabamento} onArea={onArea}
+          <EditorCanvas modoCalibrar={modoCalibrar} onCalibrar={onCalibrar} ferrAcab={ferrAcab} snapPasso={snapPasso} onArea={onArea}
             modoRecorte={modoRecorte} onRecorte={(rect) => { recortarVetorial(rect); setModoRecorte(false); }}
             modoParede={modoParede} onParede={onParede} modoMoverPlanta={modoMoverPlanta}
             etapa={etapa} ferrEstrutura={ferrEstrutura}
@@ -642,42 +663,131 @@ function EstruturaInspector({ sel }: { sel: { tipo: "parede" | "pilar" | "abertu
   );
 }
 
+// Campo numérico em cm que confirma no blur/Enter (não "briga" com a digitação).
+function CampoCm({ valor, min, onSet }: { valor: number; min?: number; onSet: (v: number) => void }) {
+  const [txt, setTxt] = useState(String(Math.round(valor * 10) / 10));
+  useEffect(() => { setTxt(String(Math.round(valor * 10) / 10)); }, [valor]);
+  const confirmar = () => {
+    const n = parseFloat(txt.replace(",", "."));
+    if (Number.isFinite(n)) onSet(Math.max(min ?? -100000, n));
+    else setTxt(String(Math.round(valor * 10) / 10));
+  };
+  return <input className="fld" inputMode="decimal" value={txt} onChange={(e) => setTxt(e.target.value)}
+    onBlur={confirmar} onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }} />;
+}
+
 function AcabamentoInspector({ area }: { area: AreaAcabamento }) {
   const acabamentos = useLibrary((s) => s.acabamentos);
+  const cena = useProjeto((s) => s.cena);
   const updateArea = useProjeto((s) => s.updateArea);
   const removerArea = useProjeto((s) => s.removerArea);
-  const m2 = (area.w_cm / 100) * (area.h_cm / 100);
-  const custo = area.preco_m2 ? m2 * area.preco_m2 : 0;
+  const duplicarArea = useProjeto((s) => s.duplicarArea);
+  const moverArea = useProjeto((s) => s.moverArea);
+
+  const pontos = area.pontos ?? [];
+  const rect = ehRetangulo(pontos);
+  const areaM2 = areaPoligonoM2(pontos);
+  const perim = perimetroCm(pontos);
+  const custo = area.preco_m2 ? areaM2 * area.preco_m2 : 0;
+  const travado = !!area.bloqueado;
+
+  // Referência para distâncias: caixa das paredes desenhadas; senão, a sala-guia.
+  const ref = (() => {
+    const ps = cena.estrutura?.paredes ?? [];
+    if (ps.length) {
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+      for (const p of ps) { x0 = Math.min(x0, p.x1, p.x2); x1 = Math.max(x1, p.x1, p.x2); y0 = Math.min(y0, p.y1, p.y2); y1 = Math.max(y1, p.y1, p.y2); }
+      return { x0, y0, x1, y1, nome: "parede" };
+    }
+    return { x0: 0, y0: 0, x1: cena.sala.largura_cm, y1: cena.sala.profundidade_cm, nome: "sala" };
+  })();
+  const dEsq = area.x_cm - ref.x0, dTopo = area.y_cm - ref.y0;
+  const dDir = ref.x1 - (area.x_cm + area.w_cm), dBase = ref.y1 - (area.y_cm + area.h_cm);
+
+  const setRect = (x: number, y: number, w: number, h: number) =>
+    updateArea(area.id, { pontos: retanguloParaPontos(x, y, Math.max(10, w), Math.max(10, h)) });
+
   return (
     <div style={{ display: "grid", gap: 12 }}>
-      <div className="brandface" style={{ fontSize: 16, color: "var(--gold)" }}>REVESTIMENTO</div>
-      <Bloco label="ACABAMENTO">
-        <select className="fld" value={area.acabamentoId ?? ""} onChange={(e) => {
+      <div className="brandface" style={{ fontSize: 16, color: "var(--gold)" }}>PISO / ÁREA {travado && "🔒"}</div>
+
+      <Bloco label="MATERIAL">
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4 }}>
+          {(Object.keys(MATERIAIS_PISO) as MaterialPiso[]).map((mkey) => (
+            <button key={mkey} className="btn" disabled={travado}
+              onClick={() => updateArea(area.id, { material: mkey, nome: area.acabamentoId ? area.nome : MATERIAIS_PISO[mkey].label, cor: MATERIAIS_PISO[mkey].cor })}
+              style={{ padding: "7px 4px", fontSize: 10, display: "flex", alignItems: "center", gap: 5, justifyContent: "flex-start",
+                borderColor: area.material === mkey ? "var(--gold)" : "var(--line-2)", color: area.material === mkey ? "var(--gold)" : "#c9c9c4" }}>
+              <span style={{ width: 10, height: 10, borderRadius: 3, background: MATERIAIS_PISO[mkey].cor, flexShrink: 0 }} />
+              {MATERIAIS_PISO[mkey].label}
+            </button>
+          ))}
+        </div>
+      </Bloco>
+
+      <Bloco label="ACABAMENTO (BIBLIOTECA · PREÇO)">
+        <select className="fld" disabled={travado} value={area.acabamentoId ?? ""} onChange={(e) => {
           const ac = acabamentos.find((a) => a.id === e.target.value);
           updateArea(area.id, ac
-            ? { acabamentoId: ac.id, nome: ac.nome, cor: ac.cor ?? area.cor, preco_m2: ac.preco_m2 ?? null, tipo: ac.tipo === "parede" ? "parede" : "piso" }
+            ? { acabamentoId: ac.id, nome: ac.nome, cor: ac.cor ?? area.cor, preco_m2: ac.preco_m2 ?? null, material: "outro" }
             : { acabamentoId: null });
         }}>
           <option value="">— selecione da biblioteca —</option>
           {acabamentos.map((a) => <option key={a.id} value={a.id}>{a.nome}{a.preco_m2 ? ` · ${BRL(a.preco_m2)}/m²` : ""}</option>)}
         </select>
-        {acabamentos.length === 0 && <span style={{ fontSize: 11, color: "var(--muted)" }}>Cadastre acabamentos na Biblioteca para escolher aqui.</span>}
       </Bloco>
-      <Bloco label="TIPO">
-        <div style={{ display: "flex", gap: 6 }}>
-          {(["piso", "parede"] as const).map((t) => (
-            <button key={t} className="btn" onClick={() => updateArea(area.id, { tipo: t })} style={{
-              flex: 1, padding: "8px 4px", fontSize: 11,
-              borderColor: area.tipo === t ? "var(--gold)" : "var(--line-2)", color: area.tipo === t ? "var(--gold)" : "var(--muted)",
-            }}>{t === "piso" ? "Piso" : "Parede"}</button>
+
+      {rect ? (
+        <>
+          <Bloco label="POSIÇÃO X × Y (cm)">
+            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+              <CampoCm valor={area.x_cm} onSet={(v) => moverArea(area.id, v - area.x_cm, 0)} />
+              <span style={{ color: "var(--muted)" }}>×</span>
+              <CampoCm valor={area.y_cm} onSet={(v) => moverArea(area.id, 0, v - area.y_cm)} />
+            </div>
+          </Bloco>
+          <Bloco label="LARGURA × COMPRIMENTO (cm)">
+            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+              <CampoCm valor={area.w_cm} min={10} onSet={(v) => setRect(area.x_cm, area.y_cm, v, area.h_cm)} />
+              <span style={{ color: "var(--muted)" }}>×</span>
+              <CampoCm valor={area.h_cm} min={10} onSet={(v) => setRect(area.x_cm, area.y_cm, area.w_cm, v)} />
+            </div>
+          </Bloco>
+          <Bloco label={`DISTÂNCIA ATÉ ${ref.nome === "parede" ? "AS PAREDES" : "A SALA"} (cm)`}>
+            <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: 5, alignItems: "center", fontSize: 11.5, color: "#b6b6b1" }}>
+              <span>Esquerda</span><CampoCm valor={dEsq} onSet={(v) => moverArea(area.id, v - dEsq, 0)} />
+              <span>Topo</span><CampoCm valor={dTopo} onSet={(v) => moverArea(area.id, 0, v - dTopo)} />
+              <span>Direita</span><CampoCm valor={dDir} onSet={(v) => moverArea(area.id, dDir - v, 0)} />
+              <span>Base</span><CampoCm valor={dBase} onSet={(v) => moverArea(area.id, 0, dBase - v)} />
+            </div>
+          </Bloco>
+        </>
+      ) : (
+        <div style={{ fontSize: 11.5, color: "#b6b6b1", lineHeight: 1.5 }}>
+          Polígono de <b style={{ color: "#e9e9e6" }}>{pontos.length} vértices</b> — selecione e arraste cada vértice na planta para ajustar.
+        </div>
+      )}
+
+      <Bloco label={`SENTIDO DO PISO · ${Math.round(area.rotacaoTextura ?? 0)}°`}>
+        <div style={{ display: "flex", gap: 5 }}>
+          {[0, 45, 90].map((g) => (
+            <button key={g} className="btn" disabled={travado} onClick={() => updateArea(area.id, { rotacaoTextura: g })}
+              style={{ flex: 1, padding: "7px 4px", fontSize: 11, borderColor: (area.rotacaoTextura ?? 0) === g ? "var(--gold)" : "var(--line-2)", color: (area.rotacaoTextura ?? 0) === g ? "var(--gold)" : "var(--muted)" }}>{g}°</button>
           ))}
+          <button className="btn" disabled={travado} onClick={() => updateArea(area.id, { rotacaoTextura: ((area.rotacaoTextura ?? 0) + 15) % 180 })} style={{ flex: 1, padding: "7px 4px", fontSize: 11 }}>+15°</button>
         </div>
       </Bloco>
-      <div style={{ fontSize: 12.5, color: "var(--muted)" }}>
-        Área: <b style={{ color: "#e9e9e6" }}>{m2.toFixed(1)} m²</b>
-        {area.preco_m2 ? <> · Custo: <b style={{ color: "var(--gold)" }}>{BRL(Math.round(custo))}</b></> : null}
+
+      <div style={{ fontSize: 12.5, color: "var(--muted)", lineHeight: 1.7 }}>
+        Área: <b style={{ color: "#e9e9e6" }}>{m2(areaM2)}</b> · Perímetro: <b style={{ color: "#e9e9e6" }}>{formatLength(perim)}</b>
+        {area.preco_m2 ? <><br />Custo: <b style={{ color: "var(--gold)" }}>{BRL(Math.round(custo))}</b> ({BRL(area.preco_m2)}/m²)</> : null}
       </div>
-      <button className="btn" onClick={() => removerArea(area.id)}>✕ Remover área</button>
+
+      <div style={{ display: "flex", gap: 6 }}>
+        <button className="btn" style={{ flex: 1 }} onClick={() => duplicarArea(area.id)}>⧉ Duplicar</button>
+        <button className="btn" style={{ flex: 1 }} onClick={() => updateArea(area.id, { bloqueado: !travado })}>{travado ? "🔓 Destravar" : "🔒 Travar"}</button>
+      </div>
+      <button className="btn" disabled={travado} onClick={() => removerArea(area.id)}>✕ Remover área</button>
     </div>
   );
 }

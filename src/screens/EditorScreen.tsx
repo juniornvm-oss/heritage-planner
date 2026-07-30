@@ -12,7 +12,7 @@ import { exportarPdf } from "../lib/export/pdfExport";
 import { resumo } from "../lib/validation";
 import { snapCm } from "../lib/canvas";
 import { BRL, formatLength, parseLength } from "../lib/units";
-import { ZONAS, CENARIOS, TAXA_ASSESSORIA, MATERIAIS_PISO, type MaterialPiso, type Zona, type Cenario, type ItemPosicionado, type Equipamento, type AreaAcabamento } from "../lib/types";
+import { ZONAS, CENARIOS, TAXA_ASSESSORIA, MATERIAIS_PISO, ELEMENTOS_PAREDE, MOBILIARIO_CATALOGO, type MaterialPiso, type TipoElementoParede, type Zona, type Cenario, type ItemPosicionado, type Equipamento, type AreaAcabamento, type ElementoParede, type ItemInfraestrutura } from "../lib/types";
 import { areaPoligonoM2, perimetroCm, bboxPoligono, ehRetangulo, retanguloParaPontos, transladar, m2 } from "../lib/geometria";
 
 export default function EditorScreen() {
@@ -23,6 +23,9 @@ export default function EditorScreen() {
   const { abrir, selecionar, addItem, updateItem, removerSelecionado, girarSelecionado, setPlanta, updatePlanta, setPlantaVetorial, updatePlantaVetorial, recortarVetorial, addArea, undo, redo, salvar } = useProjeto();
   const { gerarEstruturaAuto, limparEstrutura, girarEstruturaSel, selecionarEstrutura } = useProjeto();
   const { removerParede, removerPilar, removerAbertura, removerArea } = useProjeto();
+  const { selElemParedeId, selInfraId } = useProjeto();
+  const { removerElemParede, removerInfra, addInfra } = useProjeto();
+  const { duplicarItem, espelharItem } = useProjeto();
   const equipamentos = useLibrary((s) => s.equipamentos);
   const acabamentos = useLibrary((s) => s.acabamentos);
 
@@ -31,6 +34,13 @@ export default function EditorScreen() {
   const [modoCalibrar, setModoCalibrar] = useState(false);
   const [ferrAcab, setFerrAcab] = useState<FerramentaAcab>(null); // ferramentas da Etapa 2
   const [snapPasso, setSnapPasso] = useState(5); // 0 = snap desligado
+  const [tipoElemParede, setTipoElemParede] = useState<TipoElementoParede>("tv");
+  const [buscaEquip, setBuscaEquip] = useState("");
+  const [filtroZona, setFiltroZona] = useState<Zona | "">("");
+  const [filtroCat, setFiltroCat] = useState("");
+  const [camadas, setCamadas] = useState<"tudo" | "uso" | "nada">("tudo"); // uso/segurança no canvas
+  const [nudgePasso, setNudgePasso] = useState(5); // nudge do equipamento (1/5/10/20 cm)
+  const [apresentacao, setApresentacao] = useState(false); // modo limpo p/ condomínio
   const [modoRecorte, setModoRecorte] = useState(false);
   const [modoParede, setModoParede] = useState(false);
   const [modoMoverPlanta, setModoMoverPlanta] = useState(false);
@@ -53,6 +63,8 @@ export default function EditorScreen() {
       if (tipo === "parede") removerParede(id); else if (tipo === "pilar") removerPilar(id); else removerAbertura(id);
     } else if (s.selectedId) removerSelecionado();
     else if (s.selectedAcabId) removerArea(s.selectedAcabId);
+    else if (s.selElemParedeId) removerElemParede(s.selElemParedeId);
+    else if (s.selInfraId) removerInfra(s.selInfraId);
   }
 
   // Tecla Delete/Backspace apaga o selecionado (fora de campos de texto).
@@ -90,6 +102,8 @@ export default function EditorScreen() {
   const r = resumo(cena);
   const selItem = cena.itens.find((i) => i.id === selectedId) || null;
   const selAcab = (cena.acabamentos ?? []).find((a) => a.id === selectedAcabId) || null;
+  const selElemParede = (cena.elementosParede ?? []).find((e) => e.id === selElemParedeId) || null;
+  const selInfra = (cena.infra ?? []).find((i) => i.id === selInfraId) || null;
   const teto = Number(projeto?.orcamento_teto) || 0;
   const saldo = teto - r.subtotal;
 
@@ -123,6 +137,8 @@ export default function EditorScreen() {
       y_cm: snapCm(cena.sala.profundidade_cm / 2 - h / 2),
       w_cm: w, h_cm: h, rotacao: 0, zona: m.zona, cenario: "balanceado", preco: m.preco,
       imagem: m.imagem ?? null, contorno: m.contorno ?? null,
+      uso_frontal_cm: m.uso_frontal_cm ?? null, uso_lateral_cm: m.uso_lateral_cm ?? null,
+      seguranca_cm: m.seguranca_cm ?? null, precisa_tomada: m.precisa_tomada ?? null,
     };
     addItem(item);
   }
@@ -259,7 +275,7 @@ export default function EditorScreen() {
         {somenteLeitura
           ? <span className="chip" style={{ padding: "3px 10px", fontSize: 10.5, borderColor: "#8A8A8F", color: "#b6b6b1" }}>Referência · somente visualização</span>
           : <span className="chip" style={{ padding: "3px 10px", fontSize: 10.5, borderColor: "var(--gold)", color: "var(--gold)" }}>Fase 02 · Projeto Funcional</span>}
-        {!somenteLeitura && (
+        {!somenteLeitura && !apresentacao && (
           <>
             <span style={{ width: 1, height: 22, background: "var(--line-2)", margin: "0 4px" }} />
             {/* Abas das 3 etapas */}
@@ -296,7 +312,7 @@ export default function EditorScreen() {
             {/* Ferramentas da ETAPA 2 — ACABAMENTO */}
             {etapa === "acabamento" && <>
               <button className="btn" onClick={() => { limparModos(); }} style={!ferrAcab ? { borderColor: "var(--gold)", color: "var(--gold)" } : undefined} title="Selecionar/mover áreas (toque seleciona, arraste move; vértices editáveis)">➤ Selecionar</button>
-              {([["rect", "▭ Área"], ["poligono", "⬠ Polígono"], ["cota", "📏 Cota"], ["apagar", "⌫ Apagar"]] as [FerramentaAcab, string][]).map(([f, lbl]) => (
+              {([["rect", "▭ Área"], ["poligono", "⬠ Polígono"], ["cota", "📏 Cota"], ["espelho", "🪞 Espelho"], ["itemParede", "🔌 Item parede"], ["apagar", "⌫ Apagar"]] as [FerramentaAcab, string][]).map(([f, lbl]) => (
                 <button key={f} className="btn" onClick={() => { const v = ferrAcab === f ? null : f; limparModos(); setFerrAcab(v); }}
                   style={ferrAcab === f ? (f === "apagar" ? { borderColor: "var(--red)", color: "var(--red)" } : { borderColor: "var(--gold)", color: "var(--gold)" }) : undefined}>{lbl}</button>
               ))}
@@ -313,6 +329,10 @@ export default function EditorScreen() {
             {etapa === "layout" && <>
               <button className="btn" disabled={!selItem} onClick={() => girarSelecionado()}>↻ Girar 90°</button>
               <button className="btn" disabled={!selItem} onClick={removerSelecionado}>✕ Remover</button>
+              <button className="btn" onClick={() => setCamadas(camadas === "tudo" ? "uso" : camadas === "uso" ? "nada" : "tudo")}
+                title="Alternar camadas técnicas: uso + segurança / só uso / nada">
+                👁 {camadas === "tudo" ? "Uso+Seg" : camadas === "uso" ? "Uso" : "Corpo"}
+              </button>
             </>}
 
             <span style={{ width: 1, height: 22, background: "var(--line-2)", margin: "0 4px" }} />
@@ -328,11 +348,15 @@ export default function EditorScreen() {
           {ferrAcab === "rect" && <span style={{ fontSize: 12, color: "var(--gold)" }}>toque 2 cantos da área a revestir</span>}
           {ferrAcab === "poligono" && <span style={{ fontSize: 12, color: "var(--gold)" }}>toque os cantos; toque o 1º ponto (verde) para fechar</span>}
           {ferrAcab === "cota" && <span style={{ fontSize: 12, color: "#8fd6f0" }}>toque 2 pontos para fixar a medida</span>}
-          {ferrAcab === "apagar" && etapa === "acabamento" && <span style={{ fontSize: 12, color: "var(--red)" }}>toque na área ou cota para apagar</span>}
+          {ferrAcab === "espelho" && <span style={{ fontSize: 12, color: "#8fd6f0" }}>toque na parede onde fica o espelho</span>}
+          {ferrAcab === "itemParede" && <span style={{ fontSize: 12, color: "var(--gold)" }}>escolha o item no painel esquerdo e toque na parede</span>}
+          {ferrAcab === "apagar" && etapa === "acabamento" && <span style={{ fontSize: 12, color: "var(--red)" }}>toque no elemento para apagar</span>}
           {ferrEstrutura === "parede" && <span style={{ fontSize: 12, color: "var(--gold)" }}>toque as 2 pontas da parede</span>}
           {ferrEstrutura === "pilar" && <span style={{ fontSize: 12, color: "var(--gold)" }}>toque 2 cantos do pilar</span>}
           {(ferrEstrutura === "porta" || ferrEstrutura === "janela") && <span style={{ fontSize: 12, color: "var(--gold)" }}>toque sobre a parede onde fica {ferrEstrutura === "porta" ? "a porta" : "a janela"}</span>}
           {ferrEstrutura === "apagar" && <span style={{ fontSize: 12, color: "var(--red)" }}>toque no elemento para apagar</span>}
+          {!somenteLeitura && <button className="btn" onClick={() => { limparModos(); selecionar(null); setApresentacao((v) => !v); }}
+            style={apresentacao ? { borderColor: "var(--gold)", color: "var(--gold)" } : undefined} title="Modo apresentação: esconde grade, medidas e painéis">🎦</button>}
           {somenteLeitura
             ? <button className="btn btn-gold" onClick={() => nav("/novo")}>＋ Começar meu Heritage</button>
             : <button className="btn btn-gold" disabled={salvando} onClick={() => void salvar()}>{salvando ? "Salvando…" : dirty ? "💾 Salvar" : "✓ Salvo"}</button>}
@@ -360,20 +384,89 @@ export default function EditorScreen() {
 
       <div style={{ flex: 1, display: "flex", minHeight: 0 }}>
         {/* Rail esquerdo: biblioteca de equipamentos — só na Etapa 3 (Layout) */}
-        {!somenteLeitura && etapa === "layout" && (
+        {!somenteLeitura && !apresentacao && etapa === "layout" && (() => {
+          const q = buscaEquip.trim().toLowerCase();
+          const lista = equipamentos.filter((m) =>
+            m.ativo !== false
+            && (!q || `${m.nome} ${m.marca ?? ""} ${m.modelo ?? ""}`.toLowerCase().includes(q))
+            && (!filtroZona || m.zona === filtroZona)
+            && (!filtroCat || m.categoria === filtroCat));
+          const categorias = [...new Set(equipamentos.map((m) => m.categoria).filter(Boolean))] as string[];
+          return (
+            <aside style={{ width: 224, flexShrink: 0, borderRight: "1px solid var(--line)", overflow: "auto", padding: "10px 10px 10px calc(10px + var(--sal))", display: "flex", flexDirection: "column", gap: 8 }}>
+              <div className="brandface" style={{ fontSize: 15, color: "var(--gold)" }}>BIBLIOTECA</div>
+              <input className="fld" placeholder="🔍 Buscar…" value={buscaEquip} onChange={(e) => setBuscaEquip(e.target.value)} style={{ padding: "8px 10px", fontSize: 12.5 }} />
+              <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                <button className="btn" onClick={() => setFiltroZona("")} style={{ padding: "4px 8px", fontSize: 10.5, ...(filtroZona === "" ? { borderColor: "var(--gold)", color: "var(--gold)" } : {}) }}>Todas</button>
+                {(Object.keys(ZONAS) as Zona[]).map((z) => (
+                  <button key={z} className="btn" onClick={() => setFiltroZona(filtroZona === z ? "" : z)}
+                    style={{ padding: "4px 8px", fontSize: 10.5, ...(filtroZona === z ? { borderColor: ZONAS[z].cor, color: ZONAS[z].cor } : {}) }}>{ZONAS[z].label}</button>
+                ))}
+              </div>
+              {categorias.length > 0 && (
+                <select className="fld" value={filtroCat} onChange={(e) => setFiltroCat(e.target.value)} style={{ padding: "7px 9px", fontSize: 12 }}>
+                  <option value="">Todas as categorias</option>
+                  {categorias.map((c) => <option key={c} value={c}>{c}</option>)}
+                </select>
+              )}
+              <div style={{ fontSize: 10.5, color: "var(--muted)" }}>{lista.length} equipamento(s)</div>
+              <div style={{ display: "grid", gap: 5 }}>
+                {lista.map((m, i) => (
+                  <button key={(m.id || m.nome) + i} onClick={() => adicionar(m)} style={{
+                    display: "grid", gap: 2,
+                    background: "var(--panel-2)", border: "1px solid var(--line)", borderRadius: 7, padding: "7px 9px",
+                    color: "#c9c9c4", font: "600 12px 'DM Sans'", textAlign: "left", cursor: "pointer",
+                  }}>
+                    <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <span style={{ width: 8, height: 8, borderRadius: 2, background: ZONAS[m.zona]?.cor, flexShrink: 0 }} />
+                      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.nome}</span>
+                      {m.precisa_tomada && <span title="Precisa tomada">⚡</span>}
+                    </span>
+                    <span style={{ display: "flex", justifyContent: "space-between", color: "#6e6e73", fontWeight: 400, fontSize: 10.5 }}>
+                      <span>{[m.marca, m.modelo].filter(Boolean).join(" ") || (m.categoria ?? "")}</span>
+                      <span>{m.largura_cm}×{m.profundidade_cm}{m.preco ? ` · ${BRL(m.preco)}` : ""}</span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </aside>
+          );
+        })()}
+
+        {/* Rail esquerdo da Etapa 2: itens de parede + mobiliário/infraestrutura */}
+        {!somenteLeitura && !apresentacao && etapa === "acabamento" && (
           <aside style={{ width: 210, flexShrink: 0, borderRight: "1px solid var(--line)", overflow: "auto", padding: "10px 10px 10px calc(10px + var(--sal))" }}>
-            <div className="brandface" style={{ fontSize: 15, color: "var(--gold)", marginBottom: 8 }}>BIBLIOTECA</div>
-            <div style={{ display: "grid", gap: 5 }}>
-              {equipamentos.map((m, i) => (
-                <button key={(m.id || m.nome) + i} onClick={() => adicionar(m)} style={{
-                  display: "flex", justifyContent: "space-between", alignItems: "center", gap: 6,
-                  background: "var(--panel-2)", border: "1px solid var(--line)", borderRadius: 7, padding: "7px 9px",
-                  color: "#c9c9c4", font: "600 12px 'DM Sans'", textAlign: "left", cursor: "pointer",
+            <div className="brandface" style={{ fontSize: 15, color: "var(--gold)", marginBottom: 8 }}>ITENS DE PAREDE</div>
+            <div style={{ display: "grid", gap: 4, marginBottom: 14 }}>
+              {(Object.keys(ELEMENTOS_PAREDE) as TipoElementoParede[]).filter((t) => t !== "espelho").map((t) => (
+                <button key={t} onClick={() => { limparModos(); setTipoElemParede(t); setFerrAcab("itemParede"); }} style={{
+                  display: "flex", alignItems: "center", gap: 7,
+                  background: ferrAcab === "itemParede" && tipoElemParede === t ? "var(--gold-soft)" : "var(--panel-2)",
+                  border: `1px solid ${ferrAcab === "itemParede" && tipoElemParede === t ? "var(--gold)" : "var(--line)"}`,
+                  borderRadius: 7, padding: "6px 9px", color: "#c9c9c4", font: "600 11.5px 'DM Sans'", textAlign: "left", cursor: "pointer",
                 }}>
-                  <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    <span style={{ width: 8, height: 8, borderRadius: 2, background: ZONAS[m.zona]?.cor }} />{m.nome}
-                  </span>
-                  <span style={{ color: "#6e6e73", fontWeight: 400 }}>{m.largura_cm}×{m.profundidade_cm}</span>
+                  <span>{ELEMENTOS_PAREDE[t].icone}</span>{ELEMENTOS_PAREDE[t].label}
+                  <span style={{ marginLeft: "auto", color: "#6e6e73", fontWeight: 400, fontSize: 10.5 }}>{ELEMENTOS_PAREDE[t].largura}×{ELEMENTOS_PAREDE[t].altura}</span>
+                </button>
+              ))}
+            </div>
+            <div className="brandface" style={{ fontSize: 15, color: "var(--gold)", marginBottom: 8 }}>MOBILIÁRIO</div>
+            <div style={{ display: "grid", gap: 4 }}>
+              {MOBILIARIO_CATALOGO.map((mob) => (
+                <button key={mob.tipo + mob.nome} onClick={() => {
+                  const item: ItemInfraestrutura = {
+                    id: crypto.randomUUID(), tipo: mob.tipo, nome: mob.nome, categoria: mob.categoria,
+                    x_cm: Math.round(cena.sala.largura_cm / 2 - mob.w / 2), y_cm: Math.round(cena.sala.profundidade_cm / 2 - mob.h / 2),
+                    w_cm: mob.w, h_cm: mob.h, altura_cm: mob.alt ?? null, rotacao: 0,
+                  };
+                  limparModos(); addInfra(item);
+                }} style={{
+                  display: "flex", justifyContent: "space-between", alignItems: "center", gap: 6,
+                  background: "var(--panel-2)", border: "1px solid var(--line)", borderRadius: 7, padding: "6px 9px",
+                  color: "#c9c9c4", font: "600 11.5px 'DM Sans'", textAlign: "left", cursor: "pointer",
+                }}>
+                  <span>{mob.nome}</span>
+                  <span style={{ color: "#6e6e73", fontWeight: 400, fontSize: 10.5 }}>{mob.w}×{mob.h}</span>
                 </button>
               ))}
             </div>
@@ -382,7 +475,7 @@ export default function EditorScreen() {
 
         {/* Canvas */}
         <div style={{ flex: 1, position: "relative", minWidth: 0 }}>
-          <EditorCanvas modoCalibrar={modoCalibrar} onCalibrar={onCalibrar} ferrAcab={ferrAcab} snapPasso={snapPasso} onArea={onArea}
+          <EditorCanvas modoCalibrar={modoCalibrar} onCalibrar={onCalibrar} ferrAcab={ferrAcab} tipoElemParede={tipoElemParede} snapPasso={snapPasso} camadas={camadas} apresentacao={apresentacao} onArea={onArea}
             modoRecorte={modoRecorte} onRecorte={(rect) => { recortarVetorial(rect); setModoRecorte(false); }}
             modoParede={modoParede} onParede={onParede} modoMoverPlanta={modoMoverPlanta}
             etapa={etapa} ferrEstrutura={ferrEstrutura}
@@ -390,7 +483,7 @@ export default function EditorScreen() {
         </div>
 
         {/* Inspetor direito */}
-        <aside style={{ width: 220, flexShrink: 0, borderLeft: "1px solid var(--line)", overflow: "auto", padding: "12px calc(12px + var(--sar)) 12px 12px" }}>
+        {!apresentacao && <aside style={{ width: 220, flexShrink: 0, borderLeft: "1px solid var(--line)", overflow: "auto", padding: "12px calc(12px + var(--sar)) 12px 12px" }}>
           {somenteLeitura ? (
             <div style={{ display: "grid", gap: 12 }}>
               <div className="brandface" style={{ fontSize: 16, color: "var(--gold)" }}>Sobre este projeto</div>
@@ -410,11 +503,44 @@ export default function EditorScreen() {
             selEstrutura ? <EstruturaInspector sel={selEstrutura} /> : <PlantaEtapaInspector temPlanta={!!(cena.planta || cena.plantaVetorial)} temEstrutura={!!cena.estrutura} />
           ) : selItem ? (
             <div style={{ display: "grid", gap: 12 }}>
-              <div className="brandface" style={{ fontSize: 16, color: "var(--gold)" }}>{selItem.nome}</div>
+              <div className="brandface" style={{ fontSize: 16, color: "var(--gold)" }}>{selItem.nome} {selItem.bloqueado && "🔒"}</div>
               <div style={{ fontSize: 12, color: "var(--muted)" }}>
                 Dimensões (proporção travada)<br />
                 <b style={{ color: "#e9e9e6", fontSize: 14 }}>{formatLength(selItem.w_cm)} × {formatLength(selItem.h_cm)}</b>
               </div>
+              <Bloco label="POSIÇÃO X × Y (cm)">
+                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                  <CampoCm valor={selItem.x_cm} onSet={(v) => updateItem(selItem.id, { x_cm: v })} />
+                  <span style={{ color: "var(--muted)" }}>×</span>
+                  <CampoCm valor={selItem.y_cm} onSet={(v) => updateItem(selItem.id, { y_cm: v })} />
+                </div>
+              </Bloco>
+              <Bloco label={`ROTAÇÃO · ${Math.round(selItem.rotacao || 0)}°`}>
+                <div style={{ display: "flex", gap: 4 }}>
+                  {[["-45", -45], ["-15", -15], ["-1", -1], ["+1", 1], ["+15", 15], ["+45", 45]].map(([lbl, d]) => (
+                    <button key={lbl} className="btn" disabled={selItem.bloqueado} onClick={() => girarSelecionado(d as number)} style={{ flex: 1, padding: "7px 1px", fontSize: 10 }}>{lbl}</button>
+                  ))}
+                </div>
+                <div style={{ display: "flex", gap: 4, marginTop: 4 }}>
+                  <button className="btn" disabled={selItem.bloqueado} onClick={() => girarSelecionado(90)} style={{ flex: 1, padding: "7px 2px", fontSize: 10.5 }}>90°</button>
+                  <button className="btn" disabled={selItem.bloqueado} onClick={() => updateItem(selItem.id, { rotacao: 0 })} style={{ flex: 1, padding: "7px 2px", fontSize: 10.5 }}>0°</button>
+                  <button className="btn" disabled={selItem.bloqueado} onClick={() => espelharItem(selItem.id, "h")} style={{ flex: 1, padding: "7px 2px", fontSize: 10.5, ...(selItem.flipH ? { borderColor: "var(--gold)", color: "var(--gold)" } : {}) }}>⇋ H</button>
+                  <button className="btn" disabled={selItem.bloqueado} onClick={() => espelharItem(selItem.id, "v")} style={{ flex: 1, padding: "7px 2px", fontSize: 10.5, ...(selItem.flipV ? { borderColor: "var(--gold)", color: "var(--gold)" } : {}) }}>⇵ V</button>
+                </div>
+              </Bloco>
+              <Bloco label={`NUDGE (${nudgePasso} cm)`}>
+                <div style={{ display: "flex", gap: 4, marginBottom: 5 }}>
+                  {[1, 5, 10, 20].map((n) => (
+                    <button key={n} className="btn" onClick={() => setNudgePasso(n)} style={{ flex: 1, padding: "5px 2px", fontSize: 10, ...(nudgePasso === n ? { borderColor: "#5FC8E8", color: "#8fd6f0" } : {}) }}>{n}</button>
+                  ))}
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 5, maxWidth: 150 }}>
+                  <span /><button className="btn" disabled={selItem.bloqueado} style={{ padding: "6px 0" }} onClick={() => updateItem(selItem.id, { y_cm: selItem.y_cm - nudgePasso })}>↑</button><span />
+                  <button className="btn" disabled={selItem.bloqueado} style={{ padding: "6px 0" }} onClick={() => updateItem(selItem.id, { x_cm: selItem.x_cm - nudgePasso })}>←</button>
+                  <button className="btn" disabled={selItem.bloqueado} style={{ padding: "6px 0" }} onClick={() => updateItem(selItem.id, { y_cm: selItem.y_cm + nudgePasso })}>↓</button>
+                  <button className="btn" disabled={selItem.bloqueado} style={{ padding: "6px 0" }} onClick={() => updateItem(selItem.id, { x_cm: selItem.x_cm + nudgePasso })}>→</button>
+                </div>
+              </Bloco>
               <Bloco label="ZONA">
                 <select className="fld" value={selItem.zona} onChange={(e) => updateItem(selItem.id, { zona: e.target.value as Zona })}>
                   {Object.entries(ZONAS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
@@ -438,10 +564,15 @@ export default function EditorScreen() {
               </Bloco>
               {selItem.preco ? <div style={{ fontSize: 13, color: "var(--gold)" }}>{BRL(selItem.preco)}</div> : null}
               <div style={{ display: "flex", gap: 6 }}>
-                <button className="btn" style={{ flex: 1 }} onClick={() => girarSelecionado()}>↻ Girar</button>
-                <button className="btn" style={{ flex: 1 }} onClick={removerSelecionado}>✕ Remover</button>
+                <button className="btn" style={{ flex: 1 }} onClick={() => duplicarItem(selItem.id)}>⧉ Duplicar</button>
+                <button className="btn" style={{ flex: 1 }} onClick={() => updateItem(selItem.id, { bloqueado: !selItem.bloqueado })}>{selItem.bloqueado ? "🔓 Destravar" : "🔒 Travar"}</button>
               </div>
+              <button className="btn" disabled={selItem.bloqueado} onClick={removerSelecionado}>✕ Remover</button>
             </div>
+          ) : selElemParede ? (
+            <ElemParedeInspector el={selElemParede} />
+          ) : selInfra ? (
+            <InfraInspector item={selInfra} snapPasso={snapPasso} />
           ) : selAcab ? (
             <AcabamentoInspector area={selAcab} />
           ) : cena.plantaVetorial ? (
@@ -455,13 +586,23 @@ export default function EditorScreen() {
               <br /><br />Use <b>▦ Acabamento</b> para pintar pisos/paredes com um revestimento da biblioteca.
             </div>
           )}
-        </aside>
+        </aside>}
       </div>
 
+      {/* Overlay do modo apresentação: título do projeto */}
+      {apresentacao && (
+        <div style={{ position: "absolute", left: 0, right: 0, bottom: 18, display: "flex", justifyContent: "center", pointerEvents: "none" }}>
+          <span className="brandface" style={{ fontSize: 22, color: "var(--gold)", background: "rgba(10,10,11,.72)", padding: "8px 22px", borderRadius: 999, border: "1px solid var(--line-2)" }}>
+            {projeto.nome}
+          </span>
+        </div>
+      )}
+
       {/* Rodapé: validação */}
-      <div style={{ display: "flex", gap: 8, alignItems: "center", padding: "7px calc(12px + var(--sar)) calc(7px + var(--sab)) calc(12px + var(--sal))", borderTop: "1px solid var(--line)", flexWrap: "wrap", flexShrink: 0 }}>
+      {!apresentacao && <div style={{ display: "flex", gap: 8, alignItems: "center", padding: "7px calc(12px + var(--sar)) calc(7px + var(--sab)) calc(12px + var(--sal))", borderTop: "1px solid var(--line)", flexWrap: "wrap", flexShrink: 0 }}>
         <Chip ok={r.nCol === 0} txt={r.nCol === 0 ? "Sem colisões" : `${r.nCol} colisão(ões)`} />
         <Chip ok={r.nCor === 0} warn txt={r.nCor === 0 ? "Corredor livre" : `${r.nCor} no corredor`} />
+        {r.nUso > 0 && <Chip warn ok={false} txt={`${r.nUso} área(s) de uso invadida(s)`} />}
         <Chip neutro txt={`Ocupação ${r.ocupacao}%`} />
         <Chip neutro txt={`Equipamentos ${cena.itens.length}`} />
         <Chip gold txt={BRL(r.subtotal)} />
@@ -474,7 +615,7 @@ export default function EditorScreen() {
         {teto > 0 && <span style={{ marginLeft: "auto", fontSize: 12, color: saldo >= 0 ? "var(--green)" : "var(--red)" }}>
           Teto {BRL(teto)} · Assessoria {BRL(Math.round(teto * TAXA_ASSESSORIA))} · Saldo {BRL(saldo)}
         </span>}
-      </div>
+      </div>}
     </div>
   );
 }
@@ -788,6 +929,122 @@ function AcabamentoInspector({ area }: { area: AreaAcabamento }) {
         <button className="btn" style={{ flex: 1 }} onClick={() => updateArea(area.id, { bloqueado: !travado })}>{travado ? "🔓 Destravar" : "🔒 Travar"}</button>
       </div>
       <button className="btn" disabled={travado} onClick={() => removerArea(area.id)}>✕ Remover área</button>
+    </div>
+  );
+}
+
+// Inspetor de um elemento de parede (espelho / TV / elétrica…).
+function ElemParedeInspector({ el }: { el: ElementoParede }) {
+  const updateElemParede = useProjeto((s) => s.updateElemParede);
+  const removerElemParede = useProjeto((s) => s.removerElemParede);
+  const paredes = useProjeto((s) => s.cena.estrutura?.paredes ?? []);
+  const def = ELEMENTOS_PAREDE[el.tipo];
+  const espelho = el.tipo === "espelho";
+  const areaM2 = (el.largura_cm / 100) * (el.altura_cm / 100);
+  const custo = espelho ? areaM2 * (el.preco_m2 ?? 0) : (el.custo ?? 0);
+  const travado = !!el.bloqueado;
+  const idx = paredes.findIndex((p) => p.id === el.paredeId);
+  return (
+    <div style={{ display: "grid", gap: 12 }}>
+      <div className="brandface" style={{ fontSize: 16, color: "var(--gold)" }}>{def.icone} {def.label.toUpperCase()} {travado && "🔒"}</div>
+      <div style={{ fontSize: 11.5, color: "var(--muted)" }}>Parede {idx >= 0 ? idx + 1 : "?"} · deslocamento do início até o centro</div>
+      <Bloco label="DESLOCAMENTO NA PAREDE (cm)">
+        <CampoCm valor={el.offset_cm} min={0} onSet={(v) => updateElemParede(el.id, { offset_cm: v })} />
+      </Bloco>
+      <Bloco label={espelho ? "COMPRIMENTO × ALTURA (cm)" : "LARGURA × ALTURA (cm)"}>
+        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          <CampoCm valor={el.largura_cm} min={5} onSet={(v) => updateElemParede(el.id, { largura_cm: v })} />
+          <span style={{ color: "var(--muted)" }}>×</span>
+          <CampoCm valor={el.altura_cm} min={5} onSet={(v) => updateElemParede(el.id, { altura_cm: v })} />
+        </div>
+      </Bloco>
+      <Bloco label="DISTÂNCIA DO PISO (cm)">
+        <CampoCm valor={el.dist_piso_cm} min={0} onSet={(v) => updateElemParede(el.id, { dist_piso_cm: v })} />
+      </Bloco>
+      {espelho && (
+        <>
+          <Bloco label="ILUMINAÇÃO">
+            <div style={{ display: "flex", gap: 6 }}>
+              <button className="btn" disabled={travado} onClick={() => updateElemParede(el.id, { luz_superior: !el.luz_superior })}
+                style={{ flex: 1, padding: "7px 4px", fontSize: 11, borderColor: el.luz_superior ? "var(--gold)" : "var(--line-2)", color: el.luz_superior ? "var(--gold)" : "var(--muted)" }}>☀ Superior</button>
+              <button className="btn" disabled={travado} onClick={() => updateElemParede(el.id, { luz_inferior: !el.luz_inferior })}
+                style={{ flex: 1, padding: "7px 4px", fontSize: 11, borderColor: el.luz_inferior ? "var(--gold)" : "var(--line-2)", color: el.luz_inferior ? "var(--gold)" : "var(--muted)" }}>☀ Inferior</button>
+            </div>
+          </Bloco>
+          <Bloco label="PREÇO POR M² (R$)">
+            <CampoCm valor={el.preco_m2 ?? 0} min={0} onSet={(v) => updateElemParede(el.id, { preco_m2: v })} />
+          </Bloco>
+        </>
+      )}
+      {!espelho && (
+        <Bloco label="CUSTO (R$)">
+          <CampoCm valor={el.custo ?? 0} min={0} onSet={(v) => updateElemParede(el.id, { custo: v })} />
+        </Bloco>
+      )}
+      <div style={{ fontSize: 12.5, color: "var(--muted)", lineHeight: 1.7 }}>
+        Área: <b style={{ color: "#e9e9e6" }}>{m2(areaM2)}</b>
+        {custo ? <> · Custo: <b style={{ color: "var(--gold)" }}>{BRL(Math.round(custo))}</b></> : null}
+      </div>
+      <div style={{ display: "flex", gap: 6 }}>
+        <button className="btn" style={{ flex: 1 }} onClick={() => updateElemParede(el.id, { bloqueado: !travado })}>{travado ? "🔓 Destravar" : "🔒 Travar"}</button>
+        <button className="btn" style={{ flex: 1 }} disabled={travado} onClick={() => removerElemParede(el.id)}>✕ Remover</button>
+      </div>
+    </div>
+  );
+}
+
+// Inspetor de mobiliário / infraestrutura.
+function InfraInspector({ item, snapPasso }: { item: ItemInfraestrutura; snapPasso: number }) {
+  const updateInfra = useProjeto((s) => s.updateInfra);
+  const removerInfra = useProjeto((s) => s.removerInfra);
+  const duplicarInfra = useProjeto((s) => s.duplicarInfra);
+  const travado = !!item.bloqueado;
+  const passo = snapPasso || 5;
+  return (
+    <div style={{ display: "grid", gap: 12 }}>
+      <div className="brandface" style={{ fontSize: 16, color: "var(--gold)" }}>{item.nome.toUpperCase()} {travado && "🔒"}</div>
+      {item.categoria && <div style={{ fontSize: 11.5, color: "var(--muted)" }}>{item.categoria}</div>}
+      <Bloco label="POSIÇÃO X × Y (cm)">
+        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          <CampoCm valor={item.x_cm} onSet={(v) => updateInfra(item.id, { x_cm: v })} />
+          <span style={{ color: "var(--muted)" }}>×</span>
+          <CampoCm valor={item.y_cm} onSet={(v) => updateInfra(item.id, { y_cm: v })} />
+        </div>
+      </Bloco>
+      <Bloco label="LARGURA × PROFUNDIDADE (cm)">
+        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          <CampoCm valor={item.w_cm} min={5} onSet={(v) => updateInfra(item.id, { w_cm: v })} />
+          <span style={{ color: "var(--muted)" }}>×</span>
+          <CampoCm valor={item.h_cm} min={5} onSet={(v) => updateInfra(item.id, { h_cm: v })} />
+        </div>
+      </Bloco>
+      <Bloco label={`ROTAÇÃO · ${Math.round(item.rotacao || 0)}°`}>
+        <div style={{ display: "flex", gap: 5 }}>
+          {[["-45", -45], ["-5", -5], ["+5", 5], ["+45", 45], ["90", 90]].map(([lbl, d]) => (
+            <button key={lbl} className="btn" disabled={travado} onClick={() => updateInfra(item.id, { rotacao: ((item.rotacao || 0) + (d as number)) % 360 })}
+              style={{ flex: 1, padding: "7px 2px", fontSize: 10.5 }}>{lbl}°</button>
+          ))}
+        </div>
+      </Bloco>
+      <Bloco label={`NUDGE (${passo} cm)`}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 5, maxWidth: 150 }}>
+          <span /><button className="btn" disabled={travado} style={{ padding: "6px 0" }} onClick={() => updateInfra(item.id, { y_cm: item.y_cm - passo })}>↑</button><span />
+          <button className="btn" disabled={travado} style={{ padding: "6px 0" }} onClick={() => updateInfra(item.id, { x_cm: item.x_cm - passo })}>←</button>
+          <button className="btn" disabled={travado} style={{ padding: "6px 0" }} onClick={() => updateInfra(item.id, { y_cm: item.y_cm + passo })}>↓</button>
+          <button className="btn" disabled={travado} style={{ padding: "6px 0" }} onClick={() => updateInfra(item.id, { x_cm: item.x_cm + passo })}>→</button>
+        </div>
+      </Bloco>
+      <Bloco label="CUSTO (R$)">
+        <CampoCm valor={item.custo ?? 0} min={0} onSet={(v) => updateInfra(item.id, { custo: v })} />
+      </Bloco>
+      <Bloco label="OBSERVAÇÃO">
+        <input className="fld" value={item.obs ?? ""} disabled={travado} onChange={(e) => updateInfra(item.id, { obs: e.target.value }, false)} onBlur={(e) => updateInfra(item.id, { obs: e.target.value })} />
+      </Bloco>
+      <div style={{ display: "flex", gap: 6 }}>
+        <button className="btn" style={{ flex: 1 }} onClick={() => duplicarInfra(item.id)}>⧉ Duplicar</button>
+        <button className="btn" style={{ flex: 1 }} onClick={() => updateInfra(item.id, { bloqueado: !travado })}>{travado ? "🔓 Destravar" : "🔒 Travar"}</button>
+      </div>
+      <button className="btn" disabled={travado} onClick={() => removerInfra(item.id)}>✕ Remover</button>
     </div>
   );
 }

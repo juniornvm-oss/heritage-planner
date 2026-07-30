@@ -18,7 +18,15 @@ export const CENARIOS: Record<Cenario, { label: string; cor: string; ordem: numb
 
 export const TAXA_ASSESSORIA = 0.005; // 0,5% do teto do condomínio
 
-/** Equipamento do catálogo (planner.equipamentos). */
+/** Categorias e subcategorias do catálogo de equipamentos. */
+export const CATEGORIAS_EQUIP: Record<string, string[]> = {
+  Cardio: ["Esteira", "Bicicleta vertical", "Bicicleta horizontal", "Spinning", "Elíptico", "Escada", "Remo"],
+  "Musculação guiada": ["Peitoral", "Costas", "Ombros", "Braços", "Quadríceps", "Posterior", "Glúteos", "Panturrilha", "Abdômen"],
+  "Peso livre": ["Halteres", "Anilhas", "Barras", "Banco", "Rack", "Gaiola", "Plataforma", "Smith", "Cross"],
+  Funcional: [], Mobilidade: [], Alongamento: [], Acessórios: [], "Avaliação física": [],
+};
+
+/** Equipamento do catálogo (planner.equipamentos; ficha técnica no jsonb `tecnico`). */
 export interface Equipamento {
   id?: string;
   nome: string;
@@ -30,7 +38,32 @@ export interface Equipamento {
   preco: number;
   imagem?: string | null; // dataURL de referência (foto do equipamento, reduzida)
   contorno?: number[][] | null; // polilinhas do footprint, normalizadas 0..1 (x/larg, y/prof)
+  // ── Ficha técnica (opcional; persiste no jsonb planner.equipamentos.tecnico) ──
+  categoria?: string | null;
+  subcategoria?: string | null;
+  altura_cm?: number | null;
+  peso_kg?: number | null;
+  fornecedor?: string | null;
+  codigo?: string | null; // código interno
+  precisa_tomada?: boolean | null;
+  voltagem?: "127" | "220" | "bivolt" | null;
+  ponto_internet?: boolean | null;
+  dist_parede_cm?: number | null; // distância mínima de parede
+  dist_lateral_cm?: number | null;
+  dist_frontal_cm?: number | null;
+  uso_frontal_cm?: number | null; // margem da ÁREA DE USO (frente/trás)
+  uso_lateral_cm?: number | null; // margem da ÁREA DE USO (laterais)
+  seguranca_cm?: number | null; // margem extra da ÁREA DE SEGURANÇA (além do uso)
+  obs?: string | null;
+  ativo?: boolean | null; // false = não aparece na biblioteca do editor
 }
+
+/** Chaves da ficha técnica (para empacotar/desempacotar o jsonb `tecnico`). */
+export const CAMPOS_TECNICOS = [
+  "categoria", "subcategoria", "altura_cm", "peso_kg", "fornecedor", "codigo",
+  "precisa_tomada", "voltagem", "ponto_internet", "dist_parede_cm", "dist_lateral_cm",
+  "dist_frontal_cm", "uso_frontal_cm", "uso_lateral_cm", "seguranca_cm", "obs", "ativo",
+] as const;
 
 /** Fornecedor (planner.fornecedores) — global, reaproveitado entre projetos. */
 export interface Fornecedor {
@@ -91,6 +124,15 @@ export interface ItemPosicionado {
   // Visual do equipamento (herdado do catálogo) para desenhar no editor.
   imagem?: string | null;
   contorno?: number[][] | null;
+  // Footprint técnico (herdado do catálogo ao adicionar; cm de margem).
+  uso_frontal_cm?: number | null;
+  uso_lateral_cm?: number | null;
+  seguranca_cm?: number | null;
+  precisa_tomada?: boolean | null;
+  // Transformações do editor profissional.
+  flipH?: boolean;
+  flipV?: boolean;
+  bloqueado?: boolean;
 }
 
 /** Planta baixa importada como fundo, já calibrada em escala real. */
@@ -227,6 +269,95 @@ export interface Cota {
   x1: number; y1: number; x2: number; y2: number;
 }
 
+// ── Etapa 2: elementos fixados na parede (espelho, TV, elétrica…) ───────────
+export type TipoElementoParede =
+  | "espelho" | "tv" | "painel_tv" | "tomada" | "eletrica" | "internet" | "som"
+  | "ar" | "iluminacao" | "espaldar" | "colchonetes" | "prateleira" | "camera" | "extintor" | "sinalizacao";
+
+export const ELEMENTOS_PAREDE: Record<TipoElementoParede, { label: string; icone: string; cor: string; largura: number; altura: number; distPiso: number }> = {
+  espelho: { label: "Espelho", icone: "🪞", cor: "#5FC8E8", largura: 200, altura: 200, distPiso: 30 },
+  tv: { label: "Televisão", icone: "📺", cor: "#C9A227", largura: 98, altura: 57, distPiso: 160 },
+  painel_tv: { label: "Painel de TV", icone: "🖥", cor: "#C9A227", largura: 180, altura: 120, distPiso: 110 },
+  tomada: { label: "Tomada", icone: "⚡", cor: "#E09A45", largura: 12, altura: 12, distPiso: 30 },
+  eletrica: { label: "Ponto elétrico", icone: "🔌", cor: "#E09A45", largura: 15, altura: 15, distPiso: 30 },
+  internet: { label: "Internet", icone: "🌐", cor: "#5FBF7A", largura: 12, altura: 12, distPiso: 30 },
+  som: { label: "Ponto de som", icone: "🔊", cor: "#8B78BC", largura: 20, altura: 20, distPiso: 220 },
+  ar: { label: "Ar-condicionado", icone: "❄", cor: "#5FC8E8", largura: 90, altura: 30, distPiso: 220 },
+  iluminacao: { label: "Iluminação", icone: "💡", cor: "#C9A227", largura: 60, altura: 12, distPiso: 260 },
+  espaldar: { label: "Espaldar", icone: "🪜", cor: "#8B78BC", largura: 90, altura: 220, distPiso: 10 },
+  colchonetes: { label: "Suporte colchonetes", icone: "🧘", cor: "#8B78BC", largura: 80, altura: 60, distPiso: 100 },
+  prateleira: { label: "Prateleira", icone: "📚", cor: "#C07A3E", largura: 90, altura: 25, distPiso: 140 },
+  camera: { label: "Câmera", icone: "📷", cor: "#8A8A8F", largura: 12, altura: 12, distPiso: 250 },
+  extintor: { label: "Extintor", icone: "🧯", cor: "#E04545", largura: 20, altura: 55, distPiso: 110 },
+  sinalizacao: { label: "Sinalização", icone: "🚻", cor: "#5FBF7A", largura: 30, altura: 30, distPiso: 180 },
+};
+
+/** Elemento preso a uma parede (Etapa 2). Posição = deslocamento do início da
+ *  parede até o CENTRO do elemento — acompanha a parede quando ela é editada. */
+export interface ElementoParede {
+  id: string;
+  tipo: TipoElementoParede;
+  paredeId: string;
+  offset_cm: number; // início da parede → centro do elemento
+  largura_cm: number;
+  altura_cm: number; // dimensão vertical (não aparece na planta, entra no memorial)
+  dist_piso_cm: number;
+  espessura_cm?: number; // espelho
+  luz_superior?: boolean; // espelho
+  luz_inferior?: boolean; // espelho
+  preco_m2?: number | null; // espelho (custo = área × preço)
+  custo?: number | null; // demais itens
+  fornecedor?: string | null;
+  obs?: string | null;
+  bloqueado?: boolean;
+}
+
+// ── Etapa 2: mobiliário e infraestrutura (piso, fora da biblioteca de treino) ─
+export type TipoInfra =
+  | "balcao" | "mesa" | "cadeira" | "banco" | "sofa" | "armario" | "nicho" | "bebedouro" | "lixeira"
+  | "frigobar" | "catraca" | "leitor" | "biometria" | "porta_objetos" | "roupeiro" | "jardineira"
+  | "tapete" | "divisoria" | "guarda_corpo" | "outro";
+
+export const MOBILIARIO_CATALOGO: { tipo: TipoInfra; nome: string; categoria: "Acesso" | "Recepção" | "Apoio" | "Decoração"; w: number; h: number; alt?: number }[] = [
+  { tipo: "balcao", nome: "Balcão de recepção", categoria: "Recepção", w: 180, h: 60, alt: 110 },
+  { tipo: "mesa", nome: "Mesa", categoria: "Recepção", w: 120, h: 70, alt: 75 },
+  { tipo: "cadeira", nome: "Cadeira", categoria: "Recepção", w: 45, h: 50, alt: 90 },
+  { tipo: "banco", nome: "Banco", categoria: "Apoio", w: 120, h: 40, alt: 45 },
+  { tipo: "sofa", nome: "Sofá", categoria: "Recepção", w: 180, h: 85, alt: 80 },
+  { tipo: "armario", nome: "Armário", categoria: "Apoio", w: 90, h: 45, alt: 180 },
+  { tipo: "nicho", nome: "Nicho", categoria: "Apoio", w: 90, h: 35, alt: 180 },
+  { tipo: "bebedouro", nome: "Bebedouro", categoria: "Apoio", w: 35, h: 35, alt: 110 },
+  { tipo: "lixeira", nome: "Lixeira", categoria: "Apoio", w: 30, h: 30, alt: 70 },
+  { tipo: "frigobar", nome: "Frigobar", categoria: "Apoio", w: 50, h: 55, alt: 85 },
+  { tipo: "catraca", nome: "Catraca", categoria: "Acesso", w: 75, h: 90, alt: 100 },
+  { tipo: "leitor", nome: "Leitor de acesso", categoria: "Acesso", w: 12, h: 12, alt: 120 },
+  { tipo: "biometria", nome: "Biometria", categoria: "Acesso", w: 12, h: 12, alt: 120 },
+  { tipo: "porta_objetos", nome: "Porta-objetos", categoria: "Apoio", w: 90, h: 40, alt: 160 },
+  { tipo: "roupeiro", nome: "Roupeiro", categoria: "Apoio", w: 120, h: 50, alt: 190 },
+  { tipo: "jardineira", nome: "Jardineira", categoria: "Decoração", w: 90, h: 35, alt: 60 },
+  { tipo: "tapete", nome: "Tapete", categoria: "Decoração", w: 200, h: 140 },
+  { tipo: "divisoria", nome: "Divisória", categoria: "Decoração", w: 180, h: 10, alt: 180 },
+  { tipo: "guarda_corpo", nome: "Guarda-corpo", categoria: "Decoração", w: 200, h: 10, alt: 110 },
+];
+
+/** Item de mobiliário/infraestrutura posicionado na planta (cm, mundo). */
+export interface ItemInfraestrutura {
+  id: string;
+  tipo: TipoInfra;
+  nome: string;
+  categoria?: string | null;
+  x_cm: number;
+  y_cm: number;
+  w_cm: number;
+  h_cm: number; // profundidade em planta
+  altura_cm?: number | null;
+  rotacao: number;
+  custo?: number | null;
+  fornecedor?: string | null;
+  obs?: string | null;
+  bloqueado?: boolean;
+}
+
 /** Estado completo do editor de um projeto. */
 export interface Cena {
   sala: Sala;
@@ -235,6 +366,8 @@ export interface Cena {
   itens: ItemPosicionado[];
   acabamentos?: AreaAcabamento[];
   cotas?: Cota[]; // medidas fixadas na planta (Etapa 2)
+  elementosParede?: ElementoParede[]; // espelhos, TVs, elétrica… (Etapa 2)
+  infra?: ItemInfraestrutura[]; // mobiliário e infraestrutura (Etapa 2)
   estrutura?: EstruturaPlanta | null; // Etapa 1: paredes/aberturas/pilares
 }
 

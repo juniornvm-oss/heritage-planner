@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { Projeto, Cena, ItemPosicionado, PlantaFundo, AreaAcabamento, PlantaVetorial, EstruturaPlanta, Parede, Abertura, PilarPlanta, Cota } from "../lib/types";
+import type { Projeto, Cena, ItemPosicionado, PlantaFundo, AreaAcabamento, PlantaVetorial, EstruturaPlanta, Parede, Abertura, PilarPlanta, Cota, ElementoParede, ItemInfraestrutura } from "../lib/types";
 import { CENARIOS, ZONAS } from "../lib/types";
 import { gerarEstrutura, estruturaVazia } from "../lib/estrutura";
 import { bboxPoligono, retanguloParaPontos, transladar } from "../lib/geometria";
@@ -28,11 +28,13 @@ function normalizarCena(bruta: Cena | null | undefined): Cena {
   }));
   const acabamentos = (Array.isArray(base.acabamentos) ? base.acabamentos : []).map(normalizarArea);
   const cotas = Array.isArray(base.cotas) ? base.cotas : [];
+  const elementosParede = Array.isArray(base.elementosParede) ? base.elementosParede : [];
+  const infra = Array.isArray(base.infra) ? base.infra : [];
   const e = base.estrutura;
   const estrutura: EstruturaPlanta | null = e && (Array.isArray(e.paredes) || Array.isArray(e.pilares))
     ? { paredes: e.paredes ?? [], aberturas: e.aberturas ?? [], pilares: e.pilares ?? [] }
     : null;
-  return { ...base, sala, itens, acabamentos, cotas, estrutura };
+  return { ...base, sala, itens, acabamentos, cotas, elementosParede, infra, estrutura };
 }
 
 interface ProjetoState {
@@ -40,6 +42,8 @@ interface ProjetoState {
   cena: Cena;
   selectedId: string | null;
   selectedAcabId: string | null;
+  selElemParedeId: string | null;
+  selInfraId: string | null;
   selEstrutura: SelEstrutura;
   dirty: boolean;
   salvando: boolean;
@@ -58,10 +62,23 @@ interface ProjetoState {
   addCota: (c: Cota) => void;
   removerCota: (id: string) => void;
 
+  selecionarElemParede: (id: string | null) => void;
+  addElemParede: (e: ElementoParede) => void;
+  updateElemParede: (id: string, patch: Partial<ElementoParede>, commit?: boolean) => void;
+  removerElemParede: (id: string) => void;
+
+  selecionarInfra: (id: string | null) => void;
+  addInfra: (i: ItemInfraestrutura) => void;
+  updateInfra: (id: string, patch: Partial<ItemInfraestrutura>, commit?: boolean) => void;
+  removerInfra: (id: string) => void;
+  duplicarInfra: (id: string) => void;
+
   addItem: (item: ItemPosicionado) => void;
   updateItem: (id: string, patch: Partial<ItemPosicionado>, commit?: boolean) => void;
   removerSelecionado: () => void;
   girarSelecionado: (graus?: number) => void;
+  duplicarItem: (id: string) => void;
+  espelharItem: (id: string, eixo: "h" | "v") => void;
 
   setPlanta: (planta: PlantaFundo | null) => void;
   updatePlanta: (patch: Partial<PlantaFundo>) => void;
@@ -98,6 +115,8 @@ export const useProjeto = create<ProjetoState>((set, get) => ({
   cena: CENA_VAZIA,
   selectedId: null,
   selectedAcabId: null,
+  selElemParedeId: null,
+  selInfraId: null,
   selEstrutura: null,
   dirty: false,
   salvando: false,
@@ -106,15 +125,15 @@ export const useProjeto = create<ProjetoState>((set, get) => ({
 
   abrir(projeto) {
     const cena = normalizarCena(projeto.cena);
-    set({ projeto, cena, selectedId: null, selectedAcabId: null, selEstrutura: null, dirty: false, past: [], future: [] });
+    set({ projeto, cena, selectedId: null, selectedAcabId: null, selElemParedeId: null, selInfraId: null, selEstrutura: null, dirty: false, past: [], future: [] });
   },
 
   selecionar(id) {
-    set({ selectedId: id, selectedAcabId: null, selEstrutura: null });
+    set({ selectedId: id, selectedAcabId: null, selElemParedeId: null, selInfraId: null, selEstrutura: null });
   },
 
   selecionarAcab(id) {
-    set({ selectedAcabId: id, selectedId: null, selEstrutura: null });
+    set({ selectedAcabId: id, selectedId: null, selElemParedeId: null, selInfraId: null, selEstrutura: null });
   },
 
   addArea(area) {
@@ -178,12 +197,28 @@ export const useProjeto = create<ProjetoState>((set, get) => ({
     set((s) => ({ past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, itens: s.cena.itens.filter((it) => it.id !== id) }, selectedId: null, dirty: true }));
   },
 
-  // Girar 90° = trocar largura↔profundidade (proporção preservada; footprint axis-aligned).
-  girarSelecionado() {
+  // Rotação REAL em torno do centro (qualquer grau; padrão 90°).
+  girarSelecionado(graus = 90) {
     const id = get().selectedId;
     if (!id) return;
     set((s) => {
-      const itens = s.cena.itens.map((it) => (it.id === id ? { ...it, w_cm: it.h_cm, h_cm: it.w_cm } : it));
+      const itens = s.cena.itens.map((it) => (it.id === id ? { ...it, rotacao: (((it.rotacao || 0) + graus) % 360 + 360) % 360 } : it));
+      return { past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, itens }, dirty: true };
+    });
+  },
+
+  duplicarItem(id) {
+    set((s) => {
+      const orig = s.cena.itens.find((i) => i.id === id);
+      if (!orig) return {};
+      const novo = { ...orig, id: crypto.randomUUID(), x_cm: orig.x_cm + 30, y_cm: orig.y_cm + 30, bloqueado: false };
+      return { past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, itens: [...s.cena.itens, novo] }, selectedId: novo.id, dirty: true };
+    });
+  },
+
+  espelharItem(id, eixo) {
+    set((s) => {
+      const itens = s.cena.itens.map((it) => (it.id === id ? { ...it, ...(eixo === "h" ? { flipH: !it.flipH } : { flipV: !it.flipV }) } : it));
       return { past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, itens }, dirty: true };
     });
   },
@@ -240,7 +275,7 @@ export const useProjeto = create<ProjetoState>((set, get) => ({
 
   // ── Etapa 1 — estrutura (paredes / pilares / aberturas) ────────────────────
   selecionarEstrutura(sel) {
-    set({ selEstrutura: sel, selectedId: null, selectedAcabId: null });
+    set({ selEstrutura: sel, selectedId: null, selectedAcabId: null, selElemParedeId: null, selInfraId: null });
   },
 
   gerarEstruturaAuto() {
@@ -344,11 +379,53 @@ export const useProjeto = create<ProjetoState>((set, get) => ({
     });
   },
 
+  // ── Etapa 2: elementos de parede (espelho, TV, elétrica…) ──────────────────
+  selecionarElemParede(id) {
+    set({ selElemParedeId: id, selectedId: null, selectedAcabId: null, selInfraId: null, selEstrutura: null });
+  },
+  addElemParede(e) {
+    set((s) => ({ past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, elementosParede: [...(s.cena.elementosParede ?? []), e] }, selElemParedeId: e.id, selectedId: null, selectedAcabId: null, selInfraId: null, selEstrutura: null, dirty: true }));
+  },
+  updateElemParede(id, patch, commit = true) {
+    set((s) => {
+      const elementosParede = (s.cena.elementosParede ?? []).map((e) => (e.id === id ? { ...e, ...patch } : e));
+      return { past: commit ? [...s.past, clone(s.cena)] : s.past, future: commit ? [] : s.future, cena: { ...s.cena, elementosParede }, dirty: true };
+    });
+  },
+  removerElemParede(id) {
+    set((s) => ({ past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, elementosParede: (s.cena.elementosParede ?? []).filter((e) => e.id !== id) }, selElemParedeId: null, dirty: true }));
+  },
+
+  // ── Etapa 2: mobiliário / infraestrutura ───────────────────────────────────
+  selecionarInfra(id) {
+    set({ selInfraId: id, selectedId: null, selectedAcabId: null, selElemParedeId: null, selEstrutura: null });
+  },
+  addInfra(i) {
+    set((s) => ({ past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, infra: [...(s.cena.infra ?? []), i] }, selInfraId: i.id, selectedId: null, selectedAcabId: null, selElemParedeId: null, selEstrutura: null, dirty: true }));
+  },
+  updateInfra(id, patch, commit = true) {
+    set((s) => {
+      const infra = (s.cena.infra ?? []).map((i) => (i.id === id ? { ...i, ...patch } : i));
+      return { past: commit ? [...s.past, clone(s.cena)] : s.past, future: commit ? [] : s.future, cena: { ...s.cena, infra }, dirty: true };
+    });
+  },
+  removerInfra(id) {
+    set((s) => ({ past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, infra: (s.cena.infra ?? []).filter((i) => i.id !== id) }, selInfraId: null, dirty: true }));
+  },
+  duplicarInfra(id) {
+    set((s) => {
+      const orig = (s.cena.infra ?? []).find((i) => i.id === id);
+      if (!orig) return {};
+      const novo = { ...orig, id: crypto.randomUUID(), x_cm: orig.x_cm + 30, y_cm: orig.y_cm + 30, bloqueado: false };
+      return { past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, infra: [...(s.cena.infra ?? []), novo] }, selInfraId: novo.id, dirty: true };
+    });
+  },
+
   undo() {
     set((s) => {
       if (!s.past.length) return {};
       const previous = s.past[s.past.length - 1];
-      return { cena: previous, past: s.past.slice(0, -1), future: [clone(s.cena), ...s.future], dirty: true, selectedId: null, selEstrutura: null };
+      return { cena: previous, past: s.past.slice(0, -1), future: [clone(s.cena), ...s.future], dirty: true, selectedId: null, selEstrutura: null, selElemParedeId: null, selInfraId: null };
     });
   },
 
@@ -356,7 +433,7 @@ export const useProjeto = create<ProjetoState>((set, get) => ({
     set((s) => {
       if (!s.future.length) return {};
       const next = s.future[0];
-      return { cena: next, future: s.future.slice(1), past: [...s.past, clone(s.cena)], dirty: true, selectedId: null, selEstrutura: null };
+      return { cena: next, future: s.future.slice(1), past: [...s.past, clone(s.cena)], dirty: true, selectedId: null, selEstrutura: null, selElemParedeId: null, selInfraId: null };
     });
   },
 

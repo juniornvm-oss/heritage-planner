@@ -1,5 +1,23 @@
 import { createClient } from "@supabase/supabase-js";
 import type { Projeto, Equipamento, Acabamento, Fornecedor, Cotacao } from "./types";
+import { CAMPOS_TECNICOS } from "./types";
+
+// Empacota a ficha técnica no jsonb `tecnico` (coluna aditiva 013) e separa as
+// colunas nativas. Se a migração ainda não foi aplicada, o catch das telas
+// mantém o equipamento salvo localmente.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function empacotarEquip(eq: Equipamento): any {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const alvo: any = { ...eq };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const tecnico: any = {};
+  let tem = false;
+  for (const k of CAMPOS_TECNICOS) {
+    if (alvo[k] !== undefined) { if (alvo[k] !== null && alvo[k] !== "") { tecnico[k] = alvo[k]; tem = true; } delete alvo[k]; }
+  }
+  if (tem) alvo.tecnico = tecnico;
+  return alvo;
+}
 
 declare global {
   interface Window {
@@ -66,19 +84,20 @@ export async function listarEquipamentos(): Promise<Equipamento[]> {
     largura_cm: e.largura_cm, profundidade_cm: e.profundidade_cm,
     zona: (e.zona || "livre"), preco: e.preco || 0,
     imagem: e.imagem ?? null, contorno: e.contorno ?? null,
+    ...(e.tecnico && typeof e.tecnico === "object" ? e.tecnico : {}),
   }));
 }
 
 export async function inserirEquipamentos(rows: Equipamento[]): Promise<void> {
   if (!sb) throw new Error("Supabase não configurado");
-  const { error } = await sb.from("equipamentos").insert(rows);
+  const { error } = await sb.from("equipamentos").insert(rows.map(empacotarEquip));
   if (error) throw error;
 }
 
 export async function atualizarEquipamento(eq: Equipamento): Promise<void> {
   if (!sb) throw new Error("Supabase não configurado");
   if (!eq.id) throw new Error("Equipamento sem id");
-  const { id, ...patch } = eq;
+  const { id, ...patch } = empacotarEquip(eq);
   const { error } = await sb.from("equipamentos").update(patch).eq("id", id);
   if (error) throw error;
 }

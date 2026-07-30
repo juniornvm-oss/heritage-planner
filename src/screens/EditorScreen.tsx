@@ -40,6 +40,7 @@ export default function EditorScreen() {
   const [filtroCat, setFiltroCat] = useState("");
   const [camadas, setCamadas] = useState<"tudo" | "uso" | "nada">("tudo"); // uso/segurança no canvas
   const [nudgePasso, setNudgePasso] = useState(5); // nudge do equipamento (1/5/10/20 cm)
+  const [apresentacao, setApresentacao] = useState(false); // modo limpo p/ condomínio
   const [modoRecorte, setModoRecorte] = useState(false);
   const [modoParede, setModoParede] = useState(false);
   const [modoMoverPlanta, setModoMoverPlanta] = useState(false);
@@ -274,7 +275,7 @@ export default function EditorScreen() {
         {somenteLeitura
           ? <span className="chip" style={{ padding: "3px 10px", fontSize: 10.5, borderColor: "#8A8A8F", color: "#b6b6b1" }}>Referência · somente visualização</span>
           : <span className="chip" style={{ padding: "3px 10px", fontSize: 10.5, borderColor: "var(--gold)", color: "var(--gold)" }}>Fase 02 · Projeto Funcional</span>}
-        {!somenteLeitura && (
+        {!somenteLeitura && !apresentacao && (
           <>
             <span style={{ width: 1, height: 22, background: "var(--line-2)", margin: "0 4px" }} />
             {/* Abas das 3 etapas */}
@@ -354,6 +355,8 @@ export default function EditorScreen() {
           {ferrEstrutura === "pilar" && <span style={{ fontSize: 12, color: "var(--gold)" }}>toque 2 cantos do pilar</span>}
           {(ferrEstrutura === "porta" || ferrEstrutura === "janela") && <span style={{ fontSize: 12, color: "var(--gold)" }}>toque sobre a parede onde fica {ferrEstrutura === "porta" ? "a porta" : "a janela"}</span>}
           {ferrEstrutura === "apagar" && <span style={{ fontSize: 12, color: "var(--red)" }}>toque no elemento para apagar</span>}
+          {!somenteLeitura && <button className="btn" onClick={() => { limparModos(); selecionar(null); setApresentacao((v) => !v); }}
+            style={apresentacao ? { borderColor: "var(--gold)", color: "var(--gold)" } : undefined} title="Modo apresentação: esconde grade, medidas e painéis">🎦</button>}
           {somenteLeitura
             ? <button className="btn btn-gold" onClick={() => nav("/novo")}>＋ Começar meu Heritage</button>
             : <button className="btn btn-gold" disabled={salvando} onClick={() => void salvar()}>{salvando ? "Salvando…" : dirty ? "💾 Salvar" : "✓ Salvo"}</button>}
@@ -381,7 +384,7 @@ export default function EditorScreen() {
 
       <div style={{ flex: 1, display: "flex", minHeight: 0 }}>
         {/* Rail esquerdo: biblioteca de equipamentos — só na Etapa 3 (Layout) */}
-        {!somenteLeitura && etapa === "layout" && (() => {
+        {!somenteLeitura && !apresentacao && etapa === "layout" && (() => {
           const q = buscaEquip.trim().toLowerCase();
           const lista = equipamentos.filter((m) =>
             m.ativo !== false
@@ -431,7 +434,7 @@ export default function EditorScreen() {
         })()}
 
         {/* Rail esquerdo da Etapa 2: itens de parede + mobiliário/infraestrutura */}
-        {!somenteLeitura && etapa === "acabamento" && (
+        {!somenteLeitura && !apresentacao && etapa === "acabamento" && (
           <aside style={{ width: 210, flexShrink: 0, borderRight: "1px solid var(--line)", overflow: "auto", padding: "10px 10px 10px calc(10px + var(--sal))" }}>
             <div className="brandface" style={{ fontSize: 15, color: "var(--gold)", marginBottom: 8 }}>ITENS DE PAREDE</div>
             <div style={{ display: "grid", gap: 4, marginBottom: 14 }}>
@@ -472,7 +475,7 @@ export default function EditorScreen() {
 
         {/* Canvas */}
         <div style={{ flex: 1, position: "relative", minWidth: 0 }}>
-          <EditorCanvas modoCalibrar={modoCalibrar} onCalibrar={onCalibrar} ferrAcab={ferrAcab} tipoElemParede={tipoElemParede} snapPasso={snapPasso} camadas={camadas} onArea={onArea}
+          <EditorCanvas modoCalibrar={modoCalibrar} onCalibrar={onCalibrar} ferrAcab={ferrAcab} tipoElemParede={tipoElemParede} snapPasso={snapPasso} camadas={camadas} apresentacao={apresentacao} onArea={onArea}
             modoRecorte={modoRecorte} onRecorte={(rect) => { recortarVetorial(rect); setModoRecorte(false); }}
             modoParede={modoParede} onParede={onParede} modoMoverPlanta={modoMoverPlanta}
             etapa={etapa} ferrEstrutura={ferrEstrutura}
@@ -480,7 +483,7 @@ export default function EditorScreen() {
         </div>
 
         {/* Inspetor direito */}
-        <aside style={{ width: 220, flexShrink: 0, borderLeft: "1px solid var(--line)", overflow: "auto", padding: "12px calc(12px + var(--sar)) 12px 12px" }}>
+        {!apresentacao && <aside style={{ width: 220, flexShrink: 0, borderLeft: "1px solid var(--line)", overflow: "auto", padding: "12px calc(12px + var(--sar)) 12px 12px" }}>
           {somenteLeitura ? (
             <div style={{ display: "grid", gap: 12 }}>
               <div className="brandface" style={{ fontSize: 16, color: "var(--gold)" }}>Sobre este projeto</div>
@@ -583,11 +586,20 @@ export default function EditorScreen() {
               <br /><br />Use <b>▦ Acabamento</b> para pintar pisos/paredes com um revestimento da biblioteca.
             </div>
           )}
-        </aside>
+        </aside>}
       </div>
 
+      {/* Overlay do modo apresentação: título do projeto */}
+      {apresentacao && (
+        <div style={{ position: "absolute", left: 0, right: 0, bottom: 18, display: "flex", justifyContent: "center", pointerEvents: "none" }}>
+          <span className="brandface" style={{ fontSize: 22, color: "var(--gold)", background: "rgba(10,10,11,.72)", padding: "8px 22px", borderRadius: 999, border: "1px solid var(--line-2)" }}>
+            {projeto.nome}
+          </span>
+        </div>
+      )}
+
       {/* Rodapé: validação */}
-      <div style={{ display: "flex", gap: 8, alignItems: "center", padding: "7px calc(12px + var(--sar)) calc(7px + var(--sab)) calc(12px + var(--sal))", borderTop: "1px solid var(--line)", flexWrap: "wrap", flexShrink: 0 }}>
+      {!apresentacao && <div style={{ display: "flex", gap: 8, alignItems: "center", padding: "7px calc(12px + var(--sar)) calc(7px + var(--sab)) calc(12px + var(--sal))", borderTop: "1px solid var(--line)", flexWrap: "wrap", flexShrink: 0 }}>
         <Chip ok={r.nCol === 0} txt={r.nCol === 0 ? "Sem colisões" : `${r.nCol} colisão(ões)`} />
         <Chip ok={r.nCor === 0} warn txt={r.nCor === 0 ? "Corredor livre" : `${r.nCor} no corredor`} />
         {r.nUso > 0 && <Chip warn ok={false} txt={`${r.nUso} área(s) de uso invadida(s)`} />}
@@ -603,7 +615,7 @@ export default function EditorScreen() {
         {teto > 0 && <span style={{ marginLeft: "auto", fontSize: 12, color: saldo >= 0 ? "var(--green)" : "var(--red)" }}>
           Teto {BRL(teto)} · Assessoria {BRL(Math.round(teto * TAXA_ASSESSORIA))} · Saldo {BRL(saldo)}
         </span>}
-      </div>
+      </div>}
     </div>
   );
 }

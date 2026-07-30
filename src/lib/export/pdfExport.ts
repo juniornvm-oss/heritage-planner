@@ -303,6 +303,31 @@ export async function montarDossie(
     y -= 24;
   }
 
+  // ── Capacidade & ocupação ──
+  {
+    const itens = cena.itens ?? [];
+    const salaM2 = (cena.sala.largura_cm / 100) * (cena.sala.profundidade_cm / 100);
+    const corpoM2 = itens.reduce((s, i) => s + (i.w_cm / 100) * (i.h_cm / 100), 0);
+    const usoM2 = itens.reduce((s, i) => {
+      const uF = (i.uso_frontal_cm || 0) / 100, uL = (i.uso_lateral_cm || 0) / 100;
+      return s + (i.w_cm / 100 + 2 * uL) * (i.h_cm / 100 + 2 * uF);
+    }, 0);
+    const livreM2 = Math.max(0, salaM2 - usoM2);
+    const usuarios = itens.length; // 1 usuário por estação (estimativa conservadora)
+    const custoM2 = salaM2 > 0 ? r.subtotal / salaM2 : 0;
+    secao("Capacidade & Ocupação");
+    const kv = (k: string, v: string) => { ensure(16); at(k, M + 6, y, 9.5, font, MUTED); rightAt(v, A4.w - M - 6, y, 9.5, bold, DARK); y -= 16; };
+    kv("Área da sala", `${salaM2.toFixed(1).replace(".", ",")} m²`);
+    kv("Equipamentos", String(itens.length));
+    kv("Área física ocupada (corpo)", `${corpoM2.toFixed(1).replace(".", ",")} m² (${salaM2 ? Math.round((corpoM2 / salaM2) * 100) : 0}%)`);
+    kv("Área de uso (corpo + operação)", `${usoM2.toFixed(1).replace(".", ",")} m² (${salaM2 ? Math.round((usoM2 / salaM2) * 100) : 0}%)`);
+    kv("Área livre de circulação", `${livreM2.toFixed(1).replace(".", ",")} m²`);
+    kv("Usuários simultâneos (estimado)", `${usuarios} (1 por estação)`);
+    kv("Investimento por m²", BRL(Math.round(custoM2)));
+    if (usuarios > 0) kv("Investimento por usuário simultâneo", BRL(Math.round(r.subtotal / usuarios)));
+    y -= 8;
+  }
+
   // ── Cenários ──
   secao("06 · Cenários de Investimento");
   paragrafo("Essencial · Balanceado · Premium — cada cenário é cumulativo (inclui os anteriores), do indispensável ao completo.", 9, MUTED);

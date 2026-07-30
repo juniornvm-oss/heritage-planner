@@ -36,13 +36,14 @@ function useHtmlImage(src?: string) {
 
 interface Cam { zoom: number; x: number; y: number } // x,y = posição da layer em px
 
-export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoElemParede, snapPasso, camadas, onArea, modoRecorte, onRecorte, modoParede, onParede, modoMoverPlanta, stageRef, somenteLeitura, etapa, ferrEstrutura }: {
+export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoElemParede, snapPasso, camadas, apresentacao, onArea, modoRecorte, onRecorte, modoParede, onParede, modoMoverPlanta, stageRef, somenteLeitura, etapa, ferrEstrutura }: {
   modoCalibrar: boolean;
   onCalibrar: (distanciaMundoCm: number) => void;
   ferrAcab?: FerramentaAcab; // ferramentas da Etapa 2 (área/polígono/cota/apagar)
   tipoElemParede?: TipoElementoParede; // tipo a inserir quando ferrAcab === "itemParede"
   snapPasso?: number; // 0 = snap de grade desligado; 1/5/10 cm
   camadas?: "tudo" | "uso" | "nada"; // camadas técnicas do equipamento (uso/segurança)
+  apresentacao?: boolean; // modo limpo para apresentar ao condomínio
   onArea: (pontos: Ponto[]) => void;
   modoRecorte: boolean;
   onRecorte: (rect: { x: number; y: number; w: number; h: number }) => void;
@@ -416,7 +417,7 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoE
           )}
 
           {/* grade */}
-          {gridLines.map((l, i) => <Line key={i} points={l} stroke="#ffffff" strokeWidth={0.6 / cam.zoom} opacity={0.05} listening={false} />)}
+          {!apresentacao && gridLines.map((l, i) => <Line key={i} points={l} stroke="#ffffff" strokeWidth={0.6 / cam.zoom} opacity={0.05} listening={false} />)}
 
           {/* corredor */}
           {cfg.corredor && <Rect name="bg" x={cfg.corredor.x} y={0} width={cfg.corredor.w} height={sala.profundidade_cm} fill="#C9A227" opacity={0.06} listening={false} />}
@@ -572,7 +573,7 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoE
           })}
 
           {/* cotas fixadas na planta */}
-          {(cena.cotas ?? []).map((c) => {
+          {!apresentacao && (cena.cotas ?? []).map((c) => {
             const len = Math.hypot(c.x2 - c.x1, c.y2 - c.y1);
             const mx = (c.x1 + c.x2) / 2, my = (c.y1 + c.y2) / 2;
             const ux = (c.x2 - c.x1) / (len || 1), uy = (c.y2 - c.y1) / (len || 1);
@@ -667,7 +668,7 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoE
 
           {/* equipamentos */}
           {cena.itens.map((it) => (
-            <ItemView key={it.id} it={it} zoom={cam.zoom} selected={selectedId === it.id} problema={problemas[it.id]} listening={itensAtivos} camadas={camadas ?? "tudo"}
+            <ItemView key={it.id} it={it} zoom={cam.zoom} selected={!apresentacao && selectedId === it.id} problema={apresentacao ? null : problemas[it.id]} listening={itensAtivos && !apresentacao} camadas={apresentacao ? "nada" : (camadas ?? "tudo")}
               onSelect={() => selecionar(it.id)}
               onDrag={(x, y, commit) => updateItem(it.id, { x_cm: snapCm(x), y_cm: snapCm(y) }, commit)} />
           ))}

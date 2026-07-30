@@ -1,6 +1,6 @@
 import { PDFDocument, PDFFont, PDFPage, StandardFonts, rgb, type RGB } from "pdf-lib";
 import type { Projeto, Equipamento, ItemPosicionado, ConfigConsultor } from "../types";
-import { ZONAS, CENARIOS, TAXA_ASSESSORIA } from "../types";
+import { ZONAS, CENARIOS, TAXA_ASSESSORIA, ELEMENTOS_PAREDE } from "../types";
 import { resumo, matrizDaCena } from "../validation";
 import { BRL, formatLength } from "../units";
 import { areaPoligonoM2 } from "../geometria";
@@ -256,6 +256,50 @@ export async function montarDossie(
     ensure(16);
     at("Total em revestimentos", M + 6, y, 9, bold, DARK);
     rightAt(BRL(Math.round(totalRevest)), rTot, y, 10, bold, GOLD);
+    y -= 24;
+  }
+
+  // ── Espelhos, itens de parede e mobiliário (quantitativos da Etapa 2) ──
+  const elems = cena.elementosParede ?? [];
+  const infra = cena.infra ?? [];
+  if (elems.length || infra.length) {
+    secao("Espelhos, Parede & Mobiliário");
+    const qCol = M + 320, vCol = A4.w - M - 6;
+    const linha = (nome: string, qtd: string, valor: number | null) => {
+      ensure(16);
+      at(nome, M + 6, y, 9.5, font, DARK);
+      at(qtd, qCol, y, 9, font, MUTED);
+      rightAt(valor != null ? BRL(Math.round(valor)) : "—", vCol, y, 9.5, font, DARK);
+      page.drawLine({ start: { x: M, y: y - 5 }, end: { x: A4.w - M, y: y - 5 }, thickness: 0.4, color: LINE });
+      y -= 16;
+    };
+    let totalEtapa2 = 0;
+    const espelhos = elems.filter((e) => e.tipo === "espelho");
+    if (espelhos.length) {
+      const metros = espelhos.reduce((s, e) => s + e.largura_cm, 0) / 100;
+      const custoEsp = espelhos.reduce((s, e) => s + (e.largura_cm / 100) * (e.altura_cm / 100) * (e.preco_m2 || 0), 0);
+      totalEtapa2 += custoEsp;
+      linha(`Espelhos (${espelhos.length}×)`, `${metros.toFixed(1).replace(".", ",")} m lineares`, custoEsp || null);
+    }
+    const porTipo = new Map<string, { qtd: number; custo: number }>();
+    for (const e of elems) {
+      if (e.tipo === "espelho") continue;
+      const chave = e.tipo;
+      const atu = porTipo.get(chave) ?? { qtd: 0, custo: 0 };
+      atu.qtd += 1; atu.custo += e.custo || 0;
+      porTipo.set(chave, atu);
+    }
+    for (const [tipo, info] of porTipo) {
+      totalEtapa2 += info.custo;
+      linha(ELEMENTOS_PAREDE[tipo as keyof typeof ELEMENTOS_PAREDE]?.label ?? tipo, `${info.qtd}×`, info.custo || null);
+    }
+    for (const it of infra) {
+      totalEtapa2 += it.custo || 0;
+      linha(it.nome, `${it.w_cm}×${it.h_cm} cm`, it.custo || null);
+    }
+    ensure(16);
+    at("Total espelhos + parede + mobiliário", M + 6, y, 9, bold, DARK);
+    rightAt(BRL(Math.round(totalEtapa2)), vCol, y, 10, bold, GOLD);
     y -= 24;
   }
 

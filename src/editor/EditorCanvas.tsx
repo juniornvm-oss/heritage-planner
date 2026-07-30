@@ -8,11 +8,11 @@ import { snapCm, GRID_CM } from "../lib/canvas";
 import { formatLength } from "../lib/units";
 import { arred } from "../lib/estrutura";
 import { areaPoligonoM2, perimetroCm, projetarNoSegmento, m2, type Ponto } from "../lib/geometria";
-import { MATERIAIS_PISO } from "../lib/types";
+import { MATERIAIS_PISO, ELEMENTOS_PAREDE, type TipoElementoParede } from "../lib/types";
 
 export type Etapa = "planta" | "acabamento" | "layout";
 export type FerramentaEstrutura = "parede" | "porta" | "janela" | "pilar" | "apagar" | null;
-export type FerramentaAcab = "rect" | "poligono" | "cota" | "apagar" | null;
+export type FerramentaAcab = "rect" | "poligono" | "cota" | "espelho" | "itemParede" | "apagar" | null;
 
 // Ponto mais próximo sobre um segmento (parede) e distância — para encaixar aberturas.
 function projetarNaParede(px: number, py: number, w: Parede) {
@@ -36,10 +36,11 @@ function useHtmlImage(src?: string) {
 
 interface Cam { zoom: number; x: number; y: number } // x,y = posição da layer em px
 
-export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, snapPasso, onArea, modoRecorte, onRecorte, modoParede, onParede, modoMoverPlanta, stageRef, somenteLeitura, etapa, ferrEstrutura }: {
+export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoElemParede, snapPasso, onArea, modoRecorte, onRecorte, modoParede, onParede, modoMoverPlanta, stageRef, somenteLeitura, etapa, ferrEstrutura }: {
   modoCalibrar: boolean;
   onCalibrar: (distanciaMundoCm: number) => void;
   ferrAcab?: FerramentaAcab; // ferramentas da Etapa 2 (área/polígono/cota/apagar)
+  tipoElemParede?: TipoElementoParede; // tipo a inserir quando ferrAcab === "itemParede"
   snapPasso?: number; // 0 = snap de grade desligado; 1/5/10 cm
   onArea: (pontos: Ponto[]) => void;
   modoRecorte: boolean;
@@ -74,6 +75,15 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, snapP
   const removerArea = useProjeto((s) => s.removerArea);
   const addCota = useProjeto((s) => s.addCota);
   const removerCota = useProjeto((s) => s.removerCota);
+  const selElemParedeId = useProjeto((s) => s.selElemParedeId);
+  const selecionarElemParede = useProjeto((s) => s.selecionarElemParede);
+  const addElemParede = useProjeto((s) => s.addElemParede);
+  const updateElemParede = useProjeto((s) => s.updateElemParede);
+  const removerElemParede = useProjeto((s) => s.removerElemParede);
+  const selInfraId = useProjeto((s) => s.selInfraId);
+  const selecionarInfra = useProjeto((s) => s.selecionarInfra);
+  const updateInfra = useProjeto((s) => s.updateInfra);
+  const removerInfra = useProjeto((s) => s.removerInfra);
   const updatePlanta = useProjeto((s) => s.updatePlanta);
   const updatePlantaVetorial = useProjeto((s) => s.updatePlantaVetorial);
 
@@ -214,6 +224,27 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, snapP
       } else setCotaPts(pts);
       return;
     }
+    // ── Etapa 2: espelho / item de parede (toque na parede insere) ────────
+    if (ferrAcab === "espelho" || ferrAcab === "itemParede") {
+      const w = toWorld(p.x, p.y);
+      const paredes = cena.estrutura?.paredes ?? [];
+      let melhor: { parede: Parede; t: number; len: number; dist: number } | null = null;
+      for (const pr of paredes) {
+        const pj = projetarNaParede(w.x, w.y, pr);
+        if (!melhor || pj.dist < melhor.dist) melhor = { parede: pr, t: pj.t, len: pj.len, dist: pj.dist };
+      }
+      if (melhor && melhor.dist < 100) {
+        const tipo: TipoElementoParede = ferrAcab === "espelho" ? "espelho" : (tipoElemParede ?? "tv");
+        const def = ELEMENTOS_PAREDE[tipo];
+        addElemParede({
+          id: crypto.randomUUID(), tipo, paredeId: melhor.parede.id,
+          offset_cm: arred(melhor.t * melhor.len),
+          largura_cm: def.largura, altura_cm: def.altura, dist_piso_cm: def.distPiso,
+          ...(tipo === "espelho" ? { espessura_cm: 0.4, luz_superior: false, luz_inferior: false, preco_m2: 320 } : {}),
+        });
+      }
+      return;
+    }
     if (modoRecorte && emVazio) {
       const w = toWorld(p.x, p.y);
       const pts = [...recPts, w];
@@ -318,7 +349,7 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, snapP
   const planta = cena.planta;
   const pv = cena.plantaVetorial;
   const desenhandoEst = ferrEstrutura === "parede" || ferrEstrutura === "pilar" || ferrEstrutura === "porta" || ferrEstrutura === "janela";
-  const desenhandoAcab = ferrAcab === "rect" || ferrAcab === "poligono" || ferrAcab === "cota";
+  const desenhandoAcab = ferrAcab === "rect" || ferrAcab === "poligono" || ferrAcab === "cota" || ferrAcab === "espelho" || ferrAcab === "itemParede";
   const drawing = modoCalibrar || desenhandoAcab || modoRecorte || modoParede || desenhandoEst; // enquanto desenha, nada captura o toque
   // Interatividade por etapa: só o que pertence à etapa ativa responde ao toque.
   const itensAtivos = etapaAtual === "layout" && !drawing && !somenteLeitura && !modoMoverPlanta;
@@ -558,6 +589,80 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, snapP
               </Group>
             );
           })}
+
+          {/* ── Etapa 2: mobiliário / infraestrutura ── */}
+          {(cena.infra ?? []).map((it) => {
+            const sel = selInfraId === it.id;
+            const escuta = areasEscutam;
+            const podeMexer = areasAtivas && !it.bloqueado;
+            return (
+              <Group key={it.id} x={it.x_cm + it.w_cm / 2} y={it.y_cm + it.h_cm / 2} rotation={it.rotacao || 0}
+                offsetX={it.w_cm / 2} offsetY={it.h_cm / 2}
+                listening={escuta} draggable={podeMexer}
+                onMouseDown={() => (apagandoAcab ? removerInfra(it.id) : selecionarInfra(it.id))}
+                onTap={() => (apagandoAcab ? removerInfra(it.id) : selecionarInfra(it.id))}
+                onDragEnd={(e) => {
+                  const passo = snapPasso ?? 0;
+                  const sn = (v: number) => (passo > 0 ? Math.round(v / passo) * passo : Math.round(v * 10) / 10);
+                  updateInfra(it.id, { x_cm: sn(e.target.x() - it.w_cm / 2), y_cm: sn(e.target.y() - it.h_cm / 2) });
+                }}>
+                <Rect width={it.w_cm} height={it.h_cm} cornerRadius={3} fill="#1A2126"
+                  stroke={sel ? "#C9A227" : "#6FA8C4"} strokeWidth={(sel ? 5 : 2.5) / cam.zoom} />
+                <Text x={0} y={it.h_cm / 2 - 8} width={it.w_cm} align="center" text={`${it.nome}${it.bloqueado ? " 🔒" : ""}`}
+                  fontSize={Math.min(13, Math.max(8, it.w_cm / 8))} fill="#CDE3EE" fontStyle="600" listening={false} />
+              </Group>
+            );
+          })}
+
+          {/* ── Etapa 2: elementos de parede (espelho, TV, elétrica…) ── */}
+          {(() => {
+            const pmap = new Map((cena.estrutura?.paredes ?? []).map((p) => [p.id, p]));
+            return (cena.elementosParede ?? []).map((el) => {
+              const w = pmap.get(el.paredeId); if (!w) return null;
+              const len = Math.hypot(w.x2 - w.x1, w.y2 - w.y1) || 1;
+              const ux = (w.x2 - w.x1) / len, uy = (w.y2 - w.y1) / len;
+              const px = -uy, py = ux; // perpendicular
+              const cx = w.x1 + ux * el.offset_cm, cy = w.y1 + uy * el.offset_cm;
+              const half = el.largura_cm / 2;
+              const sel = selElemParedeId === el.id;
+              const def = ELEMENTOS_PAREDE[el.tipo];
+              const cor = sel ? "#C9A227" : def.cor;
+              const escuta = areasEscutam;
+              const podeMexer = areasAtivas && !el.bloqueado;
+              const off = (w.espessura_cm / 2 + 6); // desloca para a face da parede
+              const ax = cx - ux * half + px * off, ay = cy - uy * half + py * off;
+              const bx = cx + ux * half + px * off, by = cy + uy * half + py * off;
+              return (
+                <Group key={el.id} listening={escuta} draggable={podeMexer}
+                  onMouseDown={() => (apagandoAcab ? removerElemParede(el.id) : selecionarElemParede(el.id))}
+                  onTap={() => (apagandoAcab ? removerElemParede(el.id) : selecionarElemParede(el.id))}
+                  onDragEnd={(e) => {
+                    // solta: projeta o deslocamento de volta na parede e vira offset
+                    const nx = cx + e.target.x(), ny = cy + e.target.y();
+                    e.target.position({ x: 0, y: 0 });
+                    const pj = projetarNaParede(nx, ny, w);
+                    updateElemParede(el.id, { offset_cm: arred(pj.t * pj.len) });
+                  }}>
+                  {el.tipo === "espelho" ? (
+                    <>
+                      {/* espelho: linha dupla na face da parede */}
+                      <Line points={[ax, ay, bx, by]} stroke={cor} strokeWidth={4 / cam.zoom} hitStrokeWidth={30 / cam.zoom} />
+                      <Line points={[ax + px * (6 / cam.zoom), ay + py * (6 / cam.zoom), bx + px * (6 / cam.zoom), by + py * (6 / cam.zoom)]} stroke={cor} strokeWidth={1.5 / cam.zoom} listening={false} />
+                      {(el.luz_superior || el.luz_inferior) && <Line points={[ax + px * (12 / cam.zoom), ay + py * (12 / cam.zoom), bx + px * (12 / cam.zoom), by + py * (12 / cam.zoom)]} stroke="#F2E29B" strokeWidth={2 / cam.zoom} dash={[5 / cam.zoom, 5 / cam.zoom]} listening={false} />}
+                      <Text x={(ax + bx) / 2} y={(ay + by) / 2 + py * (18 / cam.zoom)} text={`Espelho ${formatLength(el.largura_cm)}${el.bloqueado ? " 🔒" : ""}`} fontSize={13 / cam.zoom} fill={cor} listening={false} />
+                    </>
+                  ) : (
+                    <>
+                      <Line points={[ax, ay, bx, by]} stroke={cor} strokeWidth={5 / cam.zoom} hitStrokeWidth={30 / cam.zoom} />
+                      <Circle x={cx + px * off} y={cy + py * off} radius={Math.max(9 / cam.zoom, Math.min(14, half) )} fill="#141518" stroke={cor} strokeWidth={2 / cam.zoom} />
+                      <Text x={cx + px * off - 10 / cam.zoom} y={cy + py * off - 8 / cam.zoom} text={def.icone} fontSize={16 / cam.zoom} listening={false} />
+                      {sel && <Text x={cx + px * (off + 20)} y={cy + py * (off + 20)} text={def.label} fontSize={13 / cam.zoom} fill={cor} listening={false} />}
+                    </>
+                  )}
+                </Group>
+              );
+            });
+          })()}
 
           {/* equipamentos */}
           {cena.itens.map((it) => (

@@ -12,7 +12,7 @@ import { exportarPdf } from "../lib/export/pdfExport";
 import { resumo } from "../lib/validation";
 import { snapCm } from "../lib/canvas";
 import { BRL, formatLength, parseLength } from "../lib/units";
-import { ZONAS, CENARIOS, TAXA_ASSESSORIA, MATERIAIS_PISO, ELEMENTOS_PAREDE, MOBILIARIO_CATALOGO, type MaterialPiso, type TipoElementoParede, type Zona, type Cenario, type ItemPosicionado, type Equipamento, type AreaAcabamento, type ElementoParede, type ItemInfraestrutura } from "../lib/types";
+import { ZONAS, CENARIOS, TAXA_ASSESSORIA, MATERIAIS_PISO, ELEMENTOS_PAREDE, MOBILIARIO_CATALOGO, LADOS_PADRAO, type LadoRect, type MaterialPiso, type TipoElementoParede, type Zona, type Cenario, type ItemPosicionado, type Equipamento, type AreaAcabamento, type ElementoParede, type ItemInfraestrutura } from "../lib/types";
 import { areaPoligonoM2, perimetroCm, bboxPoligono, ehRetangulo, retanguloParaPontos, transladar, m2 } from "../lib/geometria";
 
 export default function EditorScreen() {
@@ -139,6 +139,7 @@ export default function EditorScreen() {
       imagem: m.imagem ?? null, contorno: m.contorno ?? null,
       uso_frontal_cm: m.uso_frontal_cm ?? null, uso_lateral_cm: m.uso_lateral_cm ?? null,
       seguranca_cm: m.seguranca_cm ?? null, precisa_tomada: m.precisa_tomada ?? null,
+      lados: m.lados ?? null, dist_entrada_cm: m.dist_entrada_cm ?? null,
     };
     addItem(item);
   }
@@ -527,6 +528,23 @@ export default function EditorScreen() {
                   <button className="btn" disabled={selItem.bloqueado} onClick={() => espelharItem(selItem.id, "h")} style={{ flex: 1, padding: "7px 2px", fontSize: 10.5, ...(selItem.flipH ? { borderColor: "var(--gold)", color: "var(--gold)" } : {}) }}>⇋ H</button>
                   <button className="btn" disabled={selItem.bloqueado} onClick={() => espelharItem(selItem.id, "v")} style={{ flex: 1, padding: "7px 2px", fontSize: 10.5, ...(selItem.flipV ? { borderColor: "var(--gold)", color: "var(--gold)" } : {}) }}>⇵ V</button>
                 </div>
+              </Bloco>
+              <Bloco label={`ENTRADA · vão de ${Math.round(selItem.dist_entrada_cm || 0)} cm`}>
+                <div style={{ display: "flex", gap: 4, marginBottom: 5 }}>
+                  {([["topo", "↑ Topo"], ["base", "↓ Base"], ["esq", "← Esq"], ["dir", "Dir →"]] as [LadoRect, string][]).map(([k, lbl]) => {
+                    const ladosAtual = { ...LADOS_PADRAO, ...(selItem.lados ?? {}) };
+                    const ativo = ladosAtual[k] === "entrada";
+                    return (
+                      <button key={k} className="btn" disabled={selItem.bloqueado} onClick={() => {
+                        const novo = { ...ladosAtual };
+                        (Object.keys(novo) as LadoRect[]).forEach((s2) => { if (novo[s2] === "entrada") novo[s2] = "lateral"; });
+                        novo[k] = "entrada";
+                        updateItem(selItem.id, { lados: novo });
+                      }} style={{ flex: 1, padding: "6px 2px", fontSize: 10, ...(ativo ? { borderColor: "#5FBF7A", color: "#5FBF7A" } : {}) }}>{lbl}</button>
+                    );
+                  })}
+                </div>
+                <CampoCm valor={selItem.dist_entrada_cm ?? 0} min={0} onSet={(v) => updateItem(selItem.id, { dist_entrada_cm: v })} />
               </Bloco>
               <Bloco label={`NUDGE (${nudgePasso} cm)`}>
                 <div style={{ display: "flex", gap: 4, marginBottom: 5 }}>

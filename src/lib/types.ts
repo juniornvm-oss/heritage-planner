@@ -54,15 +54,30 @@ export interface Equipamento {
   uso_frontal_cm?: number | null; // margem da ÁREA DE USO (frente/trás)
   uso_lateral_cm?: number | null; // margem da ÁREA DE USO (laterais)
   seguranca_cm?: number | null; // margem extra da ÁREA DE SEGURANÇA (além do uso)
+  lados?: Partial<Record<LadoRect, PapelLado>> | null; // papel de cada lado do footprint
+  dist_entrada_cm?: number | null; // espaço livre exigido no lado da ENTRADA
   obs?: string | null;
   ativo?: boolean | null; // false = não aparece na biblioteca do editor
 }
+
+/** Papel de cada lado do footprint (orientação do equipamento em planta). */
+export type PapelLado = "entrada" | "frente" | "costas" | "lateral";
+export type LadoRect = "topo" | "base" | "esq" | "dir";
+export const PAPEL_LADO: Record<PapelLado, { label: string; letra: string; cor: string }> = {
+  entrada: { label: "Entrada", letra: "E", cor: "#5FBF7A" },
+  frente: { label: "Frente", letra: "F", cor: "#5FC8E8" },
+  costas: { label: "Costas", letra: "C", cor: "#8A8A8F" },
+  lateral: { label: "Lateral", letra: "L", cor: "#6e6e73" },
+};
+/** Papéis padrão: entra por baixo (base), frente para cima. */
+export const LADOS_PADRAO: Record<LadoRect, PapelLado> = { topo: "frente", base: "entrada", esq: "lateral", dir: "lateral" };
 
 /** Chaves da ficha técnica (para empacotar/desempacotar o jsonb `tecnico`). */
 export const CAMPOS_TECNICOS = [
   "categoria", "subcategoria", "altura_cm", "peso_kg", "fornecedor", "codigo",
   "precisa_tomada", "voltagem", "ponto_internet", "dist_parede_cm", "dist_lateral_cm",
   "dist_frontal_cm", "uso_frontal_cm", "uso_lateral_cm", "seguranca_cm", "obs", "ativo",
+  "lados", "dist_entrada_cm",
 ] as const;
 
 /** Fornecedor (planner.fornecedores) — global, reaproveitado entre projetos. */
@@ -129,6 +144,8 @@ export interface ItemPosicionado {
   uso_lateral_cm?: number | null;
   seguranca_cm?: number | null;
   precisa_tomada?: boolean | null;
+  lados?: Partial<Record<LadoRect, PapelLado>> | null;
+  dist_entrada_cm?: number | null;
   // Transformações do editor profissional.
   flipH?: boolean;
   flipV?: boolean;

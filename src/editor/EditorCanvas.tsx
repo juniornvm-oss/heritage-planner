@@ -8,7 +8,7 @@ import { snapCm, GRID_CM } from "../lib/canvas";
 import { formatLength } from "../lib/units";
 import { arred } from "../lib/estrutura";
 import { areaPoligonoM2, perimetroCm, projetarNoSegmento, m2, type Ponto } from "../lib/geometria";
-import { MATERIAIS_PISO, ELEMENTOS_PAREDE, type TipoElementoParede } from "../lib/types";
+import { MATERIAIS_PISO, ELEMENTOS_PAREDE, PAPEL_LADO, LADOS_PADRAO, type TipoElementoParede, type LadoRect } from "../lib/types";
 
 export type Etapa = "planta" | "acabamento" | "layout";
 export type FerramentaEstrutura = "parede" | "porta" | "janela" | "pilar" | "apagar" | null;
@@ -727,6 +727,15 @@ function ItemView({ it, zoom, selected, problema, listening, camadas, onSelect, 
   const img = useHtmlImage(it.imagem || undefined);
   const temDesenho = !!(it.contorno?.length || it.imagem);
   const cx = it.x_cm + it.w_cm / 2, cy = it.y_cm + it.h_cm / 2;
+  const lados = { ...LADOS_PADRAO, ...(it.lados ?? {}) };
+  const distE = it.dist_entrada_cm || 0;
+  // Geometria de cada lado no sistema local do item (para letras e vão de entrada).
+  const geomLado: Record<LadoRect, { lx: number; ly: number; nx: number; ny: number; len: number }> = {
+    topo: { lx: it.w_cm / 2, ly: 0, nx: 0, ny: -1, len: it.w_cm },
+    base: { lx: it.w_cm / 2, ly: it.h_cm, nx: 0, ny: 1, len: it.w_cm },
+    esq: { lx: 0, ly: it.h_cm / 2, nx: -1, ny: 0, len: it.h_cm },
+    dir: { lx: it.w_cm, ly: it.h_cm / 2, nx: 1, ny: 0, len: it.h_cm },
+  };
   return (
     <Group x={cx} y={cy} offsetX={it.w_cm / 2} offsetY={it.h_cm / 2} rotation={it.rotacao || 0}
       draggable={listening !== false && !it.bloqueado} listening={listening}
@@ -741,8 +750,44 @@ function ItemView({ it, zoom, selected, problema, listening, camadas, onSelect, 
         <Rect x={-usoL} y={-usoF} width={it.w_cm + 2 * usoL} height={it.h_cm + 2 * usoF}
           cornerRadius={5} fill="#E09A45" opacity={0.08} stroke="#E09A45" strokeWidth={1 / zoom} dash={[8 / zoom, 6 / zoom]} listening={false} />
       )}
-      <Rect width={it.w_cm} height={it.h_cm} cornerRadius={4} fill={selected ? "#1E1F23" : "#141518"}
-        stroke={cor} strokeWidth={(selected ? 7 : 4) / zoom} dash={problema ? [10 / zoom, 7 / zoom] : undefined} />
+      {/* corpo: SEM preenchimento (o piso aparece por baixo). Com desenho próprio,
+          o retângulo só aparece selecionado ou com problema; sem desenho, fica o contorno fino. */}
+      <Rect width={it.w_cm} height={it.h_cm} cornerRadius={4} fill="transparent"
+        stroke={cor} strokeWidth={(selected ? 5 : 2) / zoom}
+        opacity={temDesenho && !selected && !problema ? 0 : 1}
+        dash={problema ? [10 / zoom, 7 / zoom] : undefined} />
+      {/* área de toque (invisível) — sem ela o miolo transparente não seleciona */}
+      <Rect width={it.w_cm} height={it.h_cm} fill="#000" opacity={0.001} />
+      {/* letras dos lados (E/F/C/L) — giram junto com o equipamento */}
+      {(Object.keys(geomLado) as LadoRect[]).map((k) => {
+        const g = geomLado[k], papel = lados[k], info = PAPEL_LADO[papel];
+        if (papel === "lateral" && !selected) return null; // laterais só quando selecionado
+        const fs = 12 / zoom;
+        return (
+          <Text key={k} x={g.lx - g.nx * (10 / zoom) - fs / 2} y={g.ly - g.ny * (10 / zoom) - fs / 2}
+            text={info.letra} fontSize={fs} fontStyle="700" fill={info.cor} listening={false} />
+        );
+      })}
+      {/* vão livre da ENTRADA (dist_entrada_cm a partir do lado marcado como entrada) */}
+      {distE > 0 && (Object.keys(geomLado) as LadoRect[]).filter((k) => lados[k] === "entrada").map((k) => {
+        const g = geomLado[k];
+        const horiz = g.ny !== 0; // entrada no topo/base → vão se estende na vertical
+        const x = horiz ? 0 : (g.nx < 0 ? -distE : it.w_cm);
+        const yv = horiz ? (g.ny < 0 ? -distE : it.h_cm) : 0;
+        const wv = horiz ? it.w_cm : distE;
+        const hv = horiz ? distE : it.h_cm;
+        const acx = g.lx + g.nx * (distE / 2), acy = g.ly + g.ny * (distE / 2);
+        return (
+          <Group key={`e${k}`} listening={false}>
+            <Rect x={x} y={yv} width={wv} height={hv} stroke="#5FBF7A" strokeWidth={1.2 / zoom}
+              dash={[7 / zoom, 5 / zoom]} fill="#5FBF7A" opacity={0.35} fillEnabled={false} />
+            <Line points={[g.lx, g.ly, g.lx + g.nx * distE, g.ly + g.ny * distE]}
+              stroke="#5FBF7A" strokeWidth={1.4 / zoom} dash={[4 / zoom, 4 / zoom]} />
+            <Text x={acx - 20 / zoom} y={acy - 7 / zoom} text={`↦ ${Math.round(distE)}`}
+              fontSize={11 / zoom} fill="#5FBF7A" rotation={horiz ? 90 : 0} />
+          </Group>
+        );
+      })}
       <Group x={it.w_cm / 2} y={it.h_cm / 2} offsetX={it.w_cm / 2} offsetY={it.h_cm / 2}
         scaleX={it.flipH ? -1 : 1} scaleY={it.flipV ? -1 : 1} listening={false}>
         {it.imagem && img && <KImage image={img} x={0} y={0} width={it.w_cm} height={it.h_cm} opacity={0.85} listening={false} />}

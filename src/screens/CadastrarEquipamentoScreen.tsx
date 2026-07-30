@@ -217,7 +217,15 @@ export default function CadastrarEquipamentoScreen() {
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12 }}>
               <Campo label="Largura (cm)"><input className="fld" type="text" inputMode="numeric" value={f.largura} onChange={(e) => set("largura")(e.target.value.replace(/[^\d]/g, ""))} /></Campo>
               <Campo label="Profundidade (cm)"><input className="fld" type="text" inputMode="numeric" value={f.profundidade} onChange={(e) => set("profundidade")(e.target.value.replace(/[^\d]/g, ""))} /></Campo>
-              <Campo label="Preço (R$)"><input className="fld" type="text" inputMode="numeric" value={f.preco} onChange={(e) => set("preco")(e.target.value.replace(/[^\d]/g, ""))} /></Campo>
+              <Campo label="Preço">
+                <div style={{ position: "relative" }}>
+                  <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: "var(--gold)", fontSize: 13, fontWeight: 700, pointerEvents: "none" }}>R$</span>
+                  <input className="fld" type="text" inputMode="numeric" style={{ paddingLeft: 38, width: "100%" }}
+                    value={f.preco ? Number(f.preco).toLocaleString("pt-BR") : ""}
+                    placeholder="0"
+                    onChange={(e) => set("preco")(e.target.value.replace(/[^\d]/g, ""))} />
+                </div>
+              </Campo>
             </div>
             <div className="hairline" />
             <div className="microlabel" style={{ color: "var(--gold)" }}>FICHA TÉCNICA (opcional)</div>
@@ -236,10 +244,7 @@ export default function CadastrarEquipamentoScreen() {
               </Campo>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12 }}>
-              <Campo label="Altura (cm)"><input className="fld" inputMode="numeric" value={t.altura} onChange={(e) => setTec("altura")(e.target.value.replace(/[^\d]/g, ""))} /></Campo>
-              <Campo label="Peso (kg)"><input className="fld" inputMode="numeric" value={t.peso} onChange={(e) => setTec("peso")(e.target.value.replace(/[^\d]/g, ""))} /></Campo>
               <Campo label="Fornecedor"><input className="fld" value={t.fornecedor} onChange={(e) => setTec("fornecedor")(e.target.value)} /></Campo>
-              <Campo label="Código interno"><input className="fld" value={t.codigo} onChange={(e) => setTec("codigo")(e.target.value)} /></Campo>
             </div>
             <div style={{ display: "flex", gap: 18, alignItems: "center", flexWrap: "wrap" }}>
               <label style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12.5, color: "#c9c9c4" }}>
@@ -258,15 +263,7 @@ export default function CadastrarEquipamentoScreen() {
               </label>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 12 }}>
-              <Campo label="Dist. mín. parede (cm)"><input className="fld" inputMode="numeric" value={t.dist_parede} onChange={(e) => setTec("dist_parede")(e.target.value.replace(/[^\d]/g, ""))} /></Campo>
-              <Campo label="Dist. lateral mín. (cm)"><input className="fld" inputMode="numeric" value={t.dist_lateral} onChange={(e) => setTec("dist_lateral")(e.target.value.replace(/[^\d]/g, ""))} /></Campo>
-              <Campo label="Dist. frontal mín. (cm)"><input className="fld" inputMode="numeric" value={t.dist_frontal} onChange={(e) => setTec("dist_frontal")(e.target.value.replace(/[^\d]/g, ""))} /></Campo>
               <Campo label="Distância da ENTRADA (cm)"><input className="fld" inputMode="numeric" value={distEntrada} onChange={(e) => setDistEntrada(e.target.value.replace(/[^\d]/g, ""))} /></Campo>
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 12 }}>
-              <Campo label="Área de uso frontal (cm)"><input className="fld" inputMode="numeric" value={t.uso_frontal} onChange={(e) => setTec("uso_frontal")(e.target.value.replace(/[^\d]/g, ""))} /></Campo>
-              <Campo label="Área de uso lateral (cm)"><input className="fld" inputMode="numeric" value={t.uso_lateral} onChange={(e) => setTec("uso_lateral")(e.target.value.replace(/[^\d]/g, ""))} /></Campo>
-              <Campo label="Área de segurança (cm)"><input className="fld" inputMode="numeric" value={t.seguranca} onChange={(e) => setTec("seguranca")(e.target.value.replace(/[^\d]/g, ""))} /></Campo>
             </div>
             <Campo label="Observação de instalação"><input className="fld" value={t.obs} onChange={(e) => setTec("obs")(e.target.value)} /></Campo>
             <div>

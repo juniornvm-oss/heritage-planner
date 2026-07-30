@@ -8,6 +8,7 @@ import { snapCm, GRID_CM } from "../lib/canvas";
 import { formatLength } from "../lib/units";
 import { arred } from "../lib/estrutura";
 import { areaPoligonoM2, perimetroCm, projetarNoSegmento, m2, type Ponto } from "../lib/geometria";
+import { gerarCotasAutomaticas } from "../lib/lamina";
 import { MATERIAIS_PISO, ELEMENTOS_PAREDE, PAPEL_LADO, LADOS_PADRAO, type TipoElementoParede, type LadoRect } from "../lib/types";
 
 export type Etapa = "planta" | "acabamento" | "layout";
@@ -36,7 +37,7 @@ function useHtmlImage(src?: string) {
 
 interface Cam { zoom: number; x: number; y: number } // x,y = posição da layer em px
 
-export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoElemParede, snapPasso, camadas, apresentacao, modoVista, onVista, onArea, modoRecorte, onRecorte, modoParede, onParede, modoMoverPlanta, stageRef, somenteLeitura, etapa, ferrEstrutura }: {
+export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoElemParede, snapPasso, camadas, apresentacao, lamina, modoVista, onVista, onArea, modoRecorte, onRecorte, modoParede, onParede, modoMoverPlanta, stageRef, somenteLeitura, etapa, ferrEstrutura }: {
   modoCalibrar: boolean;
   onCalibrar: (distanciaMundoCm: number) => void;
   ferrAcab?: FerramentaAcab; // ferramentas da Etapa 2 (área/polígono/cota/apagar)
@@ -44,6 +45,7 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoE
   snapPasso?: number; // 0 = snap de grade desligado; 1/5/10 cm
   camadas?: "tudo" | "uso" | "nada"; // camadas técnicas do equipamento (uso/segurança)
   apresentacao?: boolean; // modo limpo para apresentar ao condomínio
+  lamina?: boolean; // Lâmina do Arquiteto: cotas automáticas de afastamento
   modoVista?: boolean; // Vista IA: 2 toques (câmera + direção) geram prompt
   onVista?: (p1: Ponto, p2: Ponto) => void;
   onArea: (pontos: Ponto[]) => void;
@@ -163,6 +165,7 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoE
   };
 
   const problemas = useMemo(() => problemasDaCena(cena), [cena]);
+  const cotasAuto = useMemo(() => (lamina ? gerarCotasAutomaticas(cena) : []), [lamina, cena]);
 
   function onWheel(e: Konva.KonvaEventObject<WheelEvent>) {
     e.evt.preventDefault();
@@ -678,9 +681,27 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoE
             });
           })()}
 
+          {/* Lâmina do Arquiteto: cotas de afastamento automáticas */}
+          {lamina && cotasAuto.map((c, i) => {
+            const len = c.valor;
+            const mx = (c.x1 + c.x2) / 2, my = (c.y1 + c.y2) / 2;
+            const ux = (c.x2 - c.x1) / (len || 1), uy = (c.y2 - c.y1) / (len || 1);
+            const px = -uy, py = ux, t = 6 / cam.zoom;
+            const horiz = Math.abs(ux) > Math.abs(uy);
+            return (
+              <Group key={`la${i}`} listening={false}>
+                <Line points={[c.x1, c.y1, c.x2, c.y2]} stroke="#8FD6F0" strokeWidth={1 / cam.zoom} />
+                <Line points={[c.x1 - px * t, c.y1 - py * t, c.x1 + px * t, c.y1 + py * t]} stroke="#8FD6F0" strokeWidth={1 / cam.zoom} />
+                <Line points={[c.x2 - px * t, c.y2 - py * t, c.x2 + px * t, c.y2 + py * t]} stroke="#8FD6F0" strokeWidth={1 / cam.zoom} />
+                <Text x={mx + (horiz ? -16 / cam.zoom : 5 / cam.zoom)} y={my + (horiz ? -14 / cam.zoom : -5 / cam.zoom)}
+                  text={String(Math.round(len))} fontSize={11 / cam.zoom} fill="#8FD6F0" fontStyle="600" />
+              </Group>
+            );
+          })}
+
           {/* equipamentos */}
           {cena.itens.map((it) => (
-            <ItemView key={it.id} it={it} zoom={cam.zoom} selected={!apresentacao && selectedId === it.id} problema={apresentacao ? null : problemas[it.id]} listening={itensAtivos && !apresentacao} camadas={apresentacao ? "nada" : (camadas ?? "tudo")}
+            <ItemView key={it.id} it={it} zoom={cam.zoom} selected={!apresentacao && selectedId === it.id} problema={apresentacao ? null : problemas[it.id]} listening={itensAtivos && !apresentacao} camadas={apresentacao || lamina ? "nada" : (camadas ?? "tudo")} lamina={lamina}
               onSelect={() => selecionar(it.id)}
               onDrag={(x, y, commit) => updateItem(it.id, { x_cm: snapCm(x), y_cm: snapCm(y) }, commit)} />
           ))}
@@ -728,9 +749,9 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoE
   );
 }
 
-function ItemView({ it, zoom, selected, problema, listening, camadas, onSelect, onDrag }: {
+function ItemView({ it, zoom, selected, problema, listening, camadas, lamina, onSelect, onDrag }: {
   it: ItemPosicionado; zoom: number; selected: boolean; problema: "colisao" | "corredor" | "uso" | null; listening?: boolean;
-  camadas?: "tudo" | "uso" | "nada";
+  camadas?: "tudo" | "uso" | "nada"; lamina?: boolean;
   onSelect: () => void; onDrag: (x: number, y: number, commit: boolean) => void;
 }) {
   const cor = problema === "colisao" ? "#E04545" : problema === "corredor" || problema === "uso" ? "#E09A45" : (ZONAS[it.zona]?.cor || "#888");
@@ -820,7 +841,8 @@ function ItemView({ it, zoom, selected, problema, listening, camadas, onSelect, 
         <Text x={0} y={it.h_cm - 16} width={it.w_cm} align="center" text={it.nome} fontSize={12} fill="#F2F2F0" fontStyle="600" listening={false} />
       )}
       <Text x={0} y={it.h_cm / 2 + 12} width={it.w_cm} align="center" text={`${formatLength(it.w_cm)} × ${formatLength(it.h_cm)}`}
-        fontSize={12} fill="#9A9AA0" listening={false} visible={!vert && !temDesenho} />
+        fontSize={12} fill={lamina ? "#E9E9E6" : "#9A9AA0"} fontStyle={lamina ? "700" : "400"}
+        listening={false} visible={lamina || (!vert && !temDesenho)} />
     </Group>
   );
 }

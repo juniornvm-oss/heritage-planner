@@ -43,6 +43,7 @@ export default function EditorScreen() {
   const [nudgePasso, setNudgePasso] = useState(5); // nudge do equipamento (1/5/10/20 cm)
   const [apresentacao, setApresentacao] = useState(false); // modo limpo p/ condomínio
   const [modoVista, setModoVista] = useState(false); // câmera da Vista IA
+  const [lamina, setLamina] = useState(false); // Lâmina do Arquiteto (cotas automáticas)
   const [promptVista, setPromptVista] = useState<string | null>(null);
   const [copiado, setCopiado] = useState(false);
   const [modoRecorte, setModoRecorte] = useState(false);
@@ -334,6 +335,9 @@ export default function EditorScreen() {
             {etapa === "layout" && <>
               <button className="btn" disabled={!selItem} onClick={() => girarSelecionado()}>↻ Girar 90°</button>
               <button className="btn" disabled={!selItem} onClick={removerSelecionado}>✕ Remover</button>
+              <button className="btn" onClick={() => setLamina((v) => !v)}
+                style={lamina ? { borderColor: "#8FD6F0", color: "#8FD6F0" } : undefined}
+                title="Lâmina do Arquiteto: medidas dos equipamentos e distâncias entre eles e as paredes — entra no Dossiê PDF">📐 Lâmina</button>
               <button className="btn" onClick={() => { const v = !modoVista; limparModos(); setModoVista(v); }}
                 style={modoVista ? { borderColor: "#C97BE0", color: "#C97BE0" } : undefined}
                 title="Vista IA: toque onde fica a câmera e depois para onde ela olha — gera um prompt de imagem">📷 Vista IA</button>
@@ -364,6 +368,7 @@ export default function EditorScreen() {
           {(ferrEstrutura === "porta" || ferrEstrutura === "janela") && <span style={{ fontSize: 12, color: "var(--gold)" }}>toque sobre a parede onde fica {ferrEstrutura === "porta" ? "a porta" : "a janela"}</span>}
           {ferrEstrutura === "apagar" && <span style={{ fontSize: 12, color: "var(--red)" }}>toque no elemento para apagar</span>}
           {modoVista && <span style={{ fontSize: 12, color: "#C97BE0" }}>toque onde fica a câmera, depois para onde ela olha</span>}
+          {lamina && etapa === "layout" && <span style={{ fontSize: 12, color: "#8FD6F0" }}>lâmina ativa — exporte o Dossiê para levá-la ao PDF</span>}
           {!somenteLeitura && <button className="btn" onClick={() => { limparModos(); selecionar(null); setApresentacao((v) => !v); }}
             style={apresentacao ? { borderColor: "var(--gold)", color: "var(--gold)" } : undefined} title="Modo apresentação: esconde grade, medidas e painéis">🎦</button>}
           {somenteLeitura
@@ -486,6 +491,7 @@ export default function EditorScreen() {
         <div style={{ flex: 1, position: "relative", minWidth: 0 }}>
           <EditorCanvas modoCalibrar={modoCalibrar} onCalibrar={onCalibrar} ferrAcab={ferrAcab} tipoElemParede={tipoElemParede} snapPasso={snapPasso} camadas={camadas} apresentacao={apresentacao} onArea={onArea}
             modoVista={modoVista} onVista={(a, b) => { setModoVista(false); setCopiado(false); setPromptVista(gerarPromptVista(cena, a, b)); }}
+            lamina={lamina && etapa === "layout"}
             modoRecorte={modoRecorte} onRecorte={(rect) => { recortarVetorial(rect); setModoRecorte(false); }}
             modoParede={modoParede} onParede={onParede} modoMoverPlanta={modoMoverPlanta}
             etapa={etapa} ferrEstrutura={ferrEstrutura}

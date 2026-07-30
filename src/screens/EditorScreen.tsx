@@ -34,6 +34,10 @@ export default function EditorScreen() {
   const [ferrAcab, setFerrAcab] = useState<FerramentaAcab>(null); // ferramentas da Etapa 2
   const [snapPasso, setSnapPasso] = useState(5); // 0 = snap desligado
   const [tipoElemParede, setTipoElemParede] = useState<TipoElementoParede>("tv");
+  const [buscaEquip, setBuscaEquip] = useState("");
+  const [filtroZona, setFiltroZona] = useState<Zona | "">("");
+  const [filtroCat, setFiltroCat] = useState("");
+  const [camadas, setCamadas] = useState<"tudo" | "uso" | "nada">("tudo"); // uso/segurança no canvas
   const [modoRecorte, setModoRecorte] = useState(false);
   const [modoParede, setModoParede] = useState(false);
   const [modoMoverPlanta, setModoMoverPlanta] = useState(false);
@@ -130,6 +134,8 @@ export default function EditorScreen() {
       y_cm: snapCm(cena.sala.profundidade_cm / 2 - h / 2),
       w_cm: w, h_cm: h, rotacao: 0, zona: m.zona, cenario: "balanceado", preco: m.preco,
       imagem: m.imagem ?? null, contorno: m.contorno ?? null,
+      uso_frontal_cm: m.uso_frontal_cm ?? null, uso_lateral_cm: m.uso_lateral_cm ?? null,
+      seguranca_cm: m.seguranca_cm ?? null, precisa_tomada: m.precisa_tomada ?? null,
     };
     addItem(item);
   }
@@ -320,6 +326,10 @@ export default function EditorScreen() {
             {etapa === "layout" && <>
               <button className="btn" disabled={!selItem} onClick={() => girarSelecionado()}>↻ Girar 90°</button>
               <button className="btn" disabled={!selItem} onClick={removerSelecionado}>✕ Remover</button>
+              <button className="btn" onClick={() => setCamadas(camadas === "tudo" ? "uso" : camadas === "uso" ? "nada" : "tudo")}
+                title="Alternar camadas técnicas: uso + segurança / só uso / nada">
+                👁 {camadas === "tudo" ? "Uso+Seg" : camadas === "uso" ? "Uso" : "Corpo"}
+              </button>
             </>}
 
             <span style={{ width: 1, height: 22, background: "var(--line-2)", margin: "0 4px" }} />
@@ -369,25 +379,54 @@ export default function EditorScreen() {
 
       <div style={{ flex: 1, display: "flex", minHeight: 0 }}>
         {/* Rail esquerdo: biblioteca de equipamentos — só na Etapa 3 (Layout) */}
-        {!somenteLeitura && etapa === "layout" && (
-          <aside style={{ width: 210, flexShrink: 0, borderRight: "1px solid var(--line)", overflow: "auto", padding: "10px 10px 10px calc(10px + var(--sal))" }}>
-            <div className="brandface" style={{ fontSize: 15, color: "var(--gold)", marginBottom: 8 }}>BIBLIOTECA</div>
-            <div style={{ display: "grid", gap: 5 }}>
-              {equipamentos.map((m, i) => (
-                <button key={(m.id || m.nome) + i} onClick={() => adicionar(m)} style={{
-                  display: "flex", justifyContent: "space-between", alignItems: "center", gap: 6,
-                  background: "var(--panel-2)", border: "1px solid var(--line)", borderRadius: 7, padding: "7px 9px",
-                  color: "#c9c9c4", font: "600 12px 'DM Sans'", textAlign: "left", cursor: "pointer",
-                }}>
-                  <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    <span style={{ width: 8, height: 8, borderRadius: 2, background: ZONAS[m.zona]?.cor }} />{m.nome}
-                  </span>
-                  <span style={{ color: "#6e6e73", fontWeight: 400 }}>{m.largura_cm}×{m.profundidade_cm}</span>
-                </button>
-              ))}
-            </div>
-          </aside>
-        )}
+        {!somenteLeitura && etapa === "layout" && (() => {
+          const q = buscaEquip.trim().toLowerCase();
+          const lista = equipamentos.filter((m) =>
+            m.ativo !== false
+            && (!q || `${m.nome} ${m.marca ?? ""} ${m.modelo ?? ""}`.toLowerCase().includes(q))
+            && (!filtroZona || m.zona === filtroZona)
+            && (!filtroCat || m.categoria === filtroCat));
+          const categorias = [...new Set(equipamentos.map((m) => m.categoria).filter(Boolean))] as string[];
+          return (
+            <aside style={{ width: 224, flexShrink: 0, borderRight: "1px solid var(--line)", overflow: "auto", padding: "10px 10px 10px calc(10px + var(--sal))", display: "flex", flexDirection: "column", gap: 8 }}>
+              <div className="brandface" style={{ fontSize: 15, color: "var(--gold)" }}>BIBLIOTECA</div>
+              <input className="fld" placeholder="🔍 Buscar…" value={buscaEquip} onChange={(e) => setBuscaEquip(e.target.value)} style={{ padding: "8px 10px", fontSize: 12.5 }} />
+              <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                <button className="btn" onClick={() => setFiltroZona("")} style={{ padding: "4px 8px", fontSize: 10.5, ...(filtroZona === "" ? { borderColor: "var(--gold)", color: "var(--gold)" } : {}) }}>Todas</button>
+                {(Object.keys(ZONAS) as Zona[]).map((z) => (
+                  <button key={z} className="btn" onClick={() => setFiltroZona(filtroZona === z ? "" : z)}
+                    style={{ padding: "4px 8px", fontSize: 10.5, ...(filtroZona === z ? { borderColor: ZONAS[z].cor, color: ZONAS[z].cor } : {}) }}>{ZONAS[z].label}</button>
+                ))}
+              </div>
+              {categorias.length > 0 && (
+                <select className="fld" value={filtroCat} onChange={(e) => setFiltroCat(e.target.value)} style={{ padding: "7px 9px", fontSize: 12 }}>
+                  <option value="">Todas as categorias</option>
+                  {categorias.map((c) => <option key={c} value={c}>{c}</option>)}
+                </select>
+              )}
+              <div style={{ fontSize: 10.5, color: "var(--muted)" }}>{lista.length} equipamento(s)</div>
+              <div style={{ display: "grid", gap: 5 }}>
+                {lista.map((m, i) => (
+                  <button key={(m.id || m.nome) + i} onClick={() => adicionar(m)} style={{
+                    display: "grid", gap: 2,
+                    background: "var(--panel-2)", border: "1px solid var(--line)", borderRadius: 7, padding: "7px 9px",
+                    color: "#c9c9c4", font: "600 12px 'DM Sans'", textAlign: "left", cursor: "pointer",
+                  }}>
+                    <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <span style={{ width: 8, height: 8, borderRadius: 2, background: ZONAS[m.zona]?.cor, flexShrink: 0 }} />
+                      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.nome}</span>
+                      {m.precisa_tomada && <span title="Precisa tomada">⚡</span>}
+                    </span>
+                    <span style={{ display: "flex", justifyContent: "space-between", color: "#6e6e73", fontWeight: 400, fontSize: 10.5 }}>
+                      <span>{[m.marca, m.modelo].filter(Boolean).join(" ") || (m.categoria ?? "")}</span>
+                      <span>{m.largura_cm}×{m.profundidade_cm}{m.preco ? ` · ${BRL(m.preco)}` : ""}</span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </aside>
+          );
+        })()}
 
         {/* Rail esquerdo da Etapa 2: itens de parede + mobiliário/infraestrutura */}
         {!somenteLeitura && etapa === "acabamento" && (
@@ -431,7 +470,7 @@ export default function EditorScreen() {
 
         {/* Canvas */}
         <div style={{ flex: 1, position: "relative", minWidth: 0 }}>
-          <EditorCanvas modoCalibrar={modoCalibrar} onCalibrar={onCalibrar} ferrAcab={ferrAcab} tipoElemParede={tipoElemParede} snapPasso={snapPasso} onArea={onArea}
+          <EditorCanvas modoCalibrar={modoCalibrar} onCalibrar={onCalibrar} ferrAcab={ferrAcab} tipoElemParede={tipoElemParede} snapPasso={snapPasso} camadas={camadas} onArea={onArea}
             modoRecorte={modoRecorte} onRecorte={(rect) => { recortarVetorial(rect); setModoRecorte(false); }}
             modoParede={modoParede} onParede={onParede} modoMoverPlanta={modoMoverPlanta}
             etapa={etapa} ferrEstrutura={ferrEstrutura}
@@ -515,6 +554,7 @@ export default function EditorScreen() {
       <div style={{ display: "flex", gap: 8, alignItems: "center", padding: "7px calc(12px + var(--sar)) calc(7px + var(--sab)) calc(12px + var(--sal))", borderTop: "1px solid var(--line)", flexWrap: "wrap", flexShrink: 0 }}>
         <Chip ok={r.nCol === 0} txt={r.nCol === 0 ? "Sem colisões" : `${r.nCol} colisão(ões)`} />
         <Chip ok={r.nCor === 0} warn txt={r.nCor === 0 ? "Corredor livre" : `${r.nCor} no corredor`} />
+        {r.nUso > 0 && <Chip warn ok={false} txt={`${r.nUso} área(s) de uso invadida(s)`} />}
         <Chip neutro txt={`Ocupação ${r.ocupacao}%`} />
         <Chip neutro txt={`Equipamentos ${cena.itens.length}`} />
         <Chip gold txt={BRL(r.subtotal)} />

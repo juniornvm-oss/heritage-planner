@@ -5,7 +5,7 @@ import { useLibrary } from "../store/libraryStore";
 import { inserirEquipamentos, atualizarEquipamento, removerEquipamento, online } from "../lib/supabase";
 import { reduzirImagem, limparDesenho, recortarImagem } from "../lib/imagem";
 import { contornoDeArquivo } from "../lib/plantaVetorial";
-import { ZONAS, type Equipamento, type Zona } from "../lib/types";
+import { ZONAS, CATEGORIAS_EQUIP, type Equipamento, type Zona } from "../lib/types";
 
 const Campo = ({ label, children }: { label: string; children: React.ReactNode }) => (
   <label style={{ display: "grid", gap: 5, minWidth: 0 }}>
@@ -25,6 +25,14 @@ export default function CadastrarEquipamentoScreen() {
   const existente = useMemo(() => (ref ? equipamentos.find((e) => (e.id ? e.id === ref : e.nome === ref)) : undefined), [ref, equipamentos]);
 
   const [f, setF] = useState({ nome: "", marca: "", modelo: "", zona: "livre" as Zona, preco: "", largura: "100", profundidade: "100" });
+  // Ficha técnica (opcional) — persiste no jsonb `tecnico` do catálogo.
+  const [t, setT] = useState({
+    categoria: "", subcategoria: "", altura: "", peso: "", fornecedor: "", codigo: "",
+    precisa_tomada: false, voltagem: "" as "" | "127" | "220" | "bivolt", ponto_internet: false,
+    dist_parede: "", dist_lateral: "", dist_frontal: "",
+    uso_frontal: "", uso_lateral: "", seguranca: "", obs: "", ativo: true,
+  });
+  const setTec = (k: keyof typeof t) => (v: string | boolean) => setT((x) => ({ ...x, [k]: v }));
   const [imagem, setImagem] = useState<string | null>(null);
   const [imagemOriginal, setImagemOriginal] = useState<string | null>(null);
   const preenchido = useRef(false);
@@ -51,6 +59,20 @@ export default function CadastrarEquipamentoScreen() {
     });
     if (existente.imagem) { setImagem(existente.imagem); setImagemOriginal(existente.imagem); }
     if (existente.contorno) setContorno(existente.contorno);
+    setT({
+      categoria: existente.categoria ?? "", subcategoria: existente.subcategoria ?? "",
+      altura: existente.altura_cm ? String(existente.altura_cm) : "", peso: existente.peso_kg ? String(existente.peso_kg) : "",
+      fornecedor: existente.fornecedor ?? "", codigo: existente.codigo ?? "",
+      precisa_tomada: !!existente.precisa_tomada, voltagem: (existente.voltagem ?? "") as "" | "127" | "220" | "bivolt",
+      ponto_internet: !!existente.ponto_internet,
+      dist_parede: existente.dist_parede_cm ? String(existente.dist_parede_cm) : "",
+      dist_lateral: existente.dist_lateral_cm ? String(existente.dist_lateral_cm) : "",
+      dist_frontal: existente.dist_frontal_cm ? String(existente.dist_frontal_cm) : "",
+      uso_frontal: existente.uso_frontal_cm ? String(existente.uso_frontal_cm) : "",
+      uso_lateral: existente.uso_lateral_cm ? String(existente.uso_lateral_cm) : "",
+      seguranca: existente.seguranca_cm ? String(existente.seguranca_cm) : "",
+      obs: existente.obs ?? "", ativo: existente.ativo !== false,
+    });
   }, [editando, existente]);
 
   const set = (k: keyof typeof f) => (v: string) => setF((x) => ({ ...x, [k]: v }));
@@ -124,11 +146,20 @@ export default function CadastrarEquipamentoScreen() {
   async function salvar() {
     if (!f.nome.trim()) { setErro("Informe o nome."); return; }
     setBusy("Salvando…"); setErro(null);
+    const num = (v: string) => (v.trim() === "" ? null : Number(v) || null);
     const eq: Equipamento = {
       ...(existente?.id ? { id: existente.id } : {}),
       nome: f.nome.trim(), marca: f.marca || null, modelo: f.modelo || null,
       largura_cm: larg, profundidade_cm: prof, zona: f.zona, preco: Number(f.preco) || 0,
       imagem, contorno: contorno.length ? contorno : null,
+      categoria: t.categoria || null, subcategoria: t.subcategoria || null,
+      altura_cm: num(t.altura), peso_kg: num(t.peso),
+      fornecedor: t.fornecedor || null, codigo: t.codigo || null,
+      precisa_tomada: t.precisa_tomada || null, voltagem: t.voltagem || null,
+      ponto_internet: t.ponto_internet || null,
+      dist_parede_cm: num(t.dist_parede), dist_lateral_cm: num(t.dist_lateral), dist_frontal_cm: num(t.dist_frontal),
+      uso_frontal_cm: num(t.uso_frontal), uso_lateral_cm: num(t.uso_lateral), seguranca_cm: num(t.seguranca),
+      obs: t.obs || null, ativo: t.ativo,
     };
     if (editando) {
       updateEquipamentoStore(ref!, eq);
@@ -180,6 +211,55 @@ export default function CadastrarEquipamentoScreen() {
               <Campo label="Profundidade (cm)"><input className="fld" type="text" inputMode="numeric" value={f.profundidade} onChange={(e) => set("profundidade")(e.target.value.replace(/[^\d]/g, ""))} /></Campo>
               <Campo label="Preço (R$)"><input className="fld" type="text" inputMode="numeric" value={f.preco} onChange={(e) => set("preco")(e.target.value.replace(/[^\d]/g, ""))} /></Campo>
             </div>
+            <div className="hairline" />
+            <div className="microlabel" style={{ color: "var(--gold)" }}>FICHA TÉCNICA (opcional)</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <Campo label="Categoria">
+                <select className="fld" value={t.categoria} onChange={(e) => { setTec("categoria")(e.target.value); setTec("subcategoria")(""); }}>
+                  <option value="">—</option>
+                  {Object.keys(CATEGORIAS_EQUIP).map((c) => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </Campo>
+              <Campo label="Subcategoria">
+                <select className="fld" value={t.subcategoria} onChange={(e) => setTec("subcategoria")(e.target.value)} disabled={!(CATEGORIAS_EQUIP[t.categoria] ?? []).length}>
+                  <option value="">—</option>
+                  {(CATEGORIAS_EQUIP[t.categoria] ?? []).map((sc) => <option key={sc} value={sc}>{sc}</option>)}
+                </select>
+              </Campo>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12 }}>
+              <Campo label="Altura (cm)"><input className="fld" inputMode="numeric" value={t.altura} onChange={(e) => setTec("altura")(e.target.value.replace(/[^\d]/g, ""))} /></Campo>
+              <Campo label="Peso (kg)"><input className="fld" inputMode="numeric" value={t.peso} onChange={(e) => setTec("peso")(e.target.value.replace(/[^\d]/g, ""))} /></Campo>
+              <Campo label="Fornecedor"><input className="fld" value={t.fornecedor} onChange={(e) => setTec("fornecedor")(e.target.value)} /></Campo>
+              <Campo label="Código interno"><input className="fld" value={t.codigo} onChange={(e) => setTec("codigo")(e.target.value)} /></Campo>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "auto auto 1fr auto", gap: 12, alignItems: "end" }}>
+              <label style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12.5, color: "#c9c9c4" }}>
+                <input type="checkbox" checked={t.precisa_tomada} onChange={(e) => setTec("precisa_tomada")(e.target.checked)} /> ⚡ Precisa tomada
+              </label>
+              <label style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12.5, color: "#c9c9c4" }}>
+                <input type="checkbox" checked={t.ponto_internet} onChange={(e) => setTec("ponto_internet")(e.target.checked)} /> 🌐 Internet
+              </label>
+              <Campo label="Voltagem">
+                <select className="fld" value={t.voltagem} onChange={(e) => setTec("voltagem")(e.target.value)}>
+                  <option value="">—</option><option value="127">127 V</option><option value="220">220 V</option><option value="bivolt">Bivolt</option>
+                </select>
+              </Campo>
+              <label style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12.5, color: "#c9c9c4" }}>
+                <input type="checkbox" checked={t.ativo} onChange={(e) => setTec("ativo")(e.target.checked)} /> Ativo
+              </label>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+              <Campo label="Dist. mín. parede (cm)"><input className="fld" inputMode="numeric" value={t.dist_parede} onChange={(e) => setTec("dist_parede")(e.target.value.replace(/[^\d]/g, ""))} /></Campo>
+              <Campo label="Dist. lateral mín. (cm)"><input className="fld" inputMode="numeric" value={t.dist_lateral} onChange={(e) => setTec("dist_lateral")(e.target.value.replace(/[^\d]/g, ""))} /></Campo>
+              <Campo label="Dist. frontal mín. (cm)"><input className="fld" inputMode="numeric" value={t.dist_frontal} onChange={(e) => setTec("dist_frontal")(e.target.value.replace(/[^\d]/g, ""))} /></Campo>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+              <Campo label="Área de uso frontal (cm)"><input className="fld" inputMode="numeric" value={t.uso_frontal} onChange={(e) => setTec("uso_frontal")(e.target.value.replace(/[^\d]/g, ""))} /></Campo>
+              <Campo label="Área de uso lateral (cm)"><input className="fld" inputMode="numeric" value={t.uso_lateral} onChange={(e) => setTec("uso_lateral")(e.target.value.replace(/[^\d]/g, ""))} /></Campo>
+              <Campo label="Área de segurança (cm)"><input className="fld" inputMode="numeric" value={t.seguranca} onChange={(e) => setTec("seguranca")(e.target.value.replace(/[^\d]/g, ""))} /></Campo>
+            </div>
+            <Campo label="Observação de instalação"><input className="fld" value={t.obs} onChange={(e) => setTec("obs")(e.target.value)} /></Campo>
             <div>
               <input ref={fileRef} type="file" style={{ display: "none" }} onChange={(e) => onUpload(e.target.files?.[0])} />
               <button className="btn btn-blue" onClick={() => fileRef.current?.click()}>{busy || "⭱ Subir arquivo (DWG/PDF/imagem)"}</button>

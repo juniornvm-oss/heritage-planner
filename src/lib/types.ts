@@ -18,7 +18,15 @@ export const CENARIOS: Record<Cenario, { label: string; cor: string; ordem: numb
 
 export const TAXA_ASSESSORIA = 0.005; // 0,5% do teto do condomínio
 
-/** Equipamento do catálogo (planner.equipamentos). */
+/** Categorias e subcategorias do catálogo de equipamentos. */
+export const CATEGORIAS_EQUIP: Record<string, string[]> = {
+  Cardio: ["Esteira", "Bicicleta vertical", "Bicicleta horizontal", "Spinning", "Elíptico", "Escada", "Remo"],
+  "Musculação guiada": ["Peitoral", "Costas", "Ombros", "Braços", "Quadríceps", "Posterior", "Glúteos", "Panturrilha", "Abdômen"],
+  "Peso livre": ["Halteres", "Anilhas", "Barras", "Banco", "Rack", "Gaiola", "Plataforma", "Smith", "Cross"],
+  Funcional: [], Mobilidade: [], Alongamento: [], Acessórios: [], "Avaliação física": [],
+};
+
+/** Equipamento do catálogo (planner.equipamentos; ficha técnica no jsonb `tecnico`). */
 export interface Equipamento {
   id?: string;
   nome: string;
@@ -30,7 +38,32 @@ export interface Equipamento {
   preco: number;
   imagem?: string | null; // dataURL de referência (foto do equipamento, reduzida)
   contorno?: number[][] | null; // polilinhas do footprint, normalizadas 0..1 (x/larg, y/prof)
+  // ── Ficha técnica (opcional; persiste no jsonb planner.equipamentos.tecnico) ──
+  categoria?: string | null;
+  subcategoria?: string | null;
+  altura_cm?: number | null;
+  peso_kg?: number | null;
+  fornecedor?: string | null;
+  codigo?: string | null; // código interno
+  precisa_tomada?: boolean | null;
+  voltagem?: "127" | "220" | "bivolt" | null;
+  ponto_internet?: boolean | null;
+  dist_parede_cm?: number | null; // distância mínima de parede
+  dist_lateral_cm?: number | null;
+  dist_frontal_cm?: number | null;
+  uso_frontal_cm?: number | null; // margem da ÁREA DE USO (frente/trás)
+  uso_lateral_cm?: number | null; // margem da ÁREA DE USO (laterais)
+  seguranca_cm?: number | null; // margem extra da ÁREA DE SEGURANÇA (além do uso)
+  obs?: string | null;
+  ativo?: boolean | null; // false = não aparece na biblioteca do editor
 }
+
+/** Chaves da ficha técnica (para empacotar/desempacotar o jsonb `tecnico`). */
+export const CAMPOS_TECNICOS = [
+  "categoria", "subcategoria", "altura_cm", "peso_kg", "fornecedor", "codigo",
+  "precisa_tomada", "voltagem", "ponto_internet", "dist_parede_cm", "dist_lateral_cm",
+  "dist_frontal_cm", "uso_frontal_cm", "uso_lateral_cm", "seguranca_cm", "obs", "ativo",
+] as const;
 
 /** Fornecedor (planner.fornecedores) — global, reaproveitado entre projetos. */
 export interface Fornecedor {
@@ -91,6 +124,15 @@ export interface ItemPosicionado {
   // Visual do equipamento (herdado do catálogo) para desenhar no editor.
   imagem?: string | null;
   contorno?: number[][] | null;
+  // Footprint técnico (herdado do catálogo ao adicionar; cm de margem).
+  uso_frontal_cm?: number | null;
+  uso_lateral_cm?: number | null;
+  seguranca_cm?: number | null;
+  precisa_tomada?: boolean | null;
+  // Transformações do editor profissional.
+  flipH?: boolean;
+  flipV?: boolean;
+  bloqueado?: boolean;
 }
 
 /** Planta baixa importada como fundo, já calibrada em escala real. */

@@ -36,12 +36,13 @@ function useHtmlImage(src?: string) {
 
 interface Cam { zoom: number; x: number; y: number } // x,y = posição da layer em px
 
-export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoElemParede, snapPasso, onArea, modoRecorte, onRecorte, modoParede, onParede, modoMoverPlanta, stageRef, somenteLeitura, etapa, ferrEstrutura }: {
+export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoElemParede, snapPasso, camadas, onArea, modoRecorte, onRecorte, modoParede, onParede, modoMoverPlanta, stageRef, somenteLeitura, etapa, ferrEstrutura }: {
   modoCalibrar: boolean;
   onCalibrar: (distanciaMundoCm: number) => void;
   ferrAcab?: FerramentaAcab; // ferramentas da Etapa 2 (área/polígono/cota/apagar)
   tipoElemParede?: TipoElementoParede; // tipo a inserir quando ferrAcab === "itemParede"
   snapPasso?: number; // 0 = snap de grade desligado; 1/5/10 cm
+  camadas?: "tudo" | "uso" | "nada"; // camadas técnicas do equipamento (uso/segurança)
   onArea: (pontos: Ponto[]) => void;
   modoRecorte: boolean;
   onRecorte: (rect: { x: number; y: number; w: number; h: number }) => void;
@@ -666,7 +667,7 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoE
 
           {/* equipamentos */}
           {cena.itens.map((it) => (
-            <ItemView key={it.id} it={it} zoom={cam.zoom} selected={selectedId === it.id} problema={problemas[it.id]} listening={itensAtivos}
+            <ItemView key={it.id} it={it} zoom={cam.zoom} selected={selectedId === it.id} problema={problemas[it.id]} listening={itensAtivos} camadas={camadas ?? "tudo"}
               onSelect={() => selecionar(it.id)}
               onDrag={(x, y, commit) => updateItem(it.id, { x_cm: snapCm(x), y_cm: snapCm(y) }, commit)} />
           ))}
@@ -710,11 +711,17 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoE
   );
 }
 
-function ItemView({ it, zoom, selected, problema, listening, onSelect, onDrag }: {
-  it: ItemPosicionado; zoom: number; selected: boolean; problema: "colisao" | "corredor" | null; listening?: boolean;
+function ItemView({ it, zoom, selected, problema, listening, camadas, onSelect, onDrag }: {
+  it: ItemPosicionado; zoom: number; selected: boolean; problema: "colisao" | "corredor" | "uso" | null; listening?: boolean;
+  camadas?: "tudo" | "uso" | "nada";
   onSelect: () => void; onDrag: (x: number, y: number, commit: boolean) => void;
 }) {
-  const cor = problema === "colisao" ? "#E04545" : problema === "corredor" ? "#E09A45" : (ZONAS[it.zona]?.cor || "#888");
+  const cor = problema === "colisao" ? "#E04545" : problema === "corredor" || problema === "uso" ? "#E09A45" : (ZONAS[it.zona]?.cor || "#888");
+  // Footprint técnico: área de uso (margens frontal/lateral) e de segurança (margem extra).
+  const usoF = it.uso_frontal_cm || 0, usoL = it.uso_lateral_cm || 0, seg = it.seguranca_cm || 0;
+  const temUso = usoF > 0 || usoL > 0, temSeg = seg > 0;
+  const mostraUso = camadas !== "nada" && temUso;
+  const mostraSeg = camadas === "tudo" && temSeg;
   const vert = it.h_cm > it.w_cm * 1.3;
   const img = useHtmlImage(it.imagem || undefined);
   const temDesenho = !!(it.contorno?.length || it.imagem);
@@ -723,6 +730,14 @@ function ItemView({ it, zoom, selected, problema, listening, onSelect, onDrag }:
       onMouseDown={onSelect} onTouchStart={onSelect} onClick={onSelect} onTap={onSelect}
       onDragMove={(e) => onDrag(e.target.x(), e.target.y(), false)}
       onDragEnd={(e) => onDrag(e.target.x(), e.target.y(), true)}>
+      {mostraSeg && (
+        <Rect x={-usoL - seg} y={-usoF - seg} width={it.w_cm + 2 * (usoL + seg)} height={it.h_cm + 2 * (usoF + seg)}
+          cornerRadius={6} fill="#E04545" opacity={0.05} stroke="#E04545" strokeWidth={1 / zoom} dash={[5 / zoom, 7 / zoom]} listening={false} />
+      )}
+      {mostraUso && (
+        <Rect x={-usoL} y={-usoF} width={it.w_cm + 2 * usoL} height={it.h_cm + 2 * usoF}
+          cornerRadius={5} fill="#E09A45" opacity={0.08} stroke="#E09A45" strokeWidth={1 / zoom} dash={[8 / zoom, 6 / zoom]} listening={false} />
+      )}
       <Rect width={it.w_cm} height={it.h_cm} cornerRadius={4} fill={selected ? "#1E1F23" : "#141518"}
         stroke={cor} strokeWidth={(selected ? 7 : 4) / zoom} dash={problema ? [10 / zoom, 7 / zoom] : undefined} />
       {it.imagem && img && <KImage image={img} x={0} y={0} width={it.w_cm} height={it.h_cm} opacity={0.85} listening={false} />}

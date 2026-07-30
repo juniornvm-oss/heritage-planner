@@ -5,7 +5,7 @@ import { useLibrary } from "../store/libraryStore";
 import { inserirEquipamentos, atualizarEquipamento, removerEquipamento, online } from "../lib/supabase";
 import { reduzirImagem, limparDesenho, recortarImagem } from "../lib/imagem";
 import { contornoDeArquivo } from "../lib/plantaVetorial";
-import { ZONAS, CATEGORIAS_EQUIP, type Equipamento, type Zona } from "../lib/types";
+import { ZONAS, CATEGORIAS_EQUIP, PAPEL_LADO, LADOS_PADRAO, type Equipamento, type Zona, type LadoRect, type PapelLado } from "../lib/types";
 
 const Campo = ({ label, children }: { label: string; children: React.ReactNode }) => (
   <label style={{ display: "grid", gap: 5, minWidth: 0 }}>
@@ -33,6 +33,11 @@ export default function CadastrarEquipamentoScreen() {
     uso_frontal: "", uso_lateral: "", seguranca: "", obs: "", ativo: true,
   });
   const setTec = (k: keyof typeof t) => (v: string | boolean) => setT((x) => ({ ...x, [k]: v }));
+  // Papel de cada lado do footprint (entrada / frente / costas / lateral) + vão da entrada.
+  const [lados, setLados] = useState<Record<LadoRect, PapelLado>>({ ...LADOS_PADRAO });
+  const [distEntrada, setDistEntrada] = useState("");
+  const ORDEM_PAPEL: PapelLado[] = ["entrada", "frente", "costas", "lateral"];
+  const ciclarLado = (k: LadoRect) => setLados((l) => ({ ...l, [k]: ORDEM_PAPEL[(ORDEM_PAPEL.indexOf(l[k]) + 1) % ORDEM_PAPEL.length] }));
   const [imagem, setImagem] = useState<string | null>(null);
   const [imagemOriginal, setImagemOriginal] = useState<string | null>(null);
   const preenchido = useRef(false);
@@ -73,6 +78,8 @@ export default function CadastrarEquipamentoScreen() {
       seguranca: existente.seguranca_cm ? String(existente.seguranca_cm) : "",
       obs: existente.obs ?? "", ativo: existente.ativo !== false,
     });
+    setLados({ ...LADOS_PADRAO, ...(existente.lados ?? {}) });
+    setDistEntrada(existente.dist_entrada_cm ? String(existente.dist_entrada_cm) : "");
   }, [editando, existente]);
 
   const set = (k: keyof typeof f) => (v: string) => setF((x) => ({ ...x, [k]: v }));
@@ -160,6 +167,7 @@ export default function CadastrarEquipamentoScreen() {
       dist_parede_cm: num(t.dist_parede), dist_lateral_cm: num(t.dist_lateral), dist_frontal_cm: num(t.dist_frontal),
       uso_frontal_cm: num(t.uso_frontal), uso_lateral_cm: num(t.uso_lateral), seguranca_cm: num(t.seguranca),
       obs: t.obs || null, ativo: t.ativo,
+      lados, dist_entrada_cm: num(distEntrada),
     };
     if (editando) {
       updateEquipamentoStore(ref!, eq);
@@ -253,6 +261,7 @@ export default function CadastrarEquipamentoScreen() {
               <Campo label="Dist. mín. parede (cm)"><input className="fld" inputMode="numeric" value={t.dist_parede} onChange={(e) => setTec("dist_parede")(e.target.value.replace(/[^\d]/g, ""))} /></Campo>
               <Campo label="Dist. lateral mín. (cm)"><input className="fld" inputMode="numeric" value={t.dist_lateral} onChange={(e) => setTec("dist_lateral")(e.target.value.replace(/[^\d]/g, ""))} /></Campo>
               <Campo label="Dist. frontal mín. (cm)"><input className="fld" inputMode="numeric" value={t.dist_frontal} onChange={(e) => setTec("dist_frontal")(e.target.value.replace(/[^\d]/g, ""))} /></Campo>
+              <Campo label="Distância da ENTRADA (cm)"><input className="fld" inputMode="numeric" value={distEntrada} onChange={(e) => setDistEntrada(e.target.value.replace(/[^\d]/g, ""))} /></Campo>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
               <Campo label="Área de uso frontal (cm)"><input className="fld" inputMode="numeric" value={t.uso_frontal} onChange={(e) => setTec("uso_frontal")(e.target.value.replace(/[^\d]/g, ""))} /></Campo>
@@ -270,7 +279,10 @@ export default function CadastrarEquipamentoScreen() {
 
           {/* Preview / traçado */}
           <div style={{ display: "grid", gap: 8, justifyItems: "center" }}>
-            <div className="microlabel">Footprint {larg}×{prof} cm</div>
+            <div className="microlabel">Footprint {larg}×{prof} cm — toque as bordas para definir Entrada / Frente / Costas / Lateral</div>
+            <BotaoLado k="topo" lados={lados} onCiclar={ciclarLado} />
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <BotaoLado k="esq" lados={lados} onCiclar={ciclarLado} vertical />
             <div style={{ position: "relative", width: previewW, height: previewH, background: "var(--panel-2)", border: "1px solid var(--line-2)", borderRadius: 8, overflow: "hidden" }}>
               {imagem && <img src={imagem} alt="equipamento" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "fill", opacity: 0.85 }} />}
               <svg ref={svgRef} viewBox="0 0 1 1" preserveAspectRatio="none" onClick={clicarPreview} onMouseMove={moverPreview}
@@ -285,6 +297,9 @@ export default function CadastrarEquipamentoScreen() {
                 )}
               </svg>
             </div>
+            <BotaoLado k="dir" lados={lados} onCiclar={ciclarLado} vertical />
+            </div>
+            <BotaoLado k="base" lados={lados} onCiclar={ciclarLado} />
             {imagem && (
               <div style={{ display: "grid", gap: 8, width: previewW, background: "var(--panel-2)", border: "1px solid var(--line)", borderRadius: 8, padding: "10px 12px" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -322,6 +337,20 @@ export default function CadastrarEquipamentoScreen() {
         </div>
       </div>
     </Shell>
+  );
+}
+
+// Botão de papel de um lado do footprint (cicla Entrada→Frente→Costas→Lateral).
+function BotaoLado({ k, lados, onCiclar, vertical }: { k: LadoRect; lados: Record<LadoRect, PapelLado>; onCiclar: (k: LadoRect) => void; vertical?: boolean }) {
+  const papel = lados[k];
+  const info = PAPEL_LADO[papel];
+  return (
+    <button className="btn" onClick={() => onCiclar(k)} title={`Lado ${k}: ${info.label} (toque para trocar)`}
+      style={{ padding: vertical ? "14px 6px" : "6px 14px", fontSize: 11, fontWeight: 700,
+        borderColor: info.cor, color: info.cor,
+        ...(vertical ? { writingMode: "vertical-rl" as const } : {}) }}>
+      {info.label} {papel === "entrada" ? "▸" : ""}
+    </button>
   );
 }
 

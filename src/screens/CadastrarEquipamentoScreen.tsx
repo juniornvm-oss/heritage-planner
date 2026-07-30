@@ -9,7 +9,7 @@ import { ZONAS, CATEGORIAS_EQUIP, PAPEL_LADO, LADOS_PADRAO, type Equipamento, ty
 
 const Campo = ({ label, children }: { label: string; children: React.ReactNode }) => (
   <label style={{ display: "grid", gap: 5, minWidth: 0 }}>
-    <span className="microlabel">{label}</span>
+    <span className="microlabel" style={{ whiteSpace: "normal" }}>{label}</span>
     {children}
   </label>
 );
@@ -192,7 +192,7 @@ export default function CadastrarEquipamentoScreen() {
 
   return (
     <Shell actions={<button className="btn" onClick={() => nav("/equipamentos")}>← Biblioteca</button>}>
-      <div style={{ maxWidth: 860, margin: "0 auto" }}>
+      <div style={{ maxWidth: 1280, margin: "0 auto" }}>
         <div className="microlabel">Biblioteca · Equipamentos</div>
         <h1 className="brandface" style={{ fontSize: 30, color: "var(--gold)", marginTop: 6, marginBottom: 4 }}>{editando ? "Editar equipamento" : "Cadastrar equipamento"}</h1>
         <p style={{ color: "var(--muted)", fontSize: 13, marginBottom: 20, maxWidth: 620, lineHeight: 1.5 }}>
@@ -214,7 +214,7 @@ export default function CadastrarEquipamentoScreen() {
               <Campo label="Marca"><input className="fld" value={f.marca} onChange={(e) => set("marca")(e.target.value)} /></Campo>
               <Campo label="Modelo"><input className="fld" value={f.modelo} onChange={(e) => set("modelo")(e.target.value)} /></Campo>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12 }}>
               <Campo label="Largura (cm)"><input className="fld" type="text" inputMode="numeric" value={f.largura} onChange={(e) => set("largura")(e.target.value.replace(/[^\d]/g, ""))} /></Campo>
               <Campo label="Profundidade (cm)"><input className="fld" type="text" inputMode="numeric" value={f.profundidade} onChange={(e) => set("profundidade")(e.target.value.replace(/[^\d]/g, ""))} /></Campo>
               <Campo label="Preço (R$)"><input className="fld" type="text" inputMode="numeric" value={f.preco} onChange={(e) => set("preco")(e.target.value.replace(/[^\d]/g, ""))} /></Campo>
@@ -235,13 +235,13 @@ export default function CadastrarEquipamentoScreen() {
                 </select>
               </Campo>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12 }}>
               <Campo label="Altura (cm)"><input className="fld" inputMode="numeric" value={t.altura} onChange={(e) => setTec("altura")(e.target.value.replace(/[^\d]/g, ""))} /></Campo>
               <Campo label="Peso (kg)"><input className="fld" inputMode="numeric" value={t.peso} onChange={(e) => setTec("peso")(e.target.value.replace(/[^\d]/g, ""))} /></Campo>
               <Campo label="Fornecedor"><input className="fld" value={t.fornecedor} onChange={(e) => setTec("fornecedor")(e.target.value)} /></Campo>
               <Campo label="Código interno"><input className="fld" value={t.codigo} onChange={(e) => setTec("codigo")(e.target.value)} /></Campo>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "auto auto 1fr auto", gap: 12, alignItems: "end" }}>
+            <div style={{ display: "flex", gap: 18, alignItems: "center", flexWrap: "wrap" }}>
               <label style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12.5, color: "#c9c9c4" }}>
                 <input type="checkbox" checked={t.precisa_tomada} onChange={(e) => setTec("precisa_tomada")(e.target.checked)} /> ⚡ Precisa tomada
               </label>
@@ -257,13 +257,13 @@ export default function CadastrarEquipamentoScreen() {
                 <input type="checkbox" checked={t.ativo} onChange={(e) => setTec("ativo")(e.target.checked)} /> Ativo
               </label>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 12 }}>
               <Campo label="Dist. mín. parede (cm)"><input className="fld" inputMode="numeric" value={t.dist_parede} onChange={(e) => setTec("dist_parede")(e.target.value.replace(/[^\d]/g, ""))} /></Campo>
               <Campo label="Dist. lateral mín. (cm)"><input className="fld" inputMode="numeric" value={t.dist_lateral} onChange={(e) => setTec("dist_lateral")(e.target.value.replace(/[^\d]/g, ""))} /></Campo>
               <Campo label="Dist. frontal mín. (cm)"><input className="fld" inputMode="numeric" value={t.dist_frontal} onChange={(e) => setTec("dist_frontal")(e.target.value.replace(/[^\d]/g, ""))} /></Campo>
               <Campo label="Distância da ENTRADA (cm)"><input className="fld" inputMode="numeric" value={distEntrada} onChange={(e) => setDistEntrada(e.target.value.replace(/[^\d]/g, ""))} /></Campo>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 12 }}>
               <Campo label="Área de uso frontal (cm)"><input className="fld" inputMode="numeric" value={t.uso_frontal} onChange={(e) => setTec("uso_frontal")(e.target.value.replace(/[^\d]/g, ""))} /></Campo>
               <Campo label="Área de uso lateral (cm)"><input className="fld" inputMode="numeric" value={t.uso_lateral} onChange={(e) => setTec("uso_lateral")(e.target.value.replace(/[^\d]/g, ""))} /></Campo>
               <Campo label="Área de segurança (cm)"><input className="fld" inputMode="numeric" value={t.seguranca} onChange={(e) => setTec("seguranca")(e.target.value.replace(/[^\d]/g, ""))} /></Campo>

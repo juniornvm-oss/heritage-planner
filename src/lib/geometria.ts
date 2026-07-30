@@ -61,3 +61,13 @@ export const transladar = (pts: Ponto[], dx: number, dy: number): Ponto[] =>
 
 /** Formata m² com 2 casas (pt-BR). */
 export const m2 = (v: number) => `${v.toFixed(2).replace(".", ",")} m²`;
+
+/** Ponto dentro do polígono (ray casting). */
+export function pontoNoPoligono(p: Ponto, pts: Ponto[]): boolean {
+  let dentro = false;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const a = pts[i], b = pts[j];
+    if (a.y > p.y !== b.y > p.y && p.x < ((b.x - a.x) * (p.y - a.y)) / (b.y - a.y) + a.x) dentro = !dentro;
+  }
+  return dentro;
+}

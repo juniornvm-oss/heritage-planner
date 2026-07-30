@@ -36,7 +36,7 @@ function useHtmlImage(src?: string) {
 
 interface Cam { zoom: number; x: number; y: number } // x,y = posição da layer em px
 
-export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoElemParede, snapPasso, camadas, apresentacao, onArea, modoRecorte, onRecorte, modoParede, onParede, modoMoverPlanta, stageRef, somenteLeitura, etapa, ferrEstrutura }: {
+export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoElemParede, snapPasso, camadas, apresentacao, modoVista, onVista, onArea, modoRecorte, onRecorte, modoParede, onParede, modoMoverPlanta, stageRef, somenteLeitura, etapa, ferrEstrutura }: {
   modoCalibrar: boolean;
   onCalibrar: (distanciaMundoCm: number) => void;
   ferrAcab?: FerramentaAcab; // ferramentas da Etapa 2 (área/polígono/cota/apagar)
@@ -44,6 +44,8 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoE
   snapPasso?: number; // 0 = snap de grade desligado; 1/5/10 cm
   camadas?: "tudo" | "uso" | "nada"; // camadas técnicas do equipamento (uso/segurança)
   apresentacao?: boolean; // modo limpo para apresentar ao condomínio
+  modoVista?: boolean; // Vista IA: 2 toques (câmera + direção) geram prompt
+  onVista?: (p1: Ponto, p2: Ponto) => void;
   onArea: (pontos: Ponto[]) => void;
   modoRecorte: boolean;
   onRecorte: (rect: { x: number; y: number; w: number; h: number }) => void;
@@ -101,6 +103,7 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoE
   const [estPts, setEstPts] = useState<{ x: number; y: number }[]>([]); // paredes/pilares da Etapa 1
   const [polyPts, setPolyPts] = useState<Ponto[]>([]); // polígono de piso em desenho
   const [cotaPts, setCotaPts] = useState<Ponto[]>([]); // cota em desenho
+  const [vistaPts, setVistaPts] = useState<Ponto[]>([]); // câmera da Vista IA
 
   const plantaImg = useHtmlImage(cena.planta?.dataUrl);
 
@@ -258,6 +261,15 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoE
       } else setRecPts(pts);
       return;
     }
+    if (modoVista) {
+      const w = toWorld(p.x, p.y);
+      const pts = [...vistaPts, w];
+      if (pts.length === 2) {
+        setVistaPts([]);
+        if (Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y) > 5) onVista?.(pts[0], pts[1]);
+      } else setVistaPts(pts);
+      return;
+    }
     if (modoParede) {
       const w = toWorld(p.x, p.y);
       const pts = [...pardPts, w];
@@ -352,7 +364,7 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoE
   const pv = cena.plantaVetorial;
   const desenhandoEst = ferrEstrutura === "parede" || ferrEstrutura === "pilar" || ferrEstrutura === "porta" || ferrEstrutura === "janela";
   const desenhandoAcab = ferrAcab === "rect" || ferrAcab === "poligono" || ferrAcab === "cota" || ferrAcab === "espelho" || ferrAcab === "itemParede";
-  const drawing = modoCalibrar || desenhandoAcab || modoRecorte || modoParede || desenhandoEst; // enquanto desenha, nada captura o toque
+  const drawing = modoCalibrar || desenhandoAcab || modoRecorte || modoParede || desenhandoEst || !!modoVista; // enquanto desenha, nada captura o toque
   // Interatividade por etapa: só o que pertence à etapa ativa responde ao toque.
   const itensAtivos = etapaAtual === "layout" && !drawing && !somenteLeitura && !modoMoverPlanta;
   const areasAtivas = etapaAtual === "acabamento" && !drawing && !somenteLeitura && !modoMoverPlanta;
@@ -369,7 +381,7 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoE
   const camVis = useMemo(() => new Map((pv?.camadas ?? []).map((c) => [c.nome, c.visivel])), [pv]);
 
   // Trocar de ferramenta cancela desenhos parciais.
-  useEffect(() => { setAreaPts([]); setPolyPts([]); setCotaPts([]); }, [ferrAcab, etapaAtual]);
+  useEffect(() => { setAreaPts([]); setPolyPts([]); setCotaPts([]); setVistaPts([]); }, [ferrAcab, etapaAtual, modoVista]);
 
   return (
     <div ref={wrapRef} style={{
@@ -702,6 +714,10 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoE
           {/* marcadores de recorte */}
           {recPts.map((p, i) => <Circle key={`r${i}`} x={p.x} y={p.y} radius={7 / cam.zoom} fill="#5FBF7A" />)}
           {recPts.length === 1 && <Text x={recPts[0].x} y={recPts[0].y} text=" toque o canto oposto (recorte)" fontSize={16 / cam.zoom} fill="#5FBF7A" />}
+
+          {/* marcadores da Vista IA (câmera + direção) */}
+          {vistaPts.map((pp, i) => <Circle key={`v${i}`} x={pp.x} y={pp.y} radius={9 / cam.zoom} fill="#C97BE0" listening={false} />)}
+          {vistaPts.length === 1 && <Text x={vistaPts[0].x + 14 / cam.zoom} y={vistaPts[0].y - 8 / cam.zoom} text="📷 toque para onde a câmera olha" fontSize={15 / cam.zoom} fill="#C97BE0" listening={false} />}
 
           {/* marcadores da parede de referência */}
           {pardPts.map((p, i) => <Circle key={`p${i}`} x={p.x} y={p.y} radius={7 / cam.zoom} fill="#C97BE0" />)}

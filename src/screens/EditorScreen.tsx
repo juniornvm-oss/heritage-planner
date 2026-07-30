@@ -14,6 +14,7 @@ import { snapCm } from "../lib/canvas";
 import { BRL, formatLength, parseLength } from "../lib/units";
 import { ZONAS, CENARIOS, TAXA_ASSESSORIA, MATERIAIS_PISO, ELEMENTOS_PAREDE, MOBILIARIO_CATALOGO, LADOS_PADRAO, type LadoRect, type MaterialPiso, type TipoElementoParede, type Zona, type Cenario, type ItemPosicionado, type Equipamento, type AreaAcabamento, type ElementoParede, type ItemInfraestrutura } from "../lib/types";
 import { areaPoligonoM2, perimetroCm, bboxPoligono, ehRetangulo, retanguloParaPontos, transladar, m2 } from "../lib/geometria";
+import { gerarPromptVista } from "../lib/promptVista";
 
 export default function EditorScreen() {
   const { id } = useParams();
@@ -41,6 +42,9 @@ export default function EditorScreen() {
   const [camadas, setCamadas] = useState<"tudo" | "uso" | "nada">("tudo"); // uso/segurança no canvas
   const [nudgePasso, setNudgePasso] = useState(5); // nudge do equipamento (1/5/10/20 cm)
   const [apresentacao, setApresentacao] = useState(false); // modo limpo p/ condomínio
+  const [modoVista, setModoVista] = useState(false); // câmera da Vista IA
+  const [promptVista, setPromptVista] = useState<string | null>(null);
+  const [copiado, setCopiado] = useState(false);
   const [modoRecorte, setModoRecorte] = useState(false);
   const [modoParede, setModoParede] = useState(false);
   const [modoMoverPlanta, setModoMoverPlanta] = useState(false);
@@ -51,7 +55,7 @@ export default function EditorScreen() {
   // Desliga todos os modos/ferramentas (usado ao trocar de etapa).
   function limparModos() {
     setModoCalibrar(false); setFerrAcab(null); setModoRecorte(false);
-    setModoParede(false); setModoMoverPlanta(false); setFerrEstrutura(null);
+    setModoParede(false); setModoMoverPlanta(false); setFerrEstrutura(null); setModoVista(false);
   }
   function irParaEtapa(e: Etapa) { limparModos(); selecionar(null); setEtapa(e); }
 
@@ -330,6 +334,9 @@ export default function EditorScreen() {
             {etapa === "layout" && <>
               <button className="btn" disabled={!selItem} onClick={() => girarSelecionado()}>↻ Girar 90°</button>
               <button className="btn" disabled={!selItem} onClick={removerSelecionado}>✕ Remover</button>
+              <button className="btn" onClick={() => { const v = !modoVista; limparModos(); setModoVista(v); }}
+                style={modoVista ? { borderColor: "#C97BE0", color: "#C97BE0" } : undefined}
+                title="Vista IA: toque onde fica a câmera e depois para onde ela olha — gera um prompt de imagem">📷 Vista IA</button>
               <button className="btn" onClick={() => setCamadas(camadas === "tudo" ? "uso" : camadas === "uso" ? "nada" : "tudo")}
                 title="Alternar camadas técnicas: uso + segurança / só uso / nada">
                 👁 {camadas === "tudo" ? "Uso+Seg" : camadas === "uso" ? "Uso" : "Corpo"}
@@ -356,6 +363,7 @@ export default function EditorScreen() {
           {ferrEstrutura === "pilar" && <span style={{ fontSize: 12, color: "var(--gold)" }}>toque 2 cantos do pilar</span>}
           {(ferrEstrutura === "porta" || ferrEstrutura === "janela") && <span style={{ fontSize: 12, color: "var(--gold)" }}>toque sobre a parede onde fica {ferrEstrutura === "porta" ? "a porta" : "a janela"}</span>}
           {ferrEstrutura === "apagar" && <span style={{ fontSize: 12, color: "var(--red)" }}>toque no elemento para apagar</span>}
+          {modoVista && <span style={{ fontSize: 12, color: "#C97BE0" }}>toque onde fica a câmera, depois para onde ela olha</span>}
           {!somenteLeitura && <button className="btn" onClick={() => { limparModos(); selecionar(null); setApresentacao((v) => !v); }}
             style={apresentacao ? { borderColor: "var(--gold)", color: "var(--gold)" } : undefined} title="Modo apresentação: esconde grade, medidas e painéis">🎦</button>}
           {somenteLeitura
@@ -477,6 +485,7 @@ export default function EditorScreen() {
         {/* Canvas */}
         <div style={{ flex: 1, position: "relative", minWidth: 0 }}>
           <EditorCanvas modoCalibrar={modoCalibrar} onCalibrar={onCalibrar} ferrAcab={ferrAcab} tipoElemParede={tipoElemParede} snapPasso={snapPasso} camadas={camadas} apresentacao={apresentacao} onArea={onArea}
+            modoVista={modoVista} onVista={(a, b) => { setModoVista(false); setCopiado(false); setPromptVista(gerarPromptVista(cena, a, b)); }}
             modoRecorte={modoRecorte} onRecorte={(rect) => { recortarVetorial(rect); setModoRecorte(false); }}
             modoParede={modoParede} onParede={onParede} modoMoverPlanta={modoMoverPlanta}
             etapa={etapa} ferrEstrutura={ferrEstrutura}
@@ -606,6 +615,30 @@ export default function EditorScreen() {
           )}
         </aside>}
       </div>
+
+      {/* Modal: prompt da Vista IA */}
+      {promptVista && (
+        <div style={{ position: "absolute", inset: 0, zIndex: 40, display: "grid", placeItems: "center", background: "rgba(0,0,0,.55)" }}
+          onClick={() => setPromptVista(null)}>
+          <div className="card" style={{ width: "min(680px, 92vw)", padding: 18, display: "grid", gap: 12 }} onClick={(e) => e.stopPropagation()}>
+            <div className="brandface" style={{ fontSize: 18, color: "var(--gold)" }}>📷 PROMPT DA VISTA</div>
+            <div style={{ fontSize: 11.5, color: "var(--muted)", lineHeight: 1.5 }}>
+              Cole no seu gerador de imagem (Midjourney, DALL-E, Flux…). O prompt está em inglês porque os geradores respondem melhor — descreve a sala, os acabamentos e o que está no campo de visão da câmera que você posicionou.
+            </div>
+            <textarea className="fld" readOnly value={promptVista} rows={9}
+              style={{ resize: "vertical", fontSize: 12.5, lineHeight: 1.55, fontFamily: "inherit" }}
+              onFocus={(e) => e.currentTarget.select()} />
+            <div style={{ display: "flex", gap: 8 }}>
+              <button className="btn btn-gold" style={{ flex: 1 }} onClick={async () => {
+                try { await navigator.clipboard.writeText(promptVista); setCopiado(true); setTimeout(() => setCopiado(false), 2000); }
+                catch { /* iPad sem permissão: o usuário seleciona e copia manualmente */ }
+              }}>{copiado ? "✓ Copiado!" : "⧉ Copiar prompt"}</button>
+              <button className="btn" onClick={() => { setPromptVista(null); setModoVista(true); }}>📷 Outro ângulo</button>
+              <button className="btn" onClick={() => setPromptVista(null)}>Fechar</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Overlay do modo apresentação: título do projeto */}
       {apresentacao && (

@@ -12,9 +12,10 @@ import { exportarPdf } from "../lib/export/pdfExport";
 import { resumo } from "../lib/validation";
 import { snapCm } from "../lib/canvas";
 import { BRL, formatLength, parseLength } from "../lib/units";
-import { ZONAS, CENARIOS, TAXA_ASSESSORIA, MATERIAIS_PISO, ELEMENTOS_PAREDE, MOBILIARIO_CATALOGO, LADOS_PADRAO, type LadoRect, type MaterialPiso, type TipoElementoParede, type Zona, type Cenario, type ItemPosicionado, type Equipamento, type AreaAcabamento, type ElementoParede, type ItemInfraestrutura } from "../lib/types";
+import { ZONAS, CENARIOS, TAXA_ASSESSORIA, MATERIAIS_PISO, ELEMENTOS_PAREDE, MOBILIARIO_CATALOGO, ACESSORIOS_CATALOGO, LADOS_PADRAO, type AcessorioProjeto, type LadoRect, type MaterialPiso, type TipoElementoParede, type Zona, type Cenario, type ItemPosicionado, type Equipamento, type AreaAcabamento, type ElementoParede, type ItemInfraestrutura } from "../lib/types";
 import { areaPoligonoM2, perimetroCm, bboxPoligono, ehRetangulo, retanguloParaPontos, transladar, m2 } from "../lib/geometria";
 import { gerarPromptVista } from "../lib/promptVista";
+import { uploadOrcamento, urlOrcamento, removerOrcamentoArquivo, online } from "../lib/supabase";
 
 export default function EditorScreen() {
   const { id } = useParams();
@@ -287,7 +288,7 @@ export default function EditorScreen() {
           <>
             <span style={{ width: 1, height: 22, background: "var(--line-2)", margin: "0 4px" }} />
             {/* Abas das 3 etapas */}
-            {([["planta", "1 · Planta"], ["acabamento", "2 · Acabamento"], ["layout", "3 · Layout"], ["fichas", "4 · Fichas"]] as [Etapa, string][]).map(([e, lbl]) => (
+            {([["planta", "1 · Planta"], ["acabamento", "2 · Acabamento"], ["layout", "3 · Layout"], ["fichas", "4 · Fichas"], ["acessorios", "5 · Acessórios"]] as [Etapa, string][]).map(([e, lbl]) => (
               <button key={e} className="btn" onClick={() => irParaEtapa(e)} style={etapa === e
                 ? { borderColor: "var(--gold)", color: "var(--gold)", background: "var(--gold-soft)" }
                 : undefined}>{lbl}</button>
@@ -512,6 +513,10 @@ export default function EditorScreen() {
           </aside>
         )}
 
+        {/* Etapa 5: painel de acessórios substitui canvas + inspetor */}
+        {etapa === "acessorios" && !somenteLeitura ? (
+          <AcessoriosPanel />
+        ) : (<>
         {/* Canvas */}
         <div style={{ flex: 1, position: "relative", minWidth: 0 }}>
           <EditorCanvas modoCalibrar={modoCalibrar} onCalibrar={onCalibrar} ferrAcab={ferrAcab} tipoElemParede={tipoElemParede} snapPasso={snapPasso} camadas={camadas} apresentacao={apresentacao} onArea={onArea}
@@ -652,6 +657,7 @@ export default function EditorScreen() {
             </div>
           )}
         </aside>}
+        </>)}
       </div>
 
       {/* Modal: prompt da Vista IA */}
@@ -692,6 +698,7 @@ export default function EditorScreen() {
         <Chip ok={r.nCol === 0} txt={r.nCol === 0 ? "Sem colisões" : `${r.nCol} colisão(ões)`} />
         <Chip ok={r.nCor === 0} warn txt={r.nCor === 0 ? "Corredor livre" : `${r.nCor} no corredor`} />
         {r.nUso > 0 && <Chip warn ok={false} txt={`${r.nUso} área(s) de uso invadida(s)`} />}
+        {(cena.acessorios?.length ?? 0) > 0 && <Chip gold txt={`Acessórios ${BRL(Math.round((cena.acessorios ?? []).reduce((t, a) => t + a.qtd * a.preco_un, 0)))}`} />}
         <Chip neutro txt={`Ocupação ${r.ocupacao}%`} />
         <Chip neutro txt={`Equipamentos ${cena.itens.length}`} />
         <Chip gold txt={BRL(r.subtotal)} />
@@ -1205,6 +1212,147 @@ function FichaEquipamento({ item, numero }: { item: ItemPosicionado; numero: num
       </Bloco>
 
       {cat?.obs && <div style={{ fontSize: 11.5, color: "var(--muted)", lineHeight: 1.5 }}><b>Instalação (catálogo):</b> {cat.obs}</div>}
+    </div>
+  );
+}
+
+// Etapa 5 — orçamento de acessórios do projeto (catálogo-base Heritage).
+function AcessoriosPanel() {
+  const acessorios = useProjeto((s) => s.cena.acessorios ?? []);
+  const addAcessorio = useProjeto((s) => s.addAcessorio);
+  const updateAcessorio = useProjeto((s) => s.updateAcessorio);
+  const removerAcessorio = useProjeto((s) => s.removerAcessorio);
+  const total = acessorios.reduce((t, a) => t + a.qtd * a.preco_un, 0);
+  const jaTem = new Set(acessorios.map((a) => a.nome));
+  return (
+    <div style={{ flex: 1, display: "flex", minWidth: 0 }}>
+      {/* Catálogo-base (orçamento Heritage) */}
+      <aside style={{ width: 300, flexShrink: 0, borderRight: "1px solid var(--line)", overflow: "auto", padding: "10px 10px 10px calc(10px + var(--sal))" }}>
+        <div className="brandface" style={{ fontSize: 15, color: "var(--gold)", marginBottom: 4 }}>CATÁLOGO DE ACESSÓRIOS</div>
+        <div style={{ fontSize: 11, color: "var(--muted)", marginBottom: 8 }}>Base: orçamento Heritage · toque para adicionar</div>
+        <div style={{ display: "grid", gap: 4 }}>
+          {ACESSORIOS_CATALOGO.map((c) => (
+            <button key={c.nome} disabled={jaTem.has(c.nome)}
+              onClick={() => addAcessorio({ id: crypto.randomUUID(), nome: c.nome, qtd: c.qtd, preco_un: c.preco })}
+              style={{
+                display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8,
+                background: "var(--panel-2)", border: "1px solid var(--line)", borderRadius: 7, padding: "7px 9px",
+                color: jaTem.has(c.nome) ? "#55565a" : "#c9c9c4", font: "600 11.5px 'DM Sans'", textAlign: "left",
+                cursor: jaTem.has(c.nome) ? "default" : "pointer", opacity: jaTem.has(c.nome) ? 0.55 : 1,
+              }}>
+              <span style={{ flex: 1 }}>{jaTem.has(c.nome) ? "✓ " : "＋ "}{c.nome}</span>
+              <span style={{ color: "#6e6e73", fontWeight: 400, fontSize: 10.5, whiteSpace: "nowrap" }}>{c.qtd}× {BRL(c.preco)}</span>
+            </button>
+          ))}
+        </div>
+        <button className="btn" style={{ marginTop: 10, width: "100%" }}
+          onClick={() => addAcessorio({ id: crypto.randomUUID(), nome: "Novo acessório", qtd: 1, preco_un: 0 })}>
+          ＋ Acessório personalizado
+        </button>
+      </aside>
+
+      {/* Lista do projeto */}
+      <div style={{ flex: 1, overflow: "auto", padding: "14px calc(16px + var(--sar)) 14px 16px" }}>
+        <div className="brandface" style={{ fontSize: 18, color: "var(--gold)", marginBottom: 2 }}>ACESSÓRIOS DO PROJETO</div>
+        <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 12 }}>
+          {acessorios.length} item(ns) · edite quantidade e preço unitário — o total entra no Dossiê
+        </div>
+        {acessorios.length === 0 && (
+          <div style={{ color: "var(--muted)", fontSize: 13, lineHeight: 1.6, maxWidth: 420 }}>
+            Nenhum acessório ainda. Toque nos itens do catálogo à esquerda para montar o orçamento — a lista base veio do orçamento real do Heritage.
+          </div>
+        )}
+        <div style={{ display: "grid", gap: 6, maxWidth: 780 }}>
+          {acessorios.length > 0 && (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 84px 130px 110px 40px", gap: 8, padding: "0 10px", fontSize: 10.5, color: "var(--muted)", letterSpacing: ".06em" }}>
+              <span>ITEM</span><span>QTD</span><span>PREÇO UN. (R$)</span><span style={{ textAlign: "right" }}>TOTAL</span><span />
+            </div>
+          )}
+          {acessorios.map((a) => (
+            <div key={a.id} style={{ display: "grid", gridTemplateColumns: "1fr 84px 130px 110px 40px", gap: 8, alignItems: "center", background: "var(--panel-2)", border: "1px solid var(--line)", borderRadius: 8, padding: "7px 10px" }}>
+              <CampoTexto valor={a.nome} onSet={(v) => updateAcessorio(a.id, { nome: v || a.nome })} />
+              <CampoCm valor={a.qtd} min={1} onSet={(v) => updateAcessorio(a.id, { qtd: Math.max(1, Math.round(v)) })} />
+              <CampoCm valor={a.preco_un} min={0} onSet={(v) => updateAcessorio(a.id, { preco_un: v })} />
+              <span style={{ textAlign: "right", fontSize: 13, fontWeight: 700, color: "#e9e9e6" }}>{BRL(Math.round(a.qtd * a.preco_un))}</span>
+              <button className="btn" style={{ padding: "6px 8px" }} onClick={() => removerAcessorio(a.id)}>✕</button>
+            </div>
+          ))}
+          {acessorios.length > 0 && (
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 14, alignItems: "center", padding: "10px 10px 0" }}>
+              <span style={{ fontSize: 12, color: "var(--muted)", letterSpacing: ".06em" }}>TOTAL EM ACESSÓRIOS</span>
+              <span className="brandface" style={{ fontSize: 20, color: "var(--gold)" }}>{BRL(Math.round(total))}</span>
+            </div>
+          )}
+        </div>
+
+        <AnexosOrcamento />
+      </div>
+    </div>
+  );
+}
+
+// PDFs de orçamento do projeto: sobe para o Storage; metadados ficam na cena.
+function AnexosOrcamento() {
+  const projeto = useProjeto((s) => s.projeto);
+  const anexos = useProjeto((s) => s.cena.anexos ?? []);
+  const addAnexo = useProjeto((s) => s.addAnexo);
+  const removerAnexo = useProjeto((s) => s.removerAnexo);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [erro, setErro] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const podeSubir = online && !!projeto?.id && projeto.id !== "heritage";
+
+  async function subir(file?: File | null) {
+    if (!file || !projeto?.id) return;
+    if (!/\.pdf$/i.test(file.name)) { setErro("Envie um arquivo PDF."); return; }
+    setBusy("Enviando…"); setErro(null);
+    try {
+      const path = await uploadOrcamento(projeto.id, file);
+      addAnexo({ id: crypto.randomUUID(), nome: file.name, path, tamanho: file.size, criado_em: new Date().toISOString() });
+    } catch (e) { setErro(`Falha no envio: ${(e as Error).message}`); }
+    finally { setBusy(null); if (fileRef.current) fileRef.current.value = ""; }
+  }
+
+  async function abrir(path: string) {
+    setErro(null);
+    try { window.open(await urlOrcamento(path), "_blank"); }
+    catch (e) { setErro(`Não consegui abrir: ${(e as Error).message}`); }
+  }
+
+  const kb = (b: number) => (b >= 1048576 ? `${(b / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`);
+  const dataBR = (iso: string) => new Date(iso).toLocaleDateString("pt-BR");
+
+  return (
+    <div style={{ marginTop: 26, maxWidth: 780 }}>
+      <div className="hairline" />
+      <div className="brandface" style={{ fontSize: 16, color: "var(--gold)", margin: "14px 0 2px" }}>ORÇAMENTOS EM PDF</div>
+      <div style={{ fontSize: 11.5, color: "var(--muted)", marginBottom: 10 }}>
+        Propostas de fornecedores anexadas a este projeto — os arquivos ficam guardados na nuvem.
+      </div>
+      <input ref={fileRef} type="file" accept="application/pdf,.pdf" style={{ display: "none" }} onChange={(e) => void subir(e.target.files?.[0])} />
+      <button className="btn btn-blue" disabled={!podeSubir || !!busy} onClick={() => fileRef.current?.click()}>
+        {busy || "⭱ Subir PDF de orçamento"}
+      </button>
+      {!podeSubir && <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 6 }}>Disponível em projetos salvos no banco (com conexão).</div>}
+      {erro && <div style={{ color: "var(--red)", fontSize: 12, marginTop: 8 }}>{erro}</div>}
+      <div style={{ display: "grid", gap: 5, marginTop: 12 }}>
+        {anexos.map((a) => (
+          <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 10, background: "var(--panel-2)", border: "1px solid var(--line)", borderRadius: 8, padding: "8px 12px" }}>
+            <span style={{ fontSize: 17 }}>📄</span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 12.5, fontWeight: 700, color: "#e9e9e6", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.nome}</div>
+              <div style={{ fontSize: 10.5, color: "var(--muted)" }}>{kb(a.tamanho)} · {dataBR(a.criado_em)}</div>
+            </div>
+            <button className="btn" style={{ padding: "6px 12px", fontSize: 11.5 }} onClick={() => void abrir(a.path)}>Abrir</button>
+            <button className="btn" style={{ padding: "6px 9px" }} onClick={() => {
+              if (!confirm(`Remover "${a.nome}" do projeto?`)) return;
+              void removerOrcamentoArquivo(a.path);
+              removerAnexo(a.id);
+            }}>✕</button>
+          </div>
+        ))}
+        {anexos.length === 0 && <div style={{ fontSize: 11.5, color: "#6e6e73" }}>Nenhum PDF anexado ainda.</div>}
+      </div>
     </div>
   );
 }

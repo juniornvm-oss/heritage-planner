@@ -303,6 +303,33 @@ export async function montarDossie(
     y -= 24;
   }
 
+  // ── Acessórios (Etapa 5) ──
+  const acess = cena.acessorios ?? [];
+  if (acess.length) {
+    secao("Acessórios");
+    const qCol = A4.w - M - 200, uCol = A4.w - M - 110, tCol = A4.w - M - 6;
+    page.drawRectangle({ x: M, y: y - 4, width: CW, height: 18, color: CREAM });
+    at("ITEM", M + 6, y, 8, bold, MUTED);
+    rightAt("QTD", qCol, y, 8, bold, MUTED); rightAt("PREÇO UN.", uCol, y, 8, bold, MUTED); rightAt("TOTAL", tCol, y, 8, bold, MUTED);
+    y -= 22;
+    let totalAc = 0;
+    for (const a of acess) {
+      ensure(16);
+      const tot = a.qtd * a.preco_un;
+      totalAc += tot;
+      at(trunc(a.nome, qCol - 40 - M, 9.5), M + 6, y, 9.5, font, DARK);
+      rightAt(String(a.qtd), qCol, y, 9, font, MUTED);
+      rightAt(BRL(a.preco_un), uCol, y, 9, font, MUTED);
+      rightAt(BRL(Math.round(tot)), tCol, y, 9.5, font, DARK);
+      page.drawLine({ start: { x: M, y: y - 5 }, end: { x: A4.w - M, y: y - 5 }, thickness: 0.4, color: LINE });
+      y -= 16;
+    }
+    ensure(16);
+    at("Total em acessórios", M + 6, y, 9, bold, DARK);
+    rightAt(BRL(Math.round(totalAc)), tCol, y, 10, bold, GOLD);
+    y -= 24;
+  }
+
   // ── Capacidade & ocupação ──
   {
     const itens = cena.itens ?? [];

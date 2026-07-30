@@ -29,6 +29,8 @@ export default function EditorScreen() {
   const { duplicarItem, espelharItem } = useProjeto();
   const equipamentos = useLibrary((s) => s.equipamentos);
   const acabamentos = useLibrary((s) => s.acabamentos);
+  const recarregarBiblioteca = useLibrary((s) => s.recarregar);
+  useEffect(() => { void recarregarBiblioteca(); }, [recarregarBiblioteca]);
 
   const [erro, setErro] = useState<string | null>(null);
   const [aviso, setAviso] = useState<string | null>(null); // mensagem não-fatal (import/export) — não derruba o editor
@@ -285,7 +287,7 @@ export default function EditorScreen() {
           <>
             <span style={{ width: 1, height: 22, background: "var(--line-2)", margin: "0 4px" }} />
             {/* Abas das 3 etapas */}
-            {([["planta", "1 · Planta"], ["acabamento", "2 · Acabamento"], ["layout", "3 · Layout"]] as [Etapa, string][]).map(([e, lbl]) => (
+            {([["planta", "1 · Planta"], ["acabamento", "2 · Acabamento"], ["layout", "3 · Layout"], ["fichas", "4 · Fichas"]] as [Etapa, string][]).map(([e, lbl]) => (
               <button key={e} className="btn" onClick={() => irParaEtapa(e)} style={etapa === e
                 ? { borderColor: "var(--gold)", color: "var(--gold)", background: "var(--gold-soft)" }
                 : undefined}>{lbl}</button>
@@ -487,6 +489,29 @@ export default function EditorScreen() {
           </aside>
         )}
 
+        {/* Rail da Etapa 4: lista numerada de todos os equipamentos do projeto */}
+        {!somenteLeitura && !apresentacao && etapa === "fichas" && (
+          <aside style={{ width: 230, flexShrink: 0, borderRight: "1px solid var(--line)", overflow: "auto", padding: "10px 10px 10px calc(10px + var(--sal))" }}>
+            <div className="brandface" style={{ fontSize: 15, color: "var(--gold)", marginBottom: 4 }}>EQUIPAMENTOS</div>
+            <div style={{ fontSize: 11, color: "var(--muted)", marginBottom: 8 }}>{cena.itens.length} no projeto — toque para abrir a ficha</div>
+            <div style={{ display: "grid", gap: 4 }}>
+              {cena.itens.map((it, i) => (
+                <button key={it.id} onClick={() => selecionar(it.id)} style={{
+                  display: "flex", alignItems: "center", gap: 8,
+                  background: selectedId === it.id ? "var(--gold-soft)" : "var(--panel-2)",
+                  border: `1px solid ${selectedId === it.id ? "var(--gold)" : "var(--line)"}`,
+                  borderRadius: 7, padding: "6px 8px", color: "#c9c9c4", font: "600 12px 'DM Sans'", textAlign: "left", cursor: "pointer",
+                }}>
+                  <span style={{ width: 22, height: 22, borderRadius: 999, background: "var(--gold)", color: "#0C0C0E", display: "grid", placeItems: "center", fontSize: 11, fontWeight: 800, flexShrink: 0 }}>{i + 1}</span>
+                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{it.nome}</span>
+                  <span style={{ width: 8, height: 8, borderRadius: 2, background: ZONAS[it.zona]?.cor, flexShrink: 0 }} />
+                </button>
+              ))}
+              {cena.itens.length === 0 && <div style={{ fontSize: 11.5, color: "var(--muted)" }}>Nenhum equipamento posicionado — adicione na Etapa 3.</div>}
+            </div>
+          </aside>
+        )}
+
         {/* Canvas */}
         <div style={{ flex: 1, position: "relative", minWidth: 0 }}>
           <EditorCanvas modoCalibrar={modoCalibrar} onCalibrar={onCalibrar} ferrAcab={ferrAcab} tipoElemParede={tipoElemParede} snapPasso={snapPasso} camadas={camadas} apresentacao={apresentacao} onArea={onArea}
@@ -499,7 +524,7 @@ export default function EditorScreen() {
         </div>
 
         {/* Inspetor direito */}
-        {!apresentacao && <aside style={{ width: 220, flexShrink: 0, borderLeft: "1px solid var(--line)", overflow: "auto", padding: "12px calc(12px + var(--sar)) 12px 12px" }}>
+        {!apresentacao && <aside style={{ width: etapa === "fichas" ? 340 : 220, flexShrink: 0, borderLeft: "1px solid var(--line)", overflow: "auto", padding: "12px calc(12px + var(--sar)) 12px 12px" }}>
           {somenteLeitura ? (
             <div style={{ display: "grid", gap: 12 }}>
               <div className="brandface" style={{ fontSize: 16, color: "var(--gold)" }}>Sobre este projeto</div>
@@ -515,6 +540,13 @@ export default function EditorScreen() {
               <button className="btn btn-gold" onClick={() => nav("/novo")}>＋ Começar meu Heritage</button>
               <div style={{ fontSize: 11, color: "#6e6e73", lineHeight: 1.5 }}>Use o pinch/scroll para dar zoom e arrastar a vista.</div>
             </div>
+          ) : etapa === "fichas" ? (
+            selItem
+              ? <FichaEquipamento item={selItem} numero={cena.itens.findIndex((i) => i.id === selItem.id) + 1} />
+              : <div style={{ color: "var(--muted)", fontSize: 12.5, lineHeight: 1.6 }}>
+                  <b style={{ color: "var(--gold)" }}>Etapa 4 · Fichas</b><br /><br />
+                  Toque um equipamento na lista à esquerda (ou na planta) para abrir a ficha: características, entrada, posição, função, restrições e demais detalhes.
+                </div>
           ) : etapa === "planta" ? (
             selEstrutura ? <EstruturaInspector sel={selEstrutura} /> : <PlantaEtapaInspector temPlanta={!!(cena.planta || cena.plantaVetorial)} temEstrutura={!!cena.estrutura} />
           ) : selItem ? (
@@ -1102,6 +1134,77 @@ function InfraInspector({ item, snapPasso }: { item: ItemInfraestrutura; snapPas
         <button className="btn" style={{ flex: 1 }} onClick={() => updateInfra(item.id, { bloqueado: !travado })}>{travado ? "🔓 Destravar" : "🔒 Travar"}</button>
       </div>
       <button className="btn" disabled={travado} onClick={() => removerInfra(item.id)}>✕ Remover</button>
+    </div>
+  );
+}
+
+// Texto livre da ficha que confirma no blur (não commita histórico a cada tecla).
+function CampoTexto({ valor, linhas, placeholder, onSet }: { valor: string; linhas?: number; placeholder?: string; onSet: (v: string) => void }) {
+  const [txt, setTxt] = useState(valor);
+  useEffect(() => { setTxt(valor); }, [valor]);
+  const estilo = { fontSize: 12.5, lineHeight: 1.5, fontFamily: "inherit" as const };
+  return linhas && linhas > 1
+    ? <textarea className="fld" rows={linhas} style={{ ...estilo, resize: "vertical" }} placeholder={placeholder} value={txt}
+        onChange={(e) => setTxt(e.target.value)} onBlur={() => { if (txt !== valor) onSet(txt); }} />
+    : <input className="fld" style={estilo} placeholder={placeholder} value={txt}
+        onChange={(e) => setTxt(e.target.value)} onBlur={() => { if (txt !== valor) onSet(txt); }} />;
+}
+
+// Etapa 4 — ficha completa de um equipamento posicionado no projeto.
+function FichaEquipamento({ item, numero }: { item: ItemPosicionado; numero: number }) {
+  const updateItem = useProjeto((s) => s.updateItem);
+  const equipamentos = useLibrary((s) => s.equipamentos);
+  const cat = (item.equipamentoId && equipamentos.find((e) => e.id === item.equipamentoId)) || equipamentos.find((e) => e.nome === item.nome);
+  const lados = { ...LADOS_PADRAO, ...(item.lados ?? {}) };
+  const ladoEntrada = (Object.keys(lados) as LadoRect[]).find((k) => lados[k] === "entrada");
+  const nomeLado: Record<LadoRect, string> = { topo: "topo", base: "base", esq: "esquerda", dir: "direita" };
+  return (
+    <div style={{ display: "grid", gap: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <span style={{ width: 30, height: 30, borderRadius: 999, background: "var(--gold)", color: "#0C0C0E", display: "grid", placeItems: "center", fontSize: 14, fontWeight: 800 }}>{numero}</span>
+        <div>
+          <div className="brandface" style={{ fontSize: 17, color: "var(--gold)" }}>{item.nome}</div>
+          {(cat?.marca || cat?.modelo) && <div style={{ fontSize: 11.5, color: "var(--muted)" }}>{[cat?.marca, cat?.modelo].filter(Boolean).join(" · ")}</div>}
+        </div>
+      </div>
+
+      {cat?.imagem && <img src={cat.imagem} alt={item.nome} style={{ width: "100%", maxHeight: 130, objectFit: "contain", background: "var(--panel-2)", borderRadius: 8, border: "1px solid var(--line)" }} />}
+
+      <Bloco label="CARACTERÍSTICAS">
+        <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "4px 10px", fontSize: 12, color: "#b6b6b1" }}>
+          <span>Medidas</span><b style={{ color: "#e9e9e6" }}>{formatLength(item.w_cm)} × {formatLength(item.h_cm)}{cat?.altura_cm ? ` × ${formatLength(cat.altura_cm)} (A)` : ""}</b>
+          {cat?.peso_kg ? <><span>Peso</span><b style={{ color: "#e9e9e6" }}>{cat.peso_kg} kg</b></> : null}
+          <span>Zona</span><b style={{ color: ZONAS[item.zona]?.cor }}>{ZONAS[item.zona]?.label}</b>
+          {cat?.categoria ? <><span>Categoria</span><b style={{ color: "#e9e9e6" }}>{cat.categoria}{cat.subcategoria ? ` · ${cat.subcategoria}` : ""}</b></> : null}
+          {item.precisa_tomada ? <><span>Elétrica</span><b style={{ color: "#E09A45" }}>⚡ precisa tomada{cat?.voltagem ? ` · ${cat.voltagem} V` : ""}</b></> : null}
+          {item.preco ? <><span>Investimento</span><b style={{ color: "var(--gold)" }}>{BRL(item.preco)}</b></> : null}
+        </div>
+      </Bloco>
+
+      <Bloco label="POSIÇÃO NA PLANTA">
+        <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "4px 10px", fontSize: 12, color: "#b6b6b1" }}>
+          <span>X × Y</span><b style={{ color: "#e9e9e6" }}>{Math.round(item.x_cm)} × {Math.round(item.y_cm)} cm</b>
+          <span>Rotação</span><b style={{ color: "#e9e9e6" }}>{Math.round(item.rotacao || 0)}°</b>
+          <span>Entrada</span><b style={{ color: "#5FBF7A" }}>pela {ladoEntrada ? nomeLado[ladoEntrada] : "base"}{item.dist_entrada_cm ? ` · vão de ${Math.round(item.dist_entrada_cm)} cm` : ""}</b>
+        </div>
+      </Bloco>
+
+      <Bloco label="FUNÇÃO NO PROJETO">
+        <CampoTexto valor={item.funcao ?? ""} placeholder="Ex.: aquecimento cardiovascular dos moradores"
+          onSet={(v) => updateItem(item.id, { funcao: v || null })} />
+      </Bloco>
+
+      <Bloco label="ONDE NÃO UTILIZAR / RESTRIÇÕES">
+        <CampoTexto valor={item.restricoes ?? ""} linhas={3} placeholder="Ex.: não usar sem instrutor; contraindicado para reabilitação de joelho…"
+          onSet={(v) => updateItem(item.id, { restricoes: v || null })} />
+      </Bloco>
+
+      <Bloco label="DEMAIS DETALHES">
+        <CampoTexto valor={item.detalhes ?? ""} linhas={4} placeholder="Instalação, entrega, manutenção, garantia, observações…"
+          onSet={(v) => updateItem(item.id, { detalhes: v || null })} />
+      </Bloco>
+
+      {cat?.obs && <div style={{ fontSize: 11.5, color: "var(--muted)", lineHeight: 1.5 }}><b>Instalação (catálogo):</b> {cat.obs}</div>}
     </div>
   );
 }

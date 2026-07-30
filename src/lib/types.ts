@@ -146,6 +146,10 @@ export interface ItemPosicionado {
   precisa_tomada?: boolean | null;
   lados?: Partial<Record<LadoRect, PapelLado>> | null;
   dist_entrada_cm?: number | null;
+  // Ficha do equipamento no projeto (Etapa 4 — texto livre do consultor).
+  funcao?: string | null; // função/uso deste equipamento no projeto
+  restricoes?: string | null; // onde NÃO utilizar / restrições
+  detalhes?: string | null; // demais detalhes (instalação, entrega, obs.)
   // Transformações do editor profissional.
   flipH?: boolean;
   flipV?: boolean;

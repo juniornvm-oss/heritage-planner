@@ -8,6 +8,7 @@ interface LibraryState {
   acabamentos: Acabamento[];
   carregado: boolean;
   carregar: () => Promise<void>;
+  recarregar: () => Promise<void>; // força nova busca (ex.: ao abrir um projeto)
   addEquipamentos: (rows: Equipamento[]) => void;
   updateEquipamento: (ref: string, eq: Equipamento) => void;
   removerEquipamento: (ref: string) => void;
@@ -23,6 +24,9 @@ export const useLibrary = create<LibraryState>((set, get) => ({
   carregado: false,
   async carregar() {
     if (get().carregado) return;
+    return get().recarregar();
+  },
+  async recarregar() {
     try {
       const [eq, ac] = await Promise.all([listarEquipamentos(), listarAcabamentos()]);
       set({
@@ -31,7 +35,9 @@ export const useLibrary = create<LibraryState>((set, get) => ({
         carregado: true,
       });
     } catch {
-      set({ carregado: true }); // mantém fallback local
+      // Falha transitória (rede/login ainda subindo): NÃO marca carregado —
+      // a próxima chamada tenta de novo. Antes isso travava o catálogo local
+      // de fallback para sempre e o editor "sumia" com os equipamentos reais.
     }
   },
   addEquipamentos(rows) {

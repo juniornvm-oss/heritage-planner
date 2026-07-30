@@ -253,3 +253,30 @@ export async function trocarSenha(nova: string): Promise<void> {
   const { error } = await sb.auth.updateUser({ password: nova });
   if (error) throw error;
 }
+
+// ── Anexos de orçamento (PDFs no Storage, bucket "orcamentos") ───────────────
+const BUCKET_ORCAMENTOS = "orcamentos";
+
+/** Sobe um PDF de orçamento; retorna o path no bucket. */
+export async function uploadOrcamento(projetoId: string, file: File): Promise<string> {
+  if (!sb) throw new Error("Supabase não configurado");
+  const seguro = file.name.replace(/[^\w.\-()% ]+/g, "_");
+  const path = `${projetoId}/${Date.now()}_${seguro}`;
+  const { error } = await sb.storage.from(BUCKET_ORCAMENTOS).upload(path, file, { contentType: "application/pdf", upsert: false });
+  if (error) throw error;
+  return path;
+}
+
+/** URL temporária (5 min) para abrir/baixar o PDF. */
+export async function urlOrcamento(path: string): Promise<string> {
+  if (!sb) throw new Error("Supabase não configurado");
+  const { data, error } = await sb.storage.from(BUCKET_ORCAMENTOS).createSignedUrl(path, 300);
+  if (error) throw error;
+  return data.signedUrl;
+}
+
+/** Remove o arquivo do bucket (best effort — metadados saem da cena de todo modo). */
+export async function removerOrcamentoArquivo(path: string): Promise<void> {
+  if (!sb) return;
+  try { await sb.storage.from(BUCKET_ORCAMENTOS).remove([path]); } catch { /* best effort */ }
+}

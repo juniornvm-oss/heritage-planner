@@ -361,6 +361,15 @@ export const MOBILIARIO_CATALOGO: { tipo: TipoInfra; nome: string; categoria: "A
   { tipo: "guarda_corpo", nome: "Guarda-corpo", categoria: "Decoração", w: 200, h: 10, alt: 110 },
 ];
 
+/** PDF de orçamento anexado ao projeto (arquivo no Storage; metadados na cena). */
+export interface AnexoOrcamento {
+  id: string;
+  nome: string;
+  path: string; // caminho no bucket "orcamentos"
+  tamanho: number; // bytes
+  criado_em: string; // ISO
+}
+
 // ── Etapa 5: acessórios do projeto (orçamento de itens sem posição na planta) ─
 /** Acessório orçado no projeto (anilhas, barras, colchonetes…). */
 export interface AcessorioProjeto {
@@ -429,6 +438,7 @@ export interface Cena {
   cotas?: Cota[]; // medidas fixadas na planta (Etapa 2)
   elementosParede?: ElementoParede[]; // espelhos, TVs, elétrica… (Etapa 2)
   acessorios?: AcessorioProjeto[]; // orçamento de acessórios (Etapa 5)
+  anexos?: AnexoOrcamento[]; // PDFs de orçamento (arquivos no Storage)
   infra?: ItemInfraestrutura[]; // mobiliário e infraestrutura (Etapa 2)
   estrutura?: EstruturaPlanta | null; // Etapa 1: paredes/aberturas/pilares
 }

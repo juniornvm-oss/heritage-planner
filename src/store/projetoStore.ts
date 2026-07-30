@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { Projeto, Cena, ItemPosicionado, PlantaFundo, AreaAcabamento, PlantaVetorial, EstruturaPlanta, Parede, Abertura, PilarPlanta, Cota, ElementoParede, ItemInfraestrutura, AcessorioProjeto } from "../lib/types";
+import type { Projeto, Cena, ItemPosicionado, PlantaFundo, AreaAcabamento, PlantaVetorial, EstruturaPlanta, Parede, Abertura, PilarPlanta, Cota, ElementoParede, ItemInfraestrutura, AcessorioProjeto, AnexoOrcamento } from "../lib/types";
 import { CENARIOS, ZONAS } from "../lib/types";
 import { gerarEstrutura, estruturaVazia } from "../lib/estrutura";
 import { bboxPoligono, retanguloParaPontos, transladar } from "../lib/geometria";
@@ -31,11 +31,12 @@ function normalizarCena(bruta: Cena | null | undefined): Cena {
   const elementosParede = Array.isArray(base.elementosParede) ? base.elementosParede : [];
   const infra = Array.isArray(base.infra) ? base.infra : [];
   const acessorios = Array.isArray(base.acessorios) ? base.acessorios : [];
+  const anexos = Array.isArray(base.anexos) ? base.anexos : [];
   const e = base.estrutura;
   const estrutura: EstruturaPlanta | null = e && (Array.isArray(e.paredes) || Array.isArray(e.pilares))
     ? { paredes: e.paredes ?? [], aberturas: e.aberturas ?? [], pilares: e.pilares ?? [] }
     : null;
-  return { ...base, sala, itens, acabamentos, cotas, elementosParede, infra, acessorios, estrutura };
+  return { ...base, sala, itens, acabamentos, cotas, elementosParede, infra, acessorios, anexos, estrutura };
 }
 
 interface ProjetoState {
@@ -77,6 +78,8 @@ interface ProjetoState {
   addAcessorio: (a: AcessorioProjeto) => void;
   updateAcessorio: (id: string, patch: Partial<AcessorioProjeto>) => void;
   removerAcessorio: (id: string) => void;
+  addAnexo: (a: AnexoOrcamento) => void;
+  removerAnexo: (id: string) => void;
 
   addItem: (item: ItemPosicionado) => void;
   updateItem: (id: string, patch: Partial<ItemPosicionado>, commit?: boolean) => void;
@@ -192,6 +195,13 @@ export const useProjeto = create<ProjetoState>((set, get) => ({
   },
   removerAcessorio(id) {
     set((s) => ({ past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, acessorios: (s.cena.acessorios ?? []).filter((a) => a.id !== id) }, dirty: true }));
+  },
+
+  addAnexo(a) {
+    set((s) => ({ past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, anexos: [...(s.cena.anexos ?? []), a] }, dirty: true }));
+  },
+  removerAnexo(id) {
+    set((s) => ({ past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, anexos: (s.cena.anexos ?? []).filter((x) => x.id !== id) }, dirty: true }));
   },
 
   addItem(item) {

@@ -15,6 +15,7 @@ import { BRL, formatLength, parseLength } from "../lib/units";
 import { ZONAS, CENARIOS, TAXA_ASSESSORIA, MATERIAIS_PISO, ELEMENTOS_PAREDE, MOBILIARIO_CATALOGO, ACESSORIOS_CATALOGO, LADOS_PADRAO, type AcessorioProjeto, type LadoRect, type MaterialPiso, type TipoElementoParede, type Zona, type Cenario, type ItemPosicionado, type Equipamento, type AreaAcabamento, type ElementoParede, type ItemInfraestrutura } from "../lib/types";
 import { areaPoligonoM2, perimetroCm, bboxPoligono, ehRetangulo, retanguloParaPontos, transladar, m2 } from "../lib/geometria";
 import { gerarPromptVista } from "../lib/promptVista";
+import { uploadOrcamento, urlOrcamento, removerOrcamentoArquivo, online } from "../lib/supabase";
 
 export default function EditorScreen() {
   const { id } = useParams();
@@ -1283,6 +1284,74 @@ function AcessoriosPanel() {
             </div>
           )}
         </div>
+
+        <AnexosOrcamento />
+      </div>
+    </div>
+  );
+}
+
+// PDFs de orçamento do projeto: sobe para o Storage; metadados ficam na cena.
+function AnexosOrcamento() {
+  const projeto = useProjeto((s) => s.projeto);
+  const anexos = useProjeto((s) => s.cena.anexos ?? []);
+  const addAnexo = useProjeto((s) => s.addAnexo);
+  const removerAnexo = useProjeto((s) => s.removerAnexo);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [erro, setErro] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const podeSubir = online && !!projeto?.id && projeto.id !== "heritage";
+
+  async function subir(file?: File | null) {
+    if (!file || !projeto?.id) return;
+    if (!/\.pdf$/i.test(file.name)) { setErro("Envie um arquivo PDF."); return; }
+    setBusy("Enviando…"); setErro(null);
+    try {
+      const path = await uploadOrcamento(projeto.id, file);
+      addAnexo({ id: crypto.randomUUID(), nome: file.name, path, tamanho: file.size, criado_em: new Date().toISOString() });
+    } catch (e) { setErro(`Falha no envio: ${(e as Error).message}`); }
+    finally { setBusy(null); if (fileRef.current) fileRef.current.value = ""; }
+  }
+
+  async function abrir(path: string) {
+    setErro(null);
+    try { window.open(await urlOrcamento(path), "_blank"); }
+    catch (e) { setErro(`Não consegui abrir: ${(e as Error).message}`); }
+  }
+
+  const kb = (b: number) => (b >= 1048576 ? `${(b / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`);
+  const dataBR = (iso: string) => new Date(iso).toLocaleDateString("pt-BR");
+
+  return (
+    <div style={{ marginTop: 26, maxWidth: 780 }}>
+      <div className="hairline" />
+      <div className="brandface" style={{ fontSize: 16, color: "var(--gold)", margin: "14px 0 2px" }}>ORÇAMENTOS EM PDF</div>
+      <div style={{ fontSize: 11.5, color: "var(--muted)", marginBottom: 10 }}>
+        Propostas de fornecedores anexadas a este projeto — os arquivos ficam guardados na nuvem.
+      </div>
+      <input ref={fileRef} type="file" accept="application/pdf,.pdf" style={{ display: "none" }} onChange={(e) => void subir(e.target.files?.[0])} />
+      <button className="btn btn-blue" disabled={!podeSubir || !!busy} onClick={() => fileRef.current?.click()}>
+        {busy || "⭱ Subir PDF de orçamento"}
+      </button>
+      {!podeSubir && <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 6 }}>Disponível em projetos salvos no banco (com conexão).</div>}
+      {erro && <div style={{ color: "var(--red)", fontSize: 12, marginTop: 8 }}>{erro}</div>}
+      <div style={{ display: "grid", gap: 5, marginTop: 12 }}>
+        {anexos.map((a) => (
+          <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 10, background: "var(--panel-2)", border: "1px solid var(--line)", borderRadius: 8, padding: "8px 12px" }}>
+            <span style={{ fontSize: 17 }}>📄</span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 12.5, fontWeight: 700, color: "#e9e9e6", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.nome}</div>
+              <div style={{ fontSize: 10.5, color: "var(--muted)" }}>{kb(a.tamanho)} · {dataBR(a.criado_em)}</div>
+            </div>
+            <button className="btn" style={{ padding: "6px 12px", fontSize: 11.5 }} onClick={() => void abrir(a.path)}>Abrir</button>
+            <button className="btn" style={{ padding: "6px 9px" }} onClick={() => {
+              if (!confirm(`Remover "${a.nome}" do projeto?`)) return;
+              void removerOrcamentoArquivo(a.path);
+              removerAnexo(a.id);
+            }}>✕</button>
+          </div>
+        ))}
+        {anexos.length === 0 && <div style={{ fontSize: 11.5, color: "#6e6e73" }}>Nenhum PDF anexado ainda.</div>}
       </div>
     </div>
   );

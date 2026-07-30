@@ -361,6 +361,46 @@ export const MOBILIARIO_CATALOGO: { tipo: TipoInfra; nome: string; categoria: "A
   { tipo: "guarda_corpo", nome: "Guarda-corpo", categoria: "Decoração", w: 200, h: 10, alt: 110 },
 ];
 
+// ── Etapa 5: acessórios do projeto (orçamento de itens sem posição na planta) ─
+/** Acessório orçado no projeto (anilhas, barras, colchonetes…). */
+export interface AcessorioProjeto {
+  id: string;
+  nome: string;
+  qtd: number;
+  preco_un: number; // R$
+  obs?: string | null;
+}
+
+/** Catálogo-base de acessórios (orçamento G2 Fitness · Maison Heritage, jul/2026). */
+export const ACESSORIOS_CATALOGO: { nome: string; qtd: number; preco: number }[] = [
+  { nome: "Espaldar alumínio", qtd: 1, preco: 2450 },
+  { nome: "Anilha olímpica BV 20 kg", qtd: 8, preco: 740 },
+  { nome: "Anilha olímpica BV 10 kg", qtd: 8, preco: 370 },
+  { nome: "Anilha olímpica BV 5 kg", qtd: 10, preco: 185 },
+  { nome: "Anilha olímpica BV 2,5 kg", qtd: 6, preco: 94.75 },
+  { nome: "Dumbbell emborrachado (par 12,5 a 25 kg)", qtd: 1, preco: 7897.5 },
+  { nome: "Suporte de dumbbell 10 pares", qtd: 1, preco: 3450 },
+  { nome: "Barra olímpica cromada 1,20 m", qtd: 1, preco: 900 },
+  { nome: "Barra olímpica cromada tipo W", qtd: 1, preco: 790 },
+  { nome: "Barra olímpica cromada 2,20 m", qtd: 3, preco: 950 },
+  { nome: "Barra olímpica cromada 1,50 m", qtd: 1, preco: 790 },
+  { nome: "Step EVA", qtd: 2, preco: 250 },
+  { nome: "Bola pilates 65 cm", qtd: 1, preco: 180 },
+  { nome: "Suporte para anilhas 8 pontas", qtd: 1, preco: 1200 },
+  { nome: "Suporte para 9 barras olímpicas", qtd: 1, preco: 950 },
+  { nome: "Colchonete emborrachado D80", qtd: 10, preco: 190 },
+  { nome: "Suporte para 10 colchonetes", qtd: 1, preco: 1990 },
+  { nome: "Conjunto halteres sextavados 1–10 kg c/ suporte", qtd: 1, preco: 3990 },
+  { nome: "Puxador corda", qtd: 1, preco: 247.5 },
+  { nome: "Puxador reto", qtd: 1, preco: 172.5 },
+  { nome: "Puxador triângulo", qtd: 1, preco: 220 },
+  { nome: "Puxador pulley 120 cm", qtd: 1, preco: 240 },
+  { nome: "Puxador tornozeleira c/ alça (par, glúteo)", qtd: 2, preco: 112.5 },
+  { nome: "Kit puxador ultra anatômico 8 pçs + suporte vertical", qtd: 1, preco: 4990 },
+  { nome: "Kettlebell (8, 12, 16, 20 kg)", qtd: 1, preco: 2450 },
+  { nome: "Kettlebell 32 kg", qtd: 1, preco: 920 },
+];
+
 /** Item de mobiliário/infraestrutura posicionado na planta (cm, mundo). */
 export interface ItemInfraestrutura {
   id: string;
@@ -388,6 +428,7 @@ export interface Cena {
   acabamentos?: AreaAcabamento[];
   cotas?: Cota[]; // medidas fixadas na planta (Etapa 2)
   elementosParede?: ElementoParede[]; // espelhos, TVs, elétrica… (Etapa 2)
+  acessorios?: AcessorioProjeto[]; // orçamento de acessórios (Etapa 5)
   infra?: ItemInfraestrutura[]; // mobiliário e infraestrutura (Etapa 2)
   estrutura?: EstruturaPlanta | null; // Etapa 1: paredes/aberturas/pilares
 }

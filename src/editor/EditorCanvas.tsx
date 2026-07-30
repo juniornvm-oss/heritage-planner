@@ -11,7 +11,7 @@ import { areaPoligonoM2, perimetroCm, projetarNoSegmento, m2, type Ponto } from 
 import { gerarCotasAutomaticas } from "../lib/lamina";
 import { MATERIAIS_PISO, ELEMENTOS_PAREDE, PAPEL_LADO, LADOS_PADRAO, type TipoElementoParede, type LadoRect } from "../lib/types";
 
-export type Etapa = "planta" | "acabamento" | "layout";
+export type Etapa = "planta" | "acabamento" | "layout" | "fichas";
 export type FerramentaEstrutura = "parede" | "porta" | "janela" | "pilar" | "apagar" | null;
 export type FerramentaAcab = "rect" | "poligono" | "cota" | "espelho" | "itemParede" | "apagar" | null;
 
@@ -369,7 +369,7 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoE
   const desenhandoAcab = ferrAcab === "rect" || ferrAcab === "poligono" || ferrAcab === "cota" || ferrAcab === "espelho" || ferrAcab === "itemParede";
   const drawing = modoCalibrar || desenhandoAcab || modoRecorte || modoParede || desenhandoEst || !!modoVista; // enquanto desenha, nada captura o toque
   // Interatividade por etapa: só o que pertence à etapa ativa responde ao toque.
-  const itensAtivos = etapaAtual === "layout" && !drawing && !somenteLeitura && !modoMoverPlanta;
+  const itensAtivos = (etapaAtual === "layout" || etapaAtual === "fichas") && !drawing && !somenteLeitura && !modoMoverPlanta;
   const areasAtivas = etapaAtual === "acabamento" && !drawing && !somenteLeitura && !modoMoverPlanta;
   const estAtiva = etapaAtual === "planta" && !drawing && !somenteLeitura && !modoMoverPlanta;
   const apagando = estAtiva && ferrEstrutura === "apagar"; // toque no elemento = apagar
@@ -700,8 +700,8 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoE
           })}
 
           {/* equipamentos */}
-          {cena.itens.map((it) => (
-            <ItemView key={it.id} it={it} zoom={cam.zoom} selected={!apresentacao && selectedId === it.id} problema={apresentacao ? null : problemas[it.id]} listening={itensAtivos && !apresentacao} camadas={apresentacao || lamina ? "nada" : (camadas ?? "tudo")} lamina={lamina}
+          {cena.itens.map((it, idx) => (
+            <ItemView key={it.id} it={it} numero={etapaAtual === "fichas" ? idx + 1 : undefined} zoom={cam.zoom} selected={!apresentacao && selectedId === it.id} problema={apresentacao ? null : problemas[it.id]} listening={itensAtivos && !apresentacao} camadas={apresentacao || lamina ? "nada" : (camadas ?? "tudo")} lamina={lamina}
               onSelect={() => selecionar(it.id)}
               onDrag={(x, y, commit) => updateItem(it.id, { x_cm: snapCm(x), y_cm: snapCm(y) }, commit)} />
           ))}
@@ -749,9 +749,9 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoE
   );
 }
 
-function ItemView({ it, zoom, selected, problema, listening, camadas, lamina, onSelect, onDrag }: {
+function ItemView({ it, zoom, selected, problema, listening, camadas, lamina, numero, onSelect, onDrag }: {
   it: ItemPosicionado; zoom: number; selected: boolean; problema: "colisao" | "corredor" | "uso" | null; listening?: boolean;
-  camadas?: "tudo" | "uso" | "nada"; lamina?: boolean;
+  camadas?: "tudo" | "uso" | "nada"; lamina?: boolean; numero?: number;
   onSelect: () => void; onDrag: (x: number, y: number, commit: boolean) => void;
 }) {
   const cor = problema === "colisao" ? "#E04545" : problema === "corredor" || problema === "uso" ? "#E09A45" : (ZONAS[it.zona]?.cor || "#888");
@@ -795,6 +795,14 @@ function ItemView({ it, zoom, selected, problema, listening, camadas, lamina, on
         dash={problema ? [10 / zoom, 7 / zoom] : undefined} />
       {/* área de toque (invisível) — sem ela o miolo transparente não seleciona */}
       <Rect width={it.w_cm} height={it.h_cm} fill="#000" opacity={0.001} />
+      {/* numeração da ficha (Etapa 4) */}
+      {numero != null && (
+        <>
+          <Circle x={0} y={0} radius={14 / zoom} fill="#C9A227" listening={false} />
+          <Text x={-14 / zoom} y={-7 / zoom} width={28 / zoom} align="center" text={String(numero)}
+            fontSize={13 / zoom} fontStyle="700" fill="#0C0C0E" listening={false} />
+        </>
+      )}
       {/* letras dos lados (E/F/C/L) — giram junto com o equipamento */}
       {(Object.keys(geomLado) as LadoRect[]).map((k) => {
         const g = geomLado[k], papel = lados[k], info = PAPEL_LADO[papel];

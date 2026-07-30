@@ -4,12 +4,22 @@ import { CENARIOS } from "./types";
 interface RectCm { x_cm: number; y_cm: number; w_cm: number; h_cm: number }
 const overlapR = (a: RectCm, b: RectCm) =>
   a.x_cm < b.x_cm + b.w_cm && a.x_cm + a.w_cm > b.x_cm && a.y_cm < b.y_cm + b.h_cm && a.y_cm + a.h_cm > b.y_cm;
-const overlap = (a: ItemPosicionado, b: RectCm) => overlapR(a, b);
+/** AABB do item considerando a rotação em torno do centro (aproximação
+ *  conservadora para colisão — o retângulo envolvente do corpo girado). */
+const aabbItem = (a: ItemPosicionado): RectCm => {
+  const th = ((a.rotacao || 0) * Math.PI) / 180;
+  const c = Math.abs(Math.cos(th)), s = Math.abs(Math.sin(th));
+  const w = a.w_cm * c + a.h_cm * s, h = a.w_cm * s + a.h_cm * c;
+  const cx = a.x_cm + a.w_cm / 2, cy = a.y_cm + a.h_cm / 2;
+  return { x_cm: cx - w / 2, y_cm: cy - h / 2, w_cm: w, h_cm: h };
+};
+const overlap = (a: ItemPosicionado, b: RectCm) => overlapR(aabbItem(a), b);
 
-/** Retângulo da ÁREA DE USO do item (corpo + margens frontal/lateral). */
+/** Retângulo da ÁREA DE USO do item (AABB do corpo girado + margens). */
 const usoRect = (a: ItemPosicionado): RectCm => {
   const uF = a.uso_frontal_cm || 0, uL = a.uso_lateral_cm || 0;
-  return { x_cm: a.x_cm - uL, y_cm: a.y_cm - uF, w_cm: a.w_cm + 2 * uL, h_cm: a.h_cm + 2 * uF };
+  const bb = aabbItem(a);
+  return { x_cm: bb.x_cm - uL, y_cm: bb.y_cm - uF, w_cm: bb.w_cm + 2 * uL, h_cm: bb.h_cm + 2 * uF };
 };
 
 export type Problema = "colisao" | "corredor" | "uso" | null;
@@ -35,11 +45,12 @@ export function problemasDaCena(cena: Cena): Record<string, Problema> {
   const corredor = sala.config?.corredor;
   const res: Record<string, Problema> = {};
   for (const a of itens) {
-    const fora = a.x_cm < 0 || a.y_cm < 0 || a.x_cm + a.w_cm > sala.largura_cm || a.y_cm + a.h_cm > sala.profundidade_cm;
+    const bb = aabbItem(a);
+    const fora = bb.x_cm < 0 || bb.y_cm < 0 || bb.x_cm + bb.w_cm > sala.largura_cm || bb.y_cm + bb.h_cm > sala.profundidade_cm;
     const pil = (pilarRect ? overlap(a, pilarRect) : false) || pilaresEst.some((r) => overlap(a, r));
     const parede = paredesRect.some((r) => overlap(a, r));
     const mob = infraRects.some((r) => overlap(a, r));
-    const outro = itens.some((b) => b.id !== a.id && overlap(a, b));
+    const outro = itens.some((b) => b.id !== a.id && overlap(a, aabbItem(b)));
     const corr = corredor ? a.x_cm < corredor.x + corredor.w && a.x_cm + a.w_cm > corredor.x : false;
     // Área de uso invadida por OUTRO equipamento (aviso amarelo, não bloqueio).
     const uso = !fora && !pil && !outro && itens.some((b) => b.id !== a.id && overlapR(usoRect(a), usoRect(b)));

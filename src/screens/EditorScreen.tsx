@@ -25,6 +25,7 @@ export default function EditorScreen() {
   const { removerParede, removerPilar, removerAbertura, removerArea } = useProjeto();
   const { selElemParedeId, selInfraId } = useProjeto();
   const { removerElemParede, removerInfra, addInfra } = useProjeto();
+  const { duplicarItem, espelharItem } = useProjeto();
   const equipamentos = useLibrary((s) => s.equipamentos);
   const acabamentos = useLibrary((s) => s.acabamentos);
 
@@ -38,6 +39,7 @@ export default function EditorScreen() {
   const [filtroZona, setFiltroZona] = useState<Zona | "">("");
   const [filtroCat, setFiltroCat] = useState("");
   const [camadas, setCamadas] = useState<"tudo" | "uso" | "nada">("tudo"); // uso/segurança no canvas
+  const [nudgePasso, setNudgePasso] = useState(5); // nudge do equipamento (1/5/10/20 cm)
   const [modoRecorte, setModoRecorte] = useState(false);
   const [modoParede, setModoParede] = useState(false);
   const [modoMoverPlanta, setModoMoverPlanta] = useState(false);
@@ -498,11 +500,44 @@ export default function EditorScreen() {
             selEstrutura ? <EstruturaInspector sel={selEstrutura} /> : <PlantaEtapaInspector temPlanta={!!(cena.planta || cena.plantaVetorial)} temEstrutura={!!cena.estrutura} />
           ) : selItem ? (
             <div style={{ display: "grid", gap: 12 }}>
-              <div className="brandface" style={{ fontSize: 16, color: "var(--gold)" }}>{selItem.nome}</div>
+              <div className="brandface" style={{ fontSize: 16, color: "var(--gold)" }}>{selItem.nome} {selItem.bloqueado && "🔒"}</div>
               <div style={{ fontSize: 12, color: "var(--muted)" }}>
                 Dimensões (proporção travada)<br />
                 <b style={{ color: "#e9e9e6", fontSize: 14 }}>{formatLength(selItem.w_cm)} × {formatLength(selItem.h_cm)}</b>
               </div>
+              <Bloco label="POSIÇÃO X × Y (cm)">
+                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                  <CampoCm valor={selItem.x_cm} onSet={(v) => updateItem(selItem.id, { x_cm: v })} />
+                  <span style={{ color: "var(--muted)" }}>×</span>
+                  <CampoCm valor={selItem.y_cm} onSet={(v) => updateItem(selItem.id, { y_cm: v })} />
+                </div>
+              </Bloco>
+              <Bloco label={`ROTAÇÃO · ${Math.round(selItem.rotacao || 0)}°`}>
+                <div style={{ display: "flex", gap: 4 }}>
+                  {[["-45", -45], ["-15", -15], ["-1", -1], ["+1", 1], ["+15", 15], ["+45", 45]].map(([lbl, d]) => (
+                    <button key={lbl} className="btn" disabled={selItem.bloqueado} onClick={() => girarSelecionado(d as number)} style={{ flex: 1, padding: "7px 1px", fontSize: 10 }}>{lbl}</button>
+                  ))}
+                </div>
+                <div style={{ display: "flex", gap: 4, marginTop: 4 }}>
+                  <button className="btn" disabled={selItem.bloqueado} onClick={() => girarSelecionado(90)} style={{ flex: 1, padding: "7px 2px", fontSize: 10.5 }}>90°</button>
+                  <button className="btn" disabled={selItem.bloqueado} onClick={() => updateItem(selItem.id, { rotacao: 0 })} style={{ flex: 1, padding: "7px 2px", fontSize: 10.5 }}>0°</button>
+                  <button className="btn" disabled={selItem.bloqueado} onClick={() => espelharItem(selItem.id, "h")} style={{ flex: 1, padding: "7px 2px", fontSize: 10.5, ...(selItem.flipH ? { borderColor: "var(--gold)", color: "var(--gold)" } : {}) }}>⇋ H</button>
+                  <button className="btn" disabled={selItem.bloqueado} onClick={() => espelharItem(selItem.id, "v")} style={{ flex: 1, padding: "7px 2px", fontSize: 10.5, ...(selItem.flipV ? { borderColor: "var(--gold)", color: "var(--gold)" } : {}) }}>⇵ V</button>
+                </div>
+              </Bloco>
+              <Bloco label={`NUDGE (${nudgePasso} cm)`}>
+                <div style={{ display: "flex", gap: 4, marginBottom: 5 }}>
+                  {[1, 5, 10, 20].map((n) => (
+                    <button key={n} className="btn" onClick={() => setNudgePasso(n)} style={{ flex: 1, padding: "5px 2px", fontSize: 10, ...(nudgePasso === n ? { borderColor: "#5FC8E8", color: "#8fd6f0" } : {}) }}>{n}</button>
+                  ))}
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 5, maxWidth: 150 }}>
+                  <span /><button className="btn" disabled={selItem.bloqueado} style={{ padding: "6px 0" }} onClick={() => updateItem(selItem.id, { y_cm: selItem.y_cm - nudgePasso })}>↑</button><span />
+                  <button className="btn" disabled={selItem.bloqueado} style={{ padding: "6px 0" }} onClick={() => updateItem(selItem.id, { x_cm: selItem.x_cm - nudgePasso })}>←</button>
+                  <button className="btn" disabled={selItem.bloqueado} style={{ padding: "6px 0" }} onClick={() => updateItem(selItem.id, { y_cm: selItem.y_cm + nudgePasso })}>↓</button>
+                  <button className="btn" disabled={selItem.bloqueado} style={{ padding: "6px 0" }} onClick={() => updateItem(selItem.id, { x_cm: selItem.x_cm + nudgePasso })}>→</button>
+                </div>
+              </Bloco>
               <Bloco label="ZONA">
                 <select className="fld" value={selItem.zona} onChange={(e) => updateItem(selItem.id, { zona: e.target.value as Zona })}>
                   {Object.entries(ZONAS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
@@ -526,9 +561,10 @@ export default function EditorScreen() {
               </Bloco>
               {selItem.preco ? <div style={{ fontSize: 13, color: "var(--gold)" }}>{BRL(selItem.preco)}</div> : null}
               <div style={{ display: "flex", gap: 6 }}>
-                <button className="btn" style={{ flex: 1 }} onClick={() => girarSelecionado()}>↻ Girar</button>
-                <button className="btn" style={{ flex: 1 }} onClick={removerSelecionado}>✕ Remover</button>
+                <button className="btn" style={{ flex: 1 }} onClick={() => duplicarItem(selItem.id)}>⧉ Duplicar</button>
+                <button className="btn" style={{ flex: 1 }} onClick={() => updateItem(selItem.id, { bloqueado: !selItem.bloqueado })}>{selItem.bloqueado ? "🔓 Destravar" : "🔒 Travar"}</button>
               </div>
+              <button className="btn" disabled={selItem.bloqueado} onClick={removerSelecionado}>✕ Remover</button>
             </div>
           ) : selElemParede ? (
             <ElemParedeInspector el={selElemParede} />

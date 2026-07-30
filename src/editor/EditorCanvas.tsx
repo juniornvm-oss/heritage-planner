@@ -725,11 +725,13 @@ function ItemView({ it, zoom, selected, problema, listening, camadas, onSelect, 
   const vert = it.h_cm > it.w_cm * 1.3;
   const img = useHtmlImage(it.imagem || undefined);
   const temDesenho = !!(it.contorno?.length || it.imagem);
+  const cx = it.x_cm + it.w_cm / 2, cy = it.y_cm + it.h_cm / 2;
   return (
-    <Group x={it.x_cm} y={it.y_cm} draggable={listening !== false} listening={listening}
+    <Group x={cx} y={cy} offsetX={it.w_cm / 2} offsetY={it.h_cm / 2} rotation={it.rotacao || 0}
+      draggable={listening !== false && !it.bloqueado} listening={listening}
       onMouseDown={onSelect} onTouchStart={onSelect} onClick={onSelect} onTap={onSelect}
-      onDragMove={(e) => onDrag(e.target.x(), e.target.y(), false)}
-      onDragEnd={(e) => onDrag(e.target.x(), e.target.y(), true)}>
+      onDragMove={(e) => onDrag(e.target.x() - it.w_cm / 2, e.target.y() - it.h_cm / 2, false)}
+      onDragEnd={(e) => onDrag(e.target.x() - it.w_cm / 2, e.target.y() - it.h_cm / 2, true)}>
       {mostraSeg && (
         <Rect x={-usoL - seg} y={-usoF - seg} width={it.w_cm + 2 * (usoL + seg)} height={it.h_cm + 2 * (usoF + seg)}
           cornerRadius={6} fill="#E04545" opacity={0.05} stroke="#E04545" strokeWidth={1 / zoom} dash={[5 / zoom, 7 / zoom]} listening={false} />
@@ -740,10 +742,13 @@ function ItemView({ it, zoom, selected, problema, listening, camadas, onSelect, 
       )}
       <Rect width={it.w_cm} height={it.h_cm} cornerRadius={4} fill={selected ? "#1E1F23" : "#141518"}
         stroke={cor} strokeWidth={(selected ? 7 : 4) / zoom} dash={problema ? [10 / zoom, 7 / zoom] : undefined} />
-      {it.imagem && img && <KImage image={img} x={0} y={0} width={it.w_cm} height={it.h_cm} opacity={0.85} listening={false} />}
-      {(it.contorno || []).map((pl, i) => (
-        <Line key={i} points={pl.map((v, j) => (j % 2 === 0 ? v * it.w_cm : v * it.h_cm))} stroke={cor} strokeWidth={2 / zoom} listening={false} />
-      ))}
+      <Group x={it.w_cm / 2} y={it.h_cm / 2} offsetX={it.w_cm / 2} offsetY={it.h_cm / 2}
+        scaleX={it.flipH ? -1 : 1} scaleY={it.flipV ? -1 : 1} listening={false}>
+        {it.imagem && img && <KImage image={img} x={0} y={0} width={it.w_cm} height={it.h_cm} opacity={0.85} listening={false} />}
+        {(it.contorno || []).map((pl, i) => (
+          <Line key={i} points={pl.map((v, j) => (j % 2 === 0 ? v * it.w_cm : v * it.h_cm))} stroke={cor} strokeWidth={2 / zoom} listening={false} />
+        ))}
+      </Group>
       {!temDesenho && (
         <Text x={0} y={it.h_cm / 2 - 10} width={it.w_cm} align="center" text={it.nome}
           fontSize={Math.min(it.w_cm, it.h_cm) >= 85 ? 20 : 15} fill="#F2F2F0" fontStyle="600"

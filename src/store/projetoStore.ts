@@ -77,6 +77,8 @@ interface ProjetoState {
   updateItem: (id: string, patch: Partial<ItemPosicionado>, commit?: boolean) => void;
   removerSelecionado: () => void;
   girarSelecionado: (graus?: number) => void;
+  duplicarItem: (id: string) => void;
+  espelharItem: (id: string, eixo: "h" | "v") => void;
 
   setPlanta: (planta: PlantaFundo | null) => void;
   updatePlanta: (patch: Partial<PlantaFundo>) => void;
@@ -195,12 +197,28 @@ export const useProjeto = create<ProjetoState>((set, get) => ({
     set((s) => ({ past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, itens: s.cena.itens.filter((it) => it.id !== id) }, selectedId: null, dirty: true }));
   },
 
-  // Girar 90° = trocar largura↔profundidade (proporção preservada; footprint axis-aligned).
-  girarSelecionado() {
+  // Rotação REAL em torno do centro (qualquer grau; padrão 90°).
+  girarSelecionado(graus = 90) {
     const id = get().selectedId;
     if (!id) return;
     set((s) => {
-      const itens = s.cena.itens.map((it) => (it.id === id ? { ...it, w_cm: it.h_cm, h_cm: it.w_cm } : it));
+      const itens = s.cena.itens.map((it) => (it.id === id ? { ...it, rotacao: (((it.rotacao || 0) + graus) % 360 + 360) % 360 } : it));
+      return { past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, itens }, dirty: true };
+    });
+  },
+
+  duplicarItem(id) {
+    set((s) => {
+      const orig = s.cena.itens.find((i) => i.id === id);
+      if (!orig) return {};
+      const novo = { ...orig, id: crypto.randomUUID(), x_cm: orig.x_cm + 30, y_cm: orig.y_cm + 30, bloqueado: false };
+      return { past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, itens: [...s.cena.itens, novo] }, selectedId: novo.id, dirty: true };
+    });
+  },
+
+  espelharItem(id, eixo) {
+    set((s) => {
+      const itens = s.cena.itens.map((it) => (it.id === id ? { ...it, ...(eixo === "h" ? { flipH: !it.flipH } : { flipV: !it.flipV }) } : it));
       return { past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, itens }, dirty: true };
     });
   },

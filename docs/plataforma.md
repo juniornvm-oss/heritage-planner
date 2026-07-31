@@ -8,7 +8,8 @@ onde vive no sistema e em que fase é construído.
 
 - Serviço: assessoria técnica que transforma o orçamento-teto do condomínio na
   academia mais funcional/estética possível, em **4 fases** com **10 entregáveis**.
-- Honorário: **0,5% do teto máximo** de investimento estipulado pelo condomínio.
+- Honorário: **percentual do teto máximo** de investimento estipulado pelo condomínio —
+  definido em cada projeto (campo `honorario_pct`), com padrão de 0,5% vindo do Cadastro.
 - Usuário da plataforma: **único** (o consultor). Ferramenta interna de produção.
 
 ## Os 4 pilares → como o software ajuda
@@ -43,7 +44,8 @@ RLS `anon` (single-user), no mesmo padrão de `layouts`/`equipamentos`/`salas`.
 ```
 projetos      — o engajamento com um condomínio (Fase 1 diagnóstico + orçamento)
   id, nome(condomínio), sindico, contato, endereco,
-  orcamento_teto numeric, taxa_assessoria (gerada = teto × 0,5%),
+  orcamento_teto numeric, honorario_pct numeric (% do projeto),
+  taxa_assessoria (gerada = teto × honorario_pct, padrão 0,5%),
   perfil jsonb, infraestrutura jsonb, observacoes,
   sala_id → salas, status, criado_em
 fornecedores  — cadastro de fornecedores/marcas (entregável 10)
@@ -66,7 +68,7 @@ Essencial/Balanceado/Premium é só uma etiqueta por item. Regra good/better/bes
 - **Fase 1 (feita)** — catálogo no banco, pipeline DXF/CSV, múltiplas salas.
 - **Fase 2 (esta entrega)** — camada de **projeto/assessoria**: tabelas `projetos`,
   `fornecedores`, `cotacoes`; app fica *projeto-aware* (seletor + novo projeto +
-  diagnóstico + orçamento-teto com honorário 0,5% ao vivo + barra de orçamento);
+  diagnóstico + orçamento-teto com honorário do projeto ao vivo + barra de orçamento);
   **cenários** Essencial/Balanceado/Premium por item; `tools/relatorio.js` gera o
   Relatório Executivo (HTML→PDF) com diagnóstico, lista técnica por zona, cenários
   e resumo financeiro.

@@ -1,8 +1,8 @@
 import { PDFDocument, PDFFont, PDFPage, StandardFonts, rgb, type RGB } from "pdf-lib";
 import type { Projeto, Equipamento, ItemPosicionado, ConfigConsultor } from "../types";
-import { ZONAS, CENARIOS, TAXA_ASSESSORIA, ELEMENTOS_PAREDE } from "../types";
+import { ZONAS, CENARIOS, honorarioLabel, valorHonorario, ELEMENTOS_PAREDE } from "../types";
 import { resumo, matrizDaCena } from "../validation";
-import { BRL, formatLength } from "../units";
+import { BRL, formatLength, mascaraTelefone } from "../units";
 import { areaPoligonoM2 } from "../geometria";
 
 // Paleta do dossiê
@@ -143,7 +143,7 @@ export async function montarDossie(
   const preparado = [
     config?.consultor && `Preparado por ${config.consultor}`,
     config?.registro && `(${config.registro})`,
-    config?.whatsapp && `· ${config.whatsapp}`,
+    config?.whatsapp && `· ${mascaraTelefone(config.whatsapp)}`,
   ].filter(Boolean).join(" ");
   if (preparado) at(preparado, M, y, 10, font, rgb(0.35, 0.35, 0.35));
   y -= 18;
@@ -153,8 +153,8 @@ export async function montarDossie(
     page.drawRectangle({ x: M, y: y - 58, width: CW, height: 58, borderColor: LINE, borderWidth: 1, color: CREAM });
     at("ORÇAMENTO-TETO DE INVESTIMENTO", M + 16, y - 20, 9, bold, MUTED);
     at(BRL(teto), M + 16, y - 44, 20, bold, DARK);
-    at("HONORÁRIO DA ASSESSORIA (0,5%)", A4.w - M - 220, y - 20, 9, bold, MUTED);
-    at(BRL(Math.round(teto * TAXA_ASSESSORIA)), A4.w - M - 220, y - 44, 20, bold, GOLD);
+    at(`HONORÁRIO DA ASSESSORIA (${honorarioLabel(projeto)})`, A4.w - M - 220, y - 20, 9, bold, MUTED);
+    at(BRL(valorHonorario(teto, projeto)), A4.w - M - 220, y - 44, 20, bold, GOLD);
   }
   at("A academia mais funcional e bonita que o orçamento do condomínio pode ter.", M, 70, 10, font, MUTED);
 
@@ -418,7 +418,7 @@ export async function montarDossie(
   const fin: [string, string, RGB][] = [];
   if (teto) fin.push(["Orçamento-teto", BRL(teto), DARK]);
   fin.push(["Investimento (Balanceado)", BRL(r.cenarios.balanceado), DARK]);
-  if (teto) fin.push(["Honorário (0,5%)", BRL(Math.round(teto * TAXA_ASSESSORIA)), GOLD]);
+  if (teto) fin.push([`Honorário (${honorarioLabel(projeto)})`, BRL(valorHonorario(teto, projeto)), GOLD]);
   if (teto) fin.push(["Saldo vs. teto", BRL(teto - r.cenarios.balanceado), teto - r.cenarios.balanceado >= 0 ? GREEN : RED]);
   const fgap = 12, fw = (CW - fgap * (fin.length - 1)) / fin.length, fy = y;
   fin.forEach(([rot, val, cor], i) => {

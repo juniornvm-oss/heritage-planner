@@ -3,6 +3,7 @@
 // de entrada (planner.solicitacoes) como anon; não lê nada de ninguém.
 import { useState } from "react";
 import { criarSolicitacao, online } from "../lib/supabase";
+import { mascaraTelefone, telefoneCompleto } from "../lib/units";
 import type { AnexoSolicitacao, Solicitacao } from "../lib/types";
 
 const LOCALIZACAO = ["Térreo", "Subsolo", "Cobertura / rooftop", "Andar intermediário"];
@@ -88,6 +89,7 @@ export default function FormularioScreen() {
     if (!f.condominio.trim() || !f.sindico.trim() || !f.whatsapp.trim() || !f.dimensoes.trim() || !f.visao.trim() || !orcamento) {
       setErro("Preencha os campos obrigatórios (★)."); return;
     }
+    if (!telefoneCompleto(f.whatsapp)) { setErro("WhatsApp incompleto — informe DDD + número."); return; }
     if (!online) { setErro("Envio indisponível no momento."); return; }
     setBusy(true);
     try {
@@ -128,7 +130,7 @@ export default function FormularioScreen() {
           <Campo label="Cidade / bairro"><input className="fld" value={f.cidade} onChange={(e) => set("cidade")(e.target.value)} /></Campo>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
             <Campo label="Síndico / responsável" req><input className="fld" value={f.sindico} onChange={(e) => set("sindico")(e.target.value)} /></Campo>
-            <Campo label="WhatsApp" req><input className="fld" inputMode="tel" value={f.whatsapp} onChange={(e) => set("whatsapp")(e.target.value)} /></Campo>
+            <Campo label="WhatsApp" req><input className="fld" type="tel" inputMode="tel" autoComplete="tel" placeholder="(00) 00000-0000" maxLength={16} value={mascaraTelefone(f.whatsapp)} onChange={(e) => set("whatsapp")(mascaraTelefone(e.target.value))} /></Campo>
             <Campo label="E-mail"><input className="fld" type="email" inputMode="email" value={f.email} onChange={(e) => set("email")(e.target.value)} /></Campo>
             <Campo label="Nº de unidades"><input className="fld" inputMode="numeric" value={f.unidades} onChange={(e) => set("unidades")(e.target.value.replace(/\D/g, ""))} /></Campo>
           </div>

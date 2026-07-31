@@ -12,7 +12,7 @@ import { exportarPdf } from "../lib/export/pdfExport";
 import { resumo } from "../lib/validation";
 import { snapCm } from "../lib/canvas";
 import { BRL, formatLength, parseLength } from "../lib/units";
-import { ZONAS, CENARIOS, TAXA_ASSESSORIA, MATERIAIS_PISO, ELEMENTOS_PAREDE, MOBILIARIO_CATALOGO, ACESSORIOS_CATALOGO, LADOS_PADRAO, type AcessorioProjeto, type LadoRect, type MaterialPiso, type TipoElementoParede, type Zona, type Cenario, type ItemPosicionado, type Equipamento, type AreaAcabamento, type ElementoParede, type ItemInfraestrutura } from "../lib/types";
+import { ZONAS, CENARIOS, honorarioLabel, valorHonorario, MATERIAIS_PISO, ELEMENTOS_PAREDE, MOBILIARIO_CATALOGO, ACESSORIOS_CATALOGO, LADOS_PADRAO, type AcessorioProjeto, type LadoRect, type MaterialPiso, type TipoElementoParede, type Zona, type Cenario, type ItemPosicionado, type Equipamento, type AreaAcabamento, type ElementoParede, type ItemInfraestrutura } from "../lib/types";
 import { areaPoligonoM2, perimetroCm, bboxPoligono, ehRetangulo, retanguloParaPontos, transladar, m2 } from "../lib/geometria";
 import { gerarPromptVista } from "../lib/promptVista";
 import { uploadOrcamento, urlOrcamento, removerOrcamentoArquivo, online } from "../lib/supabase";
@@ -247,7 +247,7 @@ export default function EditorScreen() {
   async function salvarComoNovo() {
     setBusy("Salvando…"); setErro(null);
     try {
-      const p = await criarProjeto({ nome: projeto?.nome?.replace(" (modelo)", "") || "Heritage", orcamento_teto: projeto?.orcamento_teto ?? null, cena });
+      const p = await criarProjeto({ nome: projeto?.nome?.replace(" (modelo)", "") || "Heritage", orcamento_teto: projeto?.orcamento_teto ?? null, honorario_pct: projeto?.honorario_pct ?? null, cena });
       nav(`/projeto/${p.id}`);
     } catch (e) { setErro((e as Error).message); setBusy(null); }
   }
@@ -709,7 +709,7 @@ export default function EditorScreen() {
           </span>
         ))}
         {teto > 0 && <span style={{ marginLeft: "auto", fontSize: 12, color: saldo >= 0 ? "var(--green)" : "var(--red)" }}>
-          Teto {BRL(teto)} · Assessoria {BRL(Math.round(teto * TAXA_ASSESSORIA))} · Saldo {BRL(saldo)}
+          Teto {BRL(teto)} · Assessoria {honorarioLabel(projeto)} {BRL(valorHonorario(teto, projeto))} · Saldo {BRL(saldo)}
         </span>}
       </div>}
     </div>

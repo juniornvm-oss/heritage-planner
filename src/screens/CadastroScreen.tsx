@@ -2,13 +2,16 @@
 // Só acessível logado (rota protegida).
 import { useEffect, useState } from "react";
 import Shell from "../ui/Shell";
+import Percentual from "../ui/Percentual";
 import { obterConfigConsultor, salvarConfigConsultor, trocarSenha, online } from "../lib/supabase";
-import type { ConfigConsultor } from "../lib/types";
+import { mascaraTelefone, telefoneCompleto, telefoneDigitos } from "../lib/units";
+import { HONORARIO_PADRAO_PCT, type ConfigConsultor } from "../lib/types";
 
-const Campo = ({ label, children }: { label: string; children: React.ReactNode }) => (
+const Campo = ({ label, children, dica }: { label: string; children: React.ReactNode; dica?: string }) => (
   <label style={{ display: "grid", gap: 5, minWidth: 0 }}>
     <span className="microlabel">{label}</span>
     {children}
+    {dica && <span style={{ fontSize: 11, color: "var(--muted)" }}>{dica}</span>}
   </label>
 );
 
@@ -29,6 +32,7 @@ export default function CadastroScreen() {
   const [busy, setBusy] = useState(false);
 
   const set = (k: keyof ConfigConsultor) => (v: string | number | null) => setC((x) => ({ ...x, [k]: v }));
+  const whatsIncompleto = !!telefoneDigitos(c.whatsapp) && !telefoneCompleto(c.whatsapp);
 
   useEffect(() => {
     if (!online) { setCarregando(false); return; }
@@ -36,6 +40,7 @@ export default function CadastroScreen() {
   }, []);
 
   async function salvar() {
+    if (whatsIncompleto) { setMsg(null); setErro("WhatsApp incompleto — informe DDD + número."); return; }
     setBusy(true); setMsg(null); setErro(null);
     try { await salvarConfigConsultor(c); setMsg("Cadastro salvo."); }
     catch (e) { setErro((e as Error).message); }
@@ -74,11 +79,17 @@ export default function CadastroScreen() {
             <Campo label="Empresa / marca"><input className="fld" value={c.empresa ?? ""} onChange={(e) => set("empresa")(e.target.value)} /></Campo>
             <Campo label="Registro (CREF / CAU / CREA)"><input className="fld" value={c.registro ?? ""} onChange={(e) => set("registro")(e.target.value)} /></Campo>
             <Campo label="CNPJ / CPF"><input className="fld" value={c.documento ?? ""} onChange={(e) => set("documento")(e.target.value)} /></Campo>
-            <Campo label="WhatsApp"><input className="fld" inputMode="tel" value={c.whatsapp ?? ""} onChange={(e) => set("whatsapp")(e.target.value)} /></Campo>
+            <Campo label="WhatsApp" dica={whatsIncompleto ? "Informe DDD + número (10 ou 11 dígitos)." : undefined}>
+              <input className="fld" type="tel" inputMode="tel" autoComplete="tel" placeholder="(00) 00000-0000" maxLength={16}
+                value={mascaraTelefone(c.whatsapp)}
+                onChange={(e) => set("whatsapp")(mascaraTelefone(e.target.value) || null)} />
+            </Campo>
             <Campo label="E-mail"><input className="fld" type="email" value={c.email ?? ""} onChange={(e) => set("email")(e.target.value)} /></Campo>
             <Campo label="Site / Instagram"><input className="fld" value={c.site ?? ""} onChange={(e) => set("site")(e.target.value)} /></Campo>
             <Campo label="Cidade / UF"><input className="fld" value={c.cidade_uf ?? ""} onChange={(e) => set("cidade_uf")(e.target.value)} /></Campo>
-            <Campo label="Honorário (%)"><input className="fld" inputMode="decimal" value={c.honorario_pct ?? ""} onChange={(e) => set("honorario_pct")(e.target.value ? Number(e.target.value.replace(",", ".")) : null)} /></Campo>
+            <Campo label="Honorário padrão (%)" dica={`Sugestão para projetos novos — cada projeto ajusta o seu. Vazio = ${HONORARIO_PADRAO_PCT.toLocaleString("pt-BR")}%.`}>
+              <Percentual valor={Number.isFinite(Number(c.honorario_pct)) ? (c.honorario_pct ?? null) : null} onChange={set("honorario_pct")} />
+            </Campo>
           </div>
           <Campo label="Assinatura / rodapé do dossiê">
             <textarea className="fld" rows={2} value={c.rodape ?? ""} onChange={(e) => set("rodape")(e.target.value)} placeholder="Ex.: Heritage · Assessoria Técnica de Implantação" />

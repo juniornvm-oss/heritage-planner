@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import Shell from "../ui/Shell";
-import { BRL } from "../lib/units";
+import { BRL, mascaraTelefone } from "../lib/units";
 import {
   listarSolicitacoes, converterSolicitacaoEmProjeto, atualizarStatusSolicitacao, online,
 } from "../lib/supabase";
@@ -106,7 +106,7 @@ function Detalhe({ s, busy, onConverter, onArquivar }: { s: Solicitacao; busy: b
       </div>
 
       <Linha r="Síndico" v={s.sindico} />
-      <Linha r="WhatsApp" v={s.whatsapp} />
+      <Linha r="WhatsApp" v={mascaraTelefone(s.whatsapp)} />
       <Linha r="E-mail" v={s.email} />
       <Linha r="Cidade / bairro" v={s.cidade} />
       <Linha r="Nº de unidades" v={s.unidades} />

@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import Shell from "../ui/Shell";
-import { criarProjeto, atualizarProjeto, obterProjeto, online } from "../lib/supabase";
+import Percentual from "../ui/Percentual";
+import { criarProjeto, atualizarProjeto, obterProjeto, obterConfigConsultor, online } from "../lib/supabase";
 import { lerPlanta } from "../lib/planta";
-import { BRL } from "../lib/units";
-import { TAXA_ASSESSORIA, type Cena, type PlantaFundo, type Projeto } from "../lib/types";
+import { BRL, mascaraTelefone, telefoneCompleto, telefoneDigitos } from "../lib/units";
+import { HONORARIO_PADRAO_PCT, honorarioLabel, valorHonorario, type Cena, type PlantaFundo, type Projeto } from "../lib/types";
 
 // ── Componentes de campo ───────────────────────────────────────────────
 const Campo = ({ label, children }: { label: string; children: React.ReactNode }) => (
@@ -93,6 +94,7 @@ export default function LeituraScreen() {
   const [foto, setFoto] = useState<string | null>(null);
   const [planta, setPlanta] = useState<PlantaFundo | null>(null);
   const [orcamento, setOrcamento] = useState<number | null>(null);
+  const [honorario, setHonorario] = useState<number | null>(null); // % deste projeto
   const [cenaExistente, setCenaExistente] = useState<Cena | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -119,6 +121,7 @@ export default function LeituraScreen() {
           largura: String(p.cena?.sala.largura_cm ?? 1000), profundidade: String(p.cena?.sala.profundidade_cm ?? 800),
         });
         setOrcamento(p.orcamento_teto ?? null);
+        setHonorario(Number.isFinite(Number(p.honorario_pct)) ? Number(p.honorario_pct) : null);
         setFoto(p.foto_fachada ?? null);
         setCenaExistente(p.cena ?? null);
         setPlanta(p.cena?.planta ?? null);
@@ -126,6 +129,15 @@ export default function LeituraScreen() {
       finally { setCarregando(false); }
     })();
   }, [editando, id]);
+
+  // Projeto novo: o honorário já entra com o padrão do cadastro do consultor.
+  useEffect(() => {
+    if (editando || !online) return;
+    (async () => {
+      const pct = Number((await obterConfigConsultor())?.honorario_pct);
+      setHonorario((atual) => (atual == null && Number.isFinite(pct) ? pct : atual));
+    })();
+  }, [editando]);
 
   async function buscarCep(cepRaw: string) {
     const cep = cepRaw.replace(/\D/g, "");
@@ -167,7 +179,7 @@ export default function LeituraScreen() {
     return {
       nome: t(f.nome), sindico: t(f.sindico) || null, contato: t(f.contato) || null, contato_admin: t(f.contatoAdmin) || null,
       cep: f.cep.replace(/\D/g, "") || null, endereco: enderecoFinal || null, foto_fachada: foto,
-      orcamento_teto: orcamento,
+      orcamento_teto: orcamento, honorario_pct: honorario,
       perfil: { faixa_etaria: t(f.faixa), frequencia: t(f.frequencia), uso: t(f.uso), moradores: t(f.moradores), objetivo: t(f.objetivo) },
       infraestrutura: { eletrica: t(f.eletrica), climatizacao: t(f.climatizacao), piso: t(f.piso), acesso: t(f.acesso) },
       observacoes: t(f.observacoes) || null, cena,
@@ -176,6 +188,7 @@ export default function LeituraScreen() {
 
   async function salvar(avancar: boolean) {
     if (!f.nome.trim()) { setErro("Preencha o nome do condomínio."); return; }
+    if (telefoneDigitos(f.contato) && !telefoneCompleto(f.contato)) { setErro("Contato do síndico incompleto — informe DDD + número."); return; }
     if (!online) { setErro("Supabase não configurado."); return; }
     setBusy(avancar ? "Salvando…" : "Salvando leitura…"); setErro(null);
     try {
@@ -214,7 +227,10 @@ export default function LeituraScreen() {
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14 }}>
               <Campo label="Síndico (nome)"><input className="fld" value={f.sindico} onChange={(e) => set("sindico")(e.target.value)} /></Campo>
-              <Campo label="Contato do síndico"><input className="fld" type="tel" inputMode="tel" placeholder="Telefone / WhatsApp" value={f.contato} onChange={(e) => set("contato")(e.target.value)} /></Campo>
+              <Campo label="Contato do síndico">
+                <input className="fld" type="tel" inputMode="tel" autoComplete="tel" placeholder="(00) 00000-0000" maxLength={16}
+                  value={mascaraTelefone(f.contato)} onChange={(e) => set("contato")(mascaraTelefone(e.target.value))} />
+              </Campo>
               <Campo label="Contato administrativo"><input className="fld" placeholder="Nome · telefone" value={f.contatoAdmin} onChange={(e) => set("contatoAdmin")(e.target.value)} /></Campo>
             </div>
             <Campo label="Foto da fachada">
@@ -229,12 +245,16 @@ export default function LeituraScreen() {
             </Campo>
           </Secao>
 
-          <Secao n="B" titulo="Investimento" desc="O teto define o honorário e baliza os cenários.">
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 14, alignItems: "end" }}>
+          <Secao n="B" titulo="Investimento" desc="O teto e o percentual deste projeto definem o honorário.">
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14, alignItems: "end" }}>
               <Campo label="Orçamento-teto"><Moeda valor={orcamento} onChange={setOrcamento} /></Campo>
+              <Campo label="Honorário (%)"><Percentual valor={honorario} onChange={setHonorario} /></Campo>
               <div style={{ fontSize: 13, color: "var(--gold)", paddingBottom: 12 }}>
-                Honorário da assessoria (0,5%): <b>{BRL(Math.round(teto * TAXA_ASSESSORIA))}</b>
+                Honorário da assessoria ({honorarioLabel({ honorario_pct: honorario })}): <b>{BRL(valorHonorario(teto, { honorario_pct: honorario }))}</b>
               </div>
+            </div>
+            <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: -6 }}>
+              O percentual vale só para este projeto. Vazio usa o padrão do cadastro ({HONORARIO_PADRAO_PCT.toLocaleString("pt-BR")}%).
             </div>
           </Secao>
 

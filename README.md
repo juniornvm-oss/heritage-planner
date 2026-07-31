@@ -20,7 +20,7 @@ controlado por RLS). Sem ela, o app roda em modo local com o projeto "Heritage (
 ## Telas
 
 - **Projetos** — lista de projetos salvos (inclui o modelo Heritage) + novo projeto.
-- **Novo projeto** — diagnóstico (condomínio, síndico, orçamento-teto com honorário 0,5%,
+- **Novo projeto** — diagnóstico (condomínio, síndico, orçamento-teto com honorário ajustável por projeto (padrão 0,5%),
   perfil) e dimensões da sala.
 - **Editor de Projeto Visual** — planta em escala real (Konva): pan/zoom/pinça, grade em cm,
   importar planta baixa (PDF/DWG/DXF/imagem) como fundo + **calibração de escala**, arrastar

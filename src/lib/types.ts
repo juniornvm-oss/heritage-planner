@@ -16,7 +16,24 @@ export const CENARIOS: Record<Cenario, { label: string; cor: string; ordem: numb
   premium: { label: "Premium", cor: "#8B78BC", ordem: 3 },
 };
 
-export const TAXA_ASSESSORIA = 0.005; // 0,5% do teto do condomínio
+export const TAXA_ASSESSORIA = 0.005; // fração padrão: 0,5% do teto do condomínio
+export const HONORARIO_PADRAO_PCT = 0.5; // mesmo valor em % — usado no cadastro e em projetos novos
+
+/** Percentual de honorário de um projeto (em %), caindo no padrão quando não definido. */
+export function pctHonorario(p?: { honorario_pct?: number | null } | null): number {
+  const pct = Number(p?.honorario_pct);
+  return Number.isFinite(pct) && pct >= 0 ? pct : HONORARIO_PADRAO_PCT;
+}
+
+/** Rótulo do honorário do projeto: "0,5%". */
+export function honorarioLabel(p?: { honorario_pct?: number | null } | null): string {
+  return pctHonorario(p).toLocaleString("pt-BR", { maximumFractionDigits: 2 }) + "%";
+}
+
+/** Honorário em reais: teto × % do projeto (arredondado). */
+export function valorHonorario(teto: number | null | undefined, p?: { honorario_pct?: number | null } | null): number {
+  return Math.round((Number(teto) || 0) * pctHonorario(p) / 100);
+}
 
 /** Categorias e subcategorias do catálogo de equipamentos. */
 export const CATEGORIAS_EQUIP: Record<string, string[]> = {
@@ -470,6 +487,7 @@ export interface Projeto {
   cep?: string | null;
   foto_fachada?: string | null; // dataURL (JPEG reduzido)
   orcamento_teto?: number | null;
+  honorario_pct?: number | null; // % de honorário deste projeto (null = padrão do cadastro)
   taxa_assessoria?: number | null; // coluna gerada no banco — nunca enviar em insert/update
   perfil?: PerfilUso | null;
   infraestrutura?: Infraestrutura | null;

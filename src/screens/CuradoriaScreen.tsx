@@ -10,7 +10,7 @@ import { lerCotacoes } from "../lib/readers";
 import { heritageProjeto } from "../lib/seed";
 import { resumo } from "../lib/validation";
 import { BRL } from "../lib/units";
-import { CENARIOS, TAXA_ASSESSORIA, type Cenario, type Cotacao, type Fornecedor, type Projeto } from "../lib/types";
+import { CENARIOS, honorarioLabel, valorHonorario, type Cenario, type Cotacao, type Fornecedor, type Projeto } from "../lib/types";
 
 const Campo = ({ label, children }: { label: string; children: React.ReactNode }) => (
   <label style={{ display: "grid", gap: 5, minWidth: 0 }}>
@@ -160,7 +160,7 @@ export default function CuradoriaScreen() {
               })}
             </div>
             {teto > 0 && <div style={{ fontSize: 12, color: "var(--muted)" }}>
-              Teto {BRL(teto)} · Honorário 0,5% {BRL(Math.round(teto * TAXA_ASSESSORIA))} · {projeto.cena?.itens.length ?? 0} equipamentos
+              Teto {BRL(teto)} · Honorário {honorarioLabel(projeto)} {BRL(valorHonorario(teto, projeto))} · {projeto.cena?.itens.length ?? 0} equipamentos
             </div>}
           </Secao>
         )}

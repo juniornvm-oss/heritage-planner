@@ -4,7 +4,7 @@ import Shell from "../ui/Shell";
 import { listarProjetos, online, criarProjeto } from "../lib/supabase";
 import { heritageProjeto } from "../lib/seed";
 import { BRL } from "../lib/units";
-import { TAXA_ASSESSORIA, type Projeto } from "../lib/types";
+import { HONORARIO_PADRAO_PCT, honorarioLabel, valorHonorario, type Projeto } from "../lib/types";
 import {
   FASES, progressoProjeto, statusDaFase, STATUS_LABEL, STATUS_COR, type Fase, type StatusFase,
 } from "../lib/fases";
@@ -71,7 +71,7 @@ export default function HomeScreen() {
         <p style={{ color: "var(--muted)", fontSize: 15, maxWidth: 680, marginTop: 12, lineHeight: 1.6 }}>
           Do diagnóstico ao dossiê executivo: uma trilha em quatro fases que transforma o
           orçamento-teto na melhor academia possível — pronta para o engenheiro e o arquiteto
-          executarem. Honorário de <b style={{ color: "var(--text)" }}>{(TAXA_ASSESSORIA * 100).toLocaleString("pt-BR")}%</b> do teto de investimento.
+          executarem. Honorário a partir de <b style={{ color: "var(--text)" }}>{HONORARIO_PADRAO_PCT.toLocaleString("pt-BR")}%</b> do teto de investimento, ajustável em cada projeto.
         </p>
 
         {/* Pilares */}
@@ -229,7 +229,7 @@ function ProjetoCard({ projeto, modelo, ativo, onAbrir, onSelecionar, onDuplicar
 
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginTop: 2 }}>
         <div style={{ fontSize: 13, color: "var(--gold)", fontWeight: 700 }}>{BRL(total)}</div>
-        {teto > 0 && <div style={{ fontSize: 11, color: "var(--muted)" }}>Teto {BRL(teto)} · 0,5% {BRL(Math.round(teto * TAXA_ASSESSORIA))}</div>}
+        {teto > 0 && <div style={{ fontSize: 11, color: "var(--muted)" }}>Teto {BRL(teto)} · {honorarioLabel(projeto)} {BRL(valorHonorario(teto, projeto))}</div>}
       </div>
 
       <div style={{ display: "flex", gap: 8, marginTop: 2 }}>

@@ -1,6 +1,7 @@
 import { create } from "zustand";
-import type { Projeto, Cena, ItemPosicionado, PlantaFundo, AreaAcabamento, PlantaVetorial, EstruturaPlanta, Parede, Abertura, PilarPlanta, Cota, ElementoParede, ItemInfraestrutura, AcessorioProjeto, AnexoOrcamento } from "../lib/types";
+import type { Projeto, Cena, Cenario, ItemPosicionado, PlantaFundo, AreaAcabamento, PlantaVetorial, EstruturaPlanta, Parede, Abertura, PilarPlanta, Cota, ElementoParede, ItemInfraestrutura, AcessorioProjeto, AnexoOrcamento, Zona } from "../lib/types";
 import { CENARIOS, ZONAS } from "../lib/types";
+import { cenarioSugerido } from "../lib/curadoria";
 import { gerarEstrutura, estruturaVazia } from "../lib/estrutura";
 import { bboxPoligono, retanguloParaPontos, transladar } from "../lib/geometria";
 import { salvarCena } from "../lib/supabase";
@@ -36,7 +37,15 @@ function normalizarCena(bruta: Cena | null | undefined): Cena {
   const estrutura: EstruturaPlanta | null = e && (Array.isArray(e.paredes) || Array.isArray(e.pilares))
     ? { paredes: e.paredes ?? [], aberturas: e.aberturas ?? [], pilares: e.pilares ?? [] }
     : null;
-  return { ...base, sala, itens, acabamentos, cotas, elementosParede, infra, acessorios, anexos, estrutura };
+  const esp = base.especificacoes;
+  const especificacoes: Partial<Record<Zona, string>> = {};
+  if (esp && typeof esp === "object") {
+    for (const z of Object.keys(ZONAS) as Zona[]) {
+      const t = esp[z];
+      if (typeof t === "string" && t.trim()) especificacoes[z] = t.trim();
+    }
+  }
+  return { ...base, sala, itens, acabamentos, cotas, elementosParede, infra, acessorios, anexos, estrutura, especificacoes };
 }
 
 interface ProjetoState {
@@ -83,6 +92,12 @@ interface ProjetoState {
 
   addItem: (item: ItemPosicionado) => void;
   updateItem: (id: string, patch: Partial<ItemPosicionado>, commit?: boolean) => void;
+  /** Etapa 6 — cenário de vários itens de uma vez (todos, ou só os de uma zona). */
+  classificarEmLote: (cenario: Cenario, zona?: Zona) => void;
+  /** Etapa 6 — aplica o cenário sugerido pela base técnica em quem ainda não foi classificado. */
+  sugerirCenarios: (sobrescrever?: boolean) => void;
+  /** Etapa 6 — nota da categoria neste projeto (complementa a especificação padrão). */
+  setEspecificacao: (zona: Zona, texto: string) => void;
   removerSelecionado: () => void;
   girarSelecionado: (graus?: number) => void;
   duplicarItem: (id: string) => void;
@@ -214,6 +229,34 @@ export const useProjeto = create<ProjetoState>((set, get) => ({
       // Movimentos contínuos (commit=false) não empilham histórico a cada frame.
       const past = commit ? [...s.past, clone(s.cena)] : s.past;
       return { past, future: commit ? [] : s.future, cena: { ...s.cena, itens }, dirty: true };
+    });
+  },
+
+  // ── Etapa 6: curadoria (cenário em lote + nota da categoria) ──────────────
+  classificarEmLote(cenario, zona) {
+    set((s) => {
+      const itens = s.cena.itens.map((it) => (!zona || it.zona === zona ? { ...it, cenario } : it));
+      return { past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, itens }, dirty: true };
+    });
+  },
+
+  sugerirCenarios(sobrescrever = false) {
+    set((s) => {
+      // Sem sobrescrever, só mexe em quem está no padrão "balanceado" — o que o
+      // consultor já classificou à mão nunca é revertido pela sugestão.
+      const itens = s.cena.itens.map((it) =>
+        sobrescrever || it.cenario === "balanceado" ? { ...it, cenario: cenarioSugerido(it.nome, it.zona) } : it,
+      );
+      return { past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, itens }, dirty: true };
+    });
+  },
+
+  setEspecificacao(zona, texto) {
+    set((s) => {
+      const especificacoes = { ...(s.cena.especificacoes ?? {}) };
+      if (texto.trim()) especificacoes[zona] = texto.trim();
+      else delete especificacoes[zona];
+      return { past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, especificacoes }, dirty: true };
     });
   },
 

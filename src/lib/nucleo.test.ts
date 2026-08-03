@@ -7,6 +7,11 @@ import { parseLength, formatLength, BRL } from "./units";
 import { dimensoesParaCm } from "./supabase";
 import { resumo } from "./validation";
 import { montarDossie } from "./export/pdfExport";
+import {
+  baseDoNome, cenarioSugerido, classificacaoPendente, composicaoZonas,
+  detalheCenarios, especificacaoDaZona, explicarItem,
+} from "./curadoria";
+import { heritageProjeto } from "./seed";
 
 describe("honorário", () => {
   it("cai no padrão de 0,5% quando o cadastro está vazio", () => {
@@ -121,5 +126,96 @@ describe("dossiê executivo (PDF)", () => {
     const vazia: Cena = { sala: { largura_cm: 500, profundidade_cm: 400 }, planta: null, itens: [] };
     const bytes = await montarDossie({ nome: "Novo", orcamento_teto: null, cena: vazia });
     expect(new TextDecoder().decode(bytes.slice(0, 5))).toBe("%PDF-");
+  });
+});
+
+describe("curadoria — classificação por cenário", () => {
+  it("sugere o cenário pelo nome do equipamento, ignorando acento e caixa", () => {
+    expect(cenarioSugerido("Esteira", "ergo")).toBe("essencial");
+    expect(cenarioSugerido("ESTEIRA · Movimente RT250", "ergo")).toBe("essencial");
+    expect(cenarioSugerido("Elevação Pélvica · Nautilus", "forca")).toBe("balanceado");
+    expect(cenarioSugerido("Bike Spinning", "ergo")).toBe("premium");
+  });
+
+  it("casa a chave mais específica quando o nome tem mais de uma", () => {
+    // "Wire Cross + Smith Rack" tem "wire cross", "cross + smith" e "smith rack".
+    // A combinada é essencial; a torre de polias sozinha é premium.
+    expect(baseDoNome("Wire Cross + Smith Rack · Moviment")?.cenario).toBe("essencial");
+    expect(cenarioSugerido("Cross Over Angular", "forca")).toBe("premium");
+  });
+
+  it("cai num padrão seguro quando o nome não está na base", () => {
+    expect(cenarioSugerido("Aparelho sem nome conhecido", "prep")).toBe("essencial");
+    expect(cenarioSugerido("Aparelho sem nome conhecido", "forca")).toBe("balanceado");
+  });
+
+  it("o modelo Heritage sai do editor com os três cenários diferentes", () => {
+    // O bug que motivou tudo: com tudo em "balanceado", Essencial saía R$ 0 e
+    // Premium saía igual ao Balanceado — os três cards do PDF diziam a mesma coisa.
+    const c = heritageProjeto().cena!;
+    expect(classificacaoPendente(c)).toBe(false);
+    const r = resumo(c);
+    expect(r.cenarios.essencial).toBeGreaterThan(0);
+    expect(r.cenarios.essencial).toBeLessThan(r.cenarios.balanceado);
+    expect(r.cenarios.balanceado).toBeLessThan(r.cenarios.premium);
+  });
+
+  it("detalha o que cada nível ACRESCENTA, além do acumulado", () => {
+    const niveis = detalheCenarios(cena());
+    expect(niveis.map((n) => n.cenario)).toEqual(["essencial", "balanceado", "premium"]);
+    // O acumulado do último nível é a soma de todos os incrementos.
+    const soma = niveis.reduce((s, n) => s + n.incremento, 0);
+    expect(niveis[2].total).toBe(soma);
+    expect(niveis[2].nAcumulado).toBe(cena().itens.length);
+  });
+
+  it("acusa a classificação pendente quando ninguém classificou nada", () => {
+    const c = cena();
+    c.itens = c.itens.map((i) => ({ ...i, cenario: "balanceado" as const }));
+    expect(classificacaoPendente(c)).toBe(true);
+  });
+});
+
+describe("curadoria — especificação e explicação", () => {
+  it("agrupa a cena por categoria com quantidade, área e subtotal", () => {
+    const comp = composicaoZonas(heritageProjeto().cena!);
+    expect(comp.length).toBeGreaterThan(1);
+    for (const c of comp) {
+      expect(c.n).toBe(c.itens.length);
+      expect(c.subtotal).toBe(c.itens.reduce((s, i) => s + (i.preco || 0), 0));
+      const nPorCenario = c.porCenario.essencial.n + c.porCenario.balanceado.n + c.porCenario.premium.n;
+      expect(nPorCenario).toBe(c.n);
+    }
+  });
+
+  it("a nota do projeto acompanha a especificação padrão, sem substituí-la", () => {
+    const c = heritageProjeto().cena!;
+    c.especificacoes = { ergo: "4 esteiras atendem o pico das 19h." };
+    const esp = especificacaoDaZona("ergo", c);
+    expect(esp.nota).toBe("4 esteiras atendem o pico das 19h.");
+    expect(esp.oque).toContain("esforço contínuo");
+  });
+
+  it("explica pelo padrão e deixa o texto do consultor vencer", () => {
+    const item = heritageProjeto().cena!.itens.find((i) => i.nome === "Esteira")!;
+    const padrao = explicarItem(item, null);
+    expect(padrao.padrao).toBe(true);
+    expect(padrao.oque).toContain("Esteira ergométrica");
+    expect(padrao.trabalha).not.toBe("—");
+
+    const ajustado = explicarItem({ ...item, funcao: "Aquecimento dos moradores." }, null);
+    expect(ajustado.indicacao).toBe("Aquecimento dos moradores.");
+    expect(ajustado.padrao).toBe(false);
+    // A descrição do catálogo substitui o "o que é" da base técnica.
+    expect(explicarItem(item, { nome: "Esteira", largura_cm: 90, profundidade_cm: 205, zona: "ergo", preco: 0, descricao: "Esteira do condomínio." }).oque)
+      .toBe("Esteira do condomínio.");
+  });
+
+  it("gera o dossiê completo do modelo Heritage (memorial de todos os itens)", async () => {
+    const p = heritageProjeto();
+    const bytes = await montarDossie(p);
+    expect(new TextDecoder().decode(bytes.slice(0, 5))).toBe("%PDF-");
+    // Memorial + especificações fazem o documento crescer bem acima da versão só-tabela.
+    expect(bytes.length).toBeGreaterThan(20000);
   });
 });

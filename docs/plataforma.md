@@ -26,10 +26,10 @@ onde vive no sistema e em que fase é construído.
 |---|-----------|-----------------------|--------|
 | 01 | Relatório de Diagnóstico | `projetos.perfil`/`infraestrutura` + seção no relatório | DB + tools |
 | 02 | Layout Funcional da Planta | Planner SVG em escala real | app (existe) |
-| 03 | Lista Técnica de Equipamentos | Itens do layout + catálogo (`equipamentos`) | app + DB |
+| 03 | Lista Técnica de Equipamentos | Itens do layout + catálogo (`equipamentos`), agrupados por categoria com a especificação de cada uma (`lib/curadoria.ts`) | app + DB |
 | 04 | 3+ Cotações por Categoria | `cotacoes` + `fornecedores` | DB (+ UI futura) |
 | 05 | Matriz de Priorização | impacto × valor percebido × necessidade por item | tools (+ UI futura) |
-| 06 | Cenários de Investimento | tag Essencial/Balanceado/Premium por item + totais | app |
+| 06 | Cenários de Investimento | tag Essencial/Balanceado/Premium por item (Etapa 5 · Curadoria, em lote e com sugestão técnica) + totais e incrementos | app |
 | 07 | Planta Renderizada | Export "Imprimir/PDF" da planta | app (existe) |
 | 08 | Relatório Executivo | `tools/relatorio.js` → HTML/PDF branded | tools |
 | 09 | Análise de Infraestrutura | `projetos.infraestrutura` (checklist) + seção no relatório | DB + tools |
@@ -60,6 +60,12 @@ Decisão de design: **cenário vive no próprio item do layout** (`dados[].cenar
 não em tabela separada — o layout já é a lista de equipamentos selecionados, então
 Essencial/Balanceado/Premium é só uma etiqueta por item. Regra good/better/best:
 `essencial ⊆ balanceado ⊆ premium` (itens sem tag contam como balanceado).
+
+O **conteúdo técnico** que explica essas escolhas vive em `src/lib/curadoria.ts`:
+especificação de cada categoria (zona), verbete de cada equipamento (o que é, o
+que trabalha, por que está no projeto, o que exige atenção) e o cenário sugerido
+por equipamento. É tudo padrão — o texto do consultor (ficha do item e nota da
+categoria) sempre vence o padrão, e o Dossiê imprime o que vencer.
 
 ## Fases de construção
 

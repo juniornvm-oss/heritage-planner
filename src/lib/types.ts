@@ -55,6 +55,8 @@ export interface Equipamento {
   peso_kg?: number | null;
   fornecedor?: string | null;
   codigo?: string | null; // código interno
+  descricao?: string | null; // o que é / para que serve — sai no memorial do Dossiê
+  cenario_padrao?: Cenario | null; // cenário sugerido ao posicionar no projeto
   precisa_tomada?: boolean | null;
   voltagem?: "127" | "220" | "bivolt" | null;
   ponto_internet?: boolean | null;
@@ -87,7 +89,7 @@ export const CAMPOS_TECNICOS = [
   "categoria", "subcategoria", "altura_cm", "peso_kg", "fornecedor", "codigo",
   "precisa_tomada", "voltagem", "ponto_internet", "dist_parede_cm", "dist_lateral_cm",
   "dist_frontal_cm", "uso_frontal_cm", "uso_lateral_cm", "seguranca_cm", "obs", "ativo",
-  "lados", "dist_entrada_cm",
+  "lados", "dist_entrada_cm", "descricao", "cenario_padrao",
 ] as const;
 
 /** Fornecedor (planner.fornecedores) — global, reaproveitado entre projetos. */
@@ -451,6 +453,9 @@ export interface Cena {
   anexos?: AnexoOrcamento[]; // PDFs de orçamento (arquivos no Storage)
   infra?: ItemInfraestrutura[]; // mobiliário e infraestrutura (Etapa 2)
   estrutura?: EstruturaPlanta | null; // Etapa 1: paredes/aberturas/pilares
+  /** Nota da categoria NESTE projeto (Etapa 6) — complementa a especificação
+   *  padrão da zona no Dossiê. Chave = zona. */
+  especificacoes?: Partial<Record<Zona, string>>;
 }
 
 /** Diagnóstico — perfil de uso do condomínio (planner.projetos.perfil jsonb). */

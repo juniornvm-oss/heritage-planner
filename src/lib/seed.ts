@@ -1,4 +1,5 @@
 import type { Equipamento, SalaConfig, ItemPosicionado, Zona, Acabamento } from "./types";
+import { cenarioSugerido } from "./curadoria";
 
 // Acabamentos de alto padrão (fallback local + semear na biblioteca).
 export const ACABAMENTOS_LOCAL: Acabamento[] = [
@@ -75,7 +76,9 @@ export function heritageItens(): ItemPosicionado[] {
       h_cm: c.profundidade_cm,
       rotacao: 0,
       zona: c.zona as Zona,
-      cenario: "balanceado" as const,
+      // O modelo já nasce classificado pela base técnica — é o que separa os
+      // três cenários no Dossiê (antes tudo era "balanceado" e os três saíam iguais).
+      cenario: cenarioSugerido(nome, c.zona as Zona),
       preco: c.preco,
     };
   });

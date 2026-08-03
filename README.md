@@ -26,7 +26,12 @@ controlado por RLS). Sem ela, o app roda em modo local com o projeto "Heritage (
   importar planta baixa (PDF/DWG/DXF/imagem) como fundo + **calibração de escala**, arrastar
   equipamentos, girar 90° com **proporção travada**, validação ao vivo e cenários. Exporta o
   PDF de entrega.
-- **Biblioteca de equipamentos** — catálogo (com import de planilha/CSV).
+- **Curadoria (Etapa 5 do editor)** — classifica cada equipamento em **Essencial ·
+  Balanceado · Premium** (em lote por categoria, com sugestão técnica automática) e
+  escreve a nota de cada categoria. É o que separa os três cenários no Dossiê.
+- **Biblioteca de equipamentos** — catálogo (com import de planilha/CSV), com
+  descrição ("o que é / para que serve"), cenário padrão e a lista de exercícios
+  de musculação de cada equipamento.
 - **Biblioteca de acabamentos** — pisos/paredes/revestimentos.
 
 ## Estrutura
@@ -34,7 +39,9 @@ controlado por RLS). Sem ela, o app roda em modo local com o projeto "Heritage (
 ```
 src/
   lib/        types, units (cm), canvas (coordenadas/snapping), supabase,
-              readers (planilha), planta (PDF/DWG→fundo), validation, export/pdfExport
+              readers (planilha), planta (PDF/DWG→fundo), validation, export/pdfExport,
+              curadoria (especificação das categorias, verbete de cada equipamento,
+              exercícios resistidos por aparelho, cenário sugerido)
   store/      projetoStore (cena + undo/redo), libraryStore
   screens/    Projetos, NovoProjeto, Editor, Bibliotecas, OrientationGuard
   editor/     EditorCanvas (Konva)

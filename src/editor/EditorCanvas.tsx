@@ -11,7 +11,7 @@ import { areaPoligonoM2, perimetroCm, projetarNoSegmento, m2, type Ponto } from 
 import { gerarCotasAutomaticas } from "../lib/lamina";
 import { MATERIAIS_PISO, ELEMENTOS_PAREDE, PAPEL_LADO, LADOS_PADRAO, type TipoElementoParede, type LadoRect } from "../lib/types";
 
-export type Etapa = "planta" | "acabamento" | "layout" | "fichas" | "acessorios";
+export type Etapa = "planta" | "acabamento" | "layout" | "fichas" | "curadoria" | "acessorios";
 export type FerramentaEstrutura = "parede" | "porta" | "janela" | "pilar" | "apagar" | null;
 export type FerramentaAcab = "rect" | "poligono" | "cota" | "espelho" | "itemParede" | "apagar" | null;
 

@@ -1,9 +1,13 @@
 import { PDFDocument, PDFFont, PDFPage, StandardFonts, rgb, type RGB } from "pdf-lib";
-import type { Projeto, Equipamento, ItemPosicionado, ConfigConsultor } from "../types";
+import type { Projeto, Equipamento, ItemPosicionado, ConfigConsultor, Cenario } from "../types";
 import { ZONAS, CENARIOS, taxaDe, taxaLabel, ELEMENTOS_PAREDE } from "../types";
 import { resumo, matrizDaCena } from "../validation";
 import { BRL, formatLength } from "../units";
 import { areaPoligonoM2 } from "../geometria";
+import {
+  CENARIO_DEF, classificacaoPendente, composicaoZonas, detalheCenarios,
+  especificacaoDaZona, exerciciosDaCena, explicarItem,
+} from "../curadoria";
 
 // Paleta do dossiê
 const GOLD = rgb(0.722, 0.439, 0.290); // cobre da marca Heritage GymBuilder
@@ -91,8 +95,10 @@ export async function montarDossie(
   const novaPagina = () => { page = doc.addPage([A4.w, A4.h]); pageNo++; y = A4.h - 64; footer(); };
   const ensure = (need: number) => { if (y - need < 72) novaPagina(); };
 
-  const secao = (titulo: string) => {
-    ensure(46);
+  // `reserva` = altura do conteúdo que precisa acompanhar o título, para o
+  // cabeçalho nunca ficar órfão no pé da página.
+  const secao = (titulo: string, reserva = 0) => {
+    ensure(46 + reserva);
     y -= 8;
     at(titulo.toUpperCase(), M, y, 12, bold, GOLD);
     y -= 8;
@@ -110,6 +116,37 @@ export async function montarDossie(
       if (w(t, size, f) > maxW) { flush(); linha = p; } else linha = t;
     }
     flush();
+  };
+
+  // Quebra um texto em linhas que cabem em `maxW` (sem desenhar).
+  const linhasDe = (s: string, maxW: number, size: number, f: PDFFont = font): string[] => {
+    const linhas: string[] = [];
+    let linha = "";
+    for (const p of String(s).split(/\s+/).filter(Boolean)) {
+      const t = linha ? linha + " " + p : p;
+      if (w(t, size, f) > maxW && linha) { linhas.push(linha); linha = p; } else linha = t;
+    }
+    if (linha) linhas.push(linha);
+    return linhas;
+  };
+
+  /** Rótulo em caixa alta à esquerda + texto corrido com recuo pendurado. */
+  const campo = (rotulo: string, texto: string, x = M, larg = CW, rotW = 96, size = 8.5, corTexto: RGB = rgb(0.26, 0.26, 0.26)) => {
+    if (!texto || !texto.trim()) return;
+    const linhas = linhasDe(texto, larg - rotW, size);
+    const alturaLinha = size + 3.4;
+    ensure(linhas.length * alturaLinha + 5);
+    at(rotulo.toUpperCase(), x, y, 7, bold, GOLD);
+    linhas.forEach((l, i) => at(l, x + rotW, y - i * alturaLinha, size, font, corTexto));
+    y -= linhas.length * alturaLinha + 5;
+  };
+
+  /** Selo do cenário do item (Essencial/Balanceado/Premium), alinhado à direita. */
+  const seloCenario = (cen: keyof typeof CENARIOS, xRight: number, yy: number, size = 7.5) => {
+    const txt = CENARIOS[cen].label.toUpperCase();
+    const larg = w(txt, size, bold) + 12;
+    page.drawRectangle({ x: xRight - larg, y: yy - 3, width: larg, height: size + 6, borderColor: hexToRgb(CENARIOS[cen].cor), borderWidth: 0.8 });
+    at(txt, xRight - larg + 6, yy, size, bold, hexToRgb(CENARIOS[cen].cor));
   };
 
   const kvList = (obj?: Record<string, unknown> | null) => {
@@ -188,48 +225,149 @@ export async function montarDossie(
     } catch { /* imagem inválida */ }
   }
 
-  // ── Lista técnica por zona ──
-  secao("03 · Lista Técnica de Equipamentos");
-  const colDim = M + 232, colCen = M + 340, colVal = A4.w - M - 6;
-  const cabecalho = () => {
-    page.drawRectangle({ x: M, y: y - 4, width: CW, height: 18, color: CREAM });
-    at("EQUIPAMENTO", M + 6, y, 8, bold, MUTED);
-    at("DIMENSÕES", colDim, y, 8, bold, MUTED);
-    at("CENÁRIO", colCen, y, 8, bold, MUTED);
-    rightAt("VALOR", colVal, y, 8, bold, MUTED);
-    y -= 22;
-  };
-  cabecalho();
-  const zonas = Array.from(new Set(cena.itens.map((i) => i.zona)));
-  for (const z of zonas) {
-    ensure(40);
-    if (y < A4.h - 66) { /* garante cabeçalho ao virar página */ }
-    page.drawRectangle({ x: M, y: y - 3, width: CW, height: 16, color: DARKBG });
-    at((ZONAS[z]?.label || z).toUpperCase(), M + 6, y, 8, bold, hexToRgb(ZONAS[z]?.cor || "#C9A227"));
+  // ── 03 · Categorias: especificação + lista técnica de cada uma ──
+  const comp = composicaoZonas(cena);
+  // Numeração única por equipamento (a mesma da planta e das fichas).
+  const numeroDe = new Map<string, number>();
+  cena.itens.forEach((it, i) => numeroDe.set(it.id, i + 1));
+
+  secao("03 · Categorias & Lista Técnica");
+  paragrafo(
+    "Cada categoria abre com sua especificação — o que é, o que entrega, como se dimensiona e o que a obra precisa garantir — seguida dos equipamentos que a compõem e do cenário em que cada um entra.",
+    9, MUTED,
+  );
+  y -= 4;
+
+  const colDim = M + 236, colCen = M + 352, colVal = A4.w - M - 6;
+  for (const c of comp) {
+    ensure(150);
+    // Faixa da categoria: identidade + quantitativo
+    page.drawRectangle({ x: M, y: y - 4, width: CW, height: 19, color: DARKBG });
+    at(c.label.toUpperCase(), M + 8, y, 9.5, bold, hexToRgb(c.cor));
+    rightAt(
+      `${c.n} ${c.n === 1 ? "equipamento" : "equipamentos"}   ·   ${c.areaM2.toFixed(1).replace(".", ",")} m²   ·   ${BRL(c.subtotal)}`,
+      A4.w - M - 8, y, 8, bold, rgb(0.87, 0.87, 0.87),
+    );
+    y -= 26;
+
+    // Especificação da categoria (padrão + nota do projeto)
+    const esp = especificacaoDaZona(c.zona, cena);
+    campo("O que é", esp.oque);
+    campo("O que entrega", esp.entrega);
+    campo("Dimensionamento", esp.criterio);
+    campo("Obra & operação", esp.operacao);
+    if (esp.nota) campo("Neste projeto", esp.nota, M, CW, 96, 8.5, DARK);
+
+    // Composição por cenário — quanto desta categoria entra em cada nível
+    ensure(18);
+    at("COMPOSIÇÃO", M, y, 7, bold, GOLD);
+    let cx = M + 96;
+    for (const k of ["essencial", "balanceado", "premium"] as Cenario[]) {
+      const d = c.porCenario[k];
+      const txt = `${CENARIOS[k].label} ${d.n}`;
+      at(txt, cx, y, 8.5, bold, d.n ? hexToRgb(CENARIOS[k].cor) : rgb(0.72, 0.72, 0.72));
+      cx += w(txt, 8.5, bold) + 8;
+      at(d.n ? BRL(d.total) : "—", cx, y, 8.5, font, MUTED);
+      cx += w(d.n ? BRL(d.total) : "—", 8.5, font) + 16;
+    }
     y -= 20;
-    let sub = 0;
-    for (const it of cena.itens.filter((i) => i.zona === z)) {
+
+    // Tabela da categoria
+    ensure(40);
+    page.drawRectangle({ x: M, y: y - 4, width: CW, height: 17, color: CREAM });
+    at("EQUIPAMENTO", M + 6, y, 7.5, bold, MUTED);
+    at("DIMENSÕES", colDim, y, 7.5, bold, MUTED);
+    at("CENÁRIO", colCen, y, 7.5, bold, MUTED);
+    rightAt("VALOR", colVal, y, 7.5, bold, MUTED);
+    y -= 21;
+    for (const it of c.itens) {
       ensure(18);
       const marca = marcaDe(it);
-      const nomeCell = trunc(it.nome + (marca ? ` · ${marca}` : ""), colDim - (M + 6) - 8, 9.5);
+      const num = String(numeroDe.get(it.id) ?? 0).padStart(2, "0");
+      const nomeCell = trunc(`${num} · ${it.nome}${marca ? ` · ${marca}` : ""}`, colDim - (M + 6) - 8, 9.5);
       at(nomeCell, M + 6, y, 9.5, font, DARK);
       at(`${formatLength(it.w_cm)} × ${formatLength(it.h_cm)}`, colDim, y, 9, font, MUTED);
-      at(CENARIOS[it.cenario].label, colCen, y, 9, font, hexToRgb(CENARIOS[it.cenario].cor));
-      rightAt(BRL(it.preco), colVal, y, 9.5, font, DARK);
+      at(CENARIOS[it.cenario].label, colCen, y, 9, bold, hexToRgb(CENARIOS[it.cenario].cor));
+      rightAt(it.preco ? BRL(it.preco) : "incluso", colVal, y, 9.5, font, it.preco ? DARK : MUTED);
       page.drawLine({ start: { x: M, y: y - 5 }, end: { x: A4.w - M, y: y - 5 }, thickness: 0.4, color: LINE });
       y -= 16;
-      sub += it.preco || 0;
     }
-    ensure(16);
-    at(`Subtotal ${ZONAS[z]?.label || z}`, M + 6, y, 9, bold, DARK);
-    rightAt(BRL(sub), colVal, y, 9, bold, DARK);
-    y -= 20;
+    ensure(18);
+    at(`Subtotal ${c.label}`, M + 6, y, 9, bold, DARK);
+    rightAt(BRL(c.subtotal), colVal, y, 9, bold, DARK);
+    y -= 24;
   }
   ensure(18);
   page.drawRectangle({ x: M, y: y - 4, width: CW, height: 18, color: CREAM });
   at("INVESTIMENTO TOTAL (PREMIUM)", M + 6, y, 9, bold, GOLD);
   rightAt(BRL(r.cenarios.premium), colVal, y, 10, bold, GOLD);
   y -= 26;
+
+  // ── 04 · Memorial: o que é e para que serve cada equipamento ──
+  if (cena.itens.length) {
+    secao("04 · Memorial dos Equipamentos");
+    paragrafo(
+      "Um verbete por equipamento, agrupado por categoria: o que é, o que trabalha, por que está neste projeto, o que exige atenção e os exercícios que ele executa. A numeração é a mesma da planta e da lista técnica.",
+      9, MUTED,
+    );
+    const totalEx = exerciciosDaCena(cena, (it) => (it.equipamentoId && catId.get(it.equipamentoId)) || catNome.get(it.nome));
+    if (totalEx.length) {
+      paragrafo(
+        `Somados, os equipamentos deste projeto executam ${totalEx.length} exercícios resistidos de musculação distintos. A lista de cada verbete conta apenas exercícios resistidos feitos no próprio aparelho — exercícios de peso corporal, alongamento e mobilidade não entram, e acessórios não são contabilizados.`,
+        9, MUTED,
+      );
+    }
+    y -= 6;
+    for (const c of comp) {
+      ensure(56);
+      at(c.label.toUpperCase(), M, y, 9, bold, hexToRgb(c.cor));
+      const xLinha = M + w(c.label.toUpperCase(), 9, bold) + 12;
+      page.drawLine({ start: { x: xLinha, y: y + 3 }, end: { x: A4.w - M, y: y + 3 }, thickness: 0.8, color: hexToRgb(c.cor) });
+      y -= 20;
+      // Unidades idênticas (4 esteiras iguais) viram UM verbete com a lista de
+      // números — repetir o mesmo texto quatro vezes só cansa quem lê.
+      const grupos = new Map<string, ItemPosicionado[]>();
+      for (const it of c.itens) {
+        const chave = [it.nome, marcaDe(it), it.cenario, it.preco, Math.round(it.w_cm), Math.round(it.h_cm), it.funcao ?? "", it.restricoes ?? "", it.detalhes ?? ""].join("|");
+        (grupos.get(chave) ?? grupos.set(chave, []).get(chave)!).push(it);
+      }
+      for (const grupo of grupos.values()) {
+        const it = grupo[0];
+        const cat = (it.equipamentoId && catId.get(it.equipamentoId)) || catNome.get(it.nome) || null;
+        const ex = explicarItem(it, cat);
+        ensure(104);
+        const nums = grupo.map((g) => numeroDe.get(g.id) ?? 0).sort((a, b) => a - b);
+        const rotuloNum = faixaNumeros(nums);
+        at(rotuloNum, M, y, nums.length > 1 ? 9.5 : 11, bold, hexToRgb(c.cor));
+        const xNome = M + Math.max(24, w(rotuloNum, 9.5, bold) + 8);
+        at(trunc(it.nome, A4.w - M - xNome - 78, 11, bold), xNome, y, 11, bold, DARK);
+        seloCenario(it.cenario, A4.w - M, y);
+        y -= 13;
+        const custo = it.preco
+          ? (grupo.length > 1 ? `${grupo.length} × ${BRL(it.preco)} = ${BRL(it.preco * grupo.length)}` : BRL(it.preco))
+          : "sem custo — item já existente";
+        const ficha = [
+          grupo.length > 1 ? `${grupo.length} unidades` : "",
+          marcaDe(it),
+          `${formatLength(it.w_cm)} × ${formatLength(it.h_cm)}`,
+          custo,
+        ].filter(Boolean).join("   ·   ");
+        at(ficha, M + 24, y, 8.5, font, MUTED);
+        y -= 15;
+        campo("O que é", ex.oque, M + 24, CW - 24, 88);
+        campo("Trabalha", ex.trabalha, M + 24, CW - 24, 88);
+        campo("Por que está aqui", ex.indicacao, M + 24, CW - 24, 88);
+        campo("Atenção", ex.atencao, M + 24, CW - 24, 88);
+        if (ex.exercicios.length) {
+          campo(`Exercícios (${ex.exercicios.length})`, ex.exercicios.join("  ·  "), M + 24, CW - 24, 88);
+        }
+        if (ex.detalhes) campo("Detalhes", ex.detalhes, M + 24, CW - 24, 88);
+        y -= 2;
+        page.drawLine({ start: { x: M, y }, end: { x: A4.w - M, y }, thickness: 0.4, color: LINE });
+        y -= 12;
+      }
+    }
+  }
 
   // ── Revestimentos & acabamentos ──
   const revest = cena.acabamentos ?? [];
@@ -357,23 +495,50 @@ export async function montarDossie(
   }
 
   // ── Cenários ──
-  secao("06 · Cenários de Investimento");
-  paragrafo("Essencial · Balanceado · Premium — cada cenário é cumulativo (inclui os anteriores), do indispensável ao completo.", 9, MUTED);
+  const niveis = detalheCenarios(cena);
+  secao("06 · Cenários de Investimento", 140);
+  paragrafo(
+    "Cada equipamento foi classificado em um dos três níveis. Os cenários são cumulativos: o Balanceado inclui todo o Essencial, e o Premium inclui os dois anteriores.",
+    9, MUTED,
+  );
   y -= 6;
-  ensure(76);
-  const cards = ["essencial", "balanceado", "premium"] as const;
+  ensure(88);
   const gap = 12, cardW = (CW - gap * 2) / 3, topY = y;
-  cards.forEach((k, i) => {
+  niveis.forEach((n, i) => {
     const x = M + i * (cardW + gap);
-    const total = r.cenarios[k];
-    const saldo = teto ? teto - total : null;
-    page.drawRectangle({ x, y: topY - 70, width: cardW, height: 70, borderColor: LINE, borderWidth: 1 });
-    page.drawRectangle({ x, y: topY - 4, width: cardW, height: 4, color: hexToRgb(CENARIOS[k].cor) });
-    at(CENARIOS[k].label.toUpperCase(), x + 12, topY - 22, 9, bold, MUTED);
-    at(BRL(total), x + 12, topY - 44, 15, bold, DARK);
-    if (saldo != null) at(`Saldo ${BRL(saldo)}`, x + 12, topY - 60, 9, font, saldo >= 0 ? GREEN : RED);
+    const saldo = teto ? teto - n.total : null;
+    page.drawRectangle({ x, y: topY - 82, width: cardW, height: 82, borderColor: LINE, borderWidth: 1 });
+    page.drawRectangle({ x, y: topY - 4, width: cardW, height: 4, color: hexToRgb(n.cor) });
+    at(n.label.toUpperCase(), x + 12, topY - 22, 9, bold, MUTED);
+    at(BRL(n.total), x + 12, topY - 44, 15, bold, DARK);
+    at(`${n.nAcumulado} de ${cena.itens.length} equipamentos`, x + 12, topY - 58, 8, font, MUTED);
+    if (saldo != null) at(`Saldo ${BRL(saldo)}`, x + 12, topY - 72, 9, font, saldo >= 0 ? GREEN : RED);
   });
-  y = topY - 84;
+  y = topY - 96;
+
+  // O que cada nível significa e o que ele ACRESCENTA (o cumulativo esconde isso).
+  for (const n of niveis) {
+    ensure(46);
+    at(n.label.toUpperCase(), M, y, 8.5, bold, hexToRgb(n.cor));
+    rightAt(
+      n.nNivel
+        ? `acrescenta ${n.nNivel} ${n.nNivel === 1 ? "equipamento" : "equipamentos"}  ·  + ${BRL(n.incremento)}`
+        : "nenhum equipamento classificado neste nível",
+      A4.w - M - 6, y, 8.5, n.nNivel ? bold : font, n.nNivel ? DARK : MUTED,
+    );
+    y -= 13;
+    campo("Resumo", CENARIO_DEF[n.cenario].resumo, M, CW, 62, 8.5);
+    campo("Critério", CENARIO_DEF[n.cenario].criterio, M, CW, 62, 8.5);
+    y -= 4;
+  }
+  if (classificacaoPendente(cena)) {
+    ensure(26);
+    at(
+      "Todos os equipamentos estão no nível Balanceado — a classificação por cenário ainda não foi feita no editor, por isso os três cenários mostram o mesmo valor.",
+      M, y, 8.5, font, hexToRgb("#E09A45"),
+    );
+    y -= 18;
+  }
 
   // ── Matriz de priorização ──
   const mat = matrizDaCena(cena);
@@ -414,8 +579,7 @@ export async function montarDossie(
   y -= 6;
 
   // ── Resumo financeiro ──
-  secao("08 · Resumo Financeiro");
-  ensure(64);
+  secao("08 · Resumo Financeiro", 70);
   const fin: [string, string, RGB][] = [];
   if (teto) fin.push(["Orçamento-teto", BRL(teto), DARK]);
   fin.push(["Investimento (Balanceado)", BRL(r.cenarios.balanceado), DARK]);
@@ -425,11 +589,11 @@ export async function montarDossie(
   fin.forEach(([rot, val, cor], i) => {
     const x = M + i * (fw + fgap);
     page.drawRectangle({ x, y: fy - 52, width: fw, height: 52, borderColor: LINE, borderWidth: 1 });
-    at(rot.toUpperCase(), x + 10, fy - 18, 7.5, bold, MUTED);
+    at(trunc(rot.toUpperCase(), fw - 20, 7.5, bold), x + 10, fy - 18, 7.5, bold, MUTED);
     at(trunc(val, fw - 20, 13, bold), x + 10, fy - 40, 13, bold, cor);
   });
   y = fy - 66;
-  at(`${cena.itens.length} equipamentos  ·  ${zonas.length} zonas  ·  ocupação ${r.ocupacao}%`, M, y, 9, font, MUTED);
+  at(`${cena.itens.length} equipamentos  ·  ${comp.length} categorias  ·  ocupação ${r.ocupacao}%`, M, y, 9, font, MUTED);
 
   return await doc.save();
 }
@@ -457,6 +621,14 @@ function quebrar(s: string, maxW: number, size: number, f: PDFFont, medir: (t: s
   }
   if (linha) linhas.push(linha);
   return linhas;
+}
+
+/** [20,21,22,23] → "20–23"; [3,7] → "03, 07"; [5] → "05". */
+function faixaNumeros(ns: number[]): string {
+  const p2 = (n: number) => String(n).padStart(2, "0");
+  if (ns.length === 1) return p2(ns[0]);
+  const consecutivos = ns.every((n, i) => i === 0 || n === ns[i - 1] + 1);
+  return consecutivos ? `${p2(ns[0])}–${p2(ns[ns.length - 1])}` : ns.map(p2).join(", ");
 }
 
 function dataBR(iso?: string): string {

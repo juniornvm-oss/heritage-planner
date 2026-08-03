@@ -5,7 +5,8 @@ import { useLibrary } from "../store/libraryStore";
 import { inserirEquipamentos, atualizarEquipamento, removerEquipamento, online } from "../lib/supabase";
 import { reduzirImagem, limparDesenho, recortarImagem } from "../lib/imagem";
 import { contornoDeArquivo } from "../lib/plantaVetorial";
-import { ZONAS, CATEGORIAS_EQUIP, PAPEL_LADO, LADOS_PADRAO, type Equipamento, type Zona, type LadoRect, type PapelLado } from "../lib/types";
+import { ZONAS, CENARIOS, CATEGORIAS_EQUIP, PAPEL_LADO, LADOS_PADRAO, type Cenario, type Equipamento, type Zona, type LadoRect, type PapelLado } from "../lib/types";
+import { baseDoNome, cenarioSugerido, normalizarExercicios } from "../lib/curadoria";
 
 const Campo = ({ label, children }: { label: string; children: React.ReactNode }) => (
   <label style={{ display: "grid", gap: 5, minWidth: 0 }}>
@@ -31,6 +32,7 @@ export default function CadastrarEquipamentoScreen() {
     precisa_tomada: false, voltagem: "" as "" | "127" | "220" | "bivolt", ponto_internet: false,
     dist_parede: "", dist_lateral: "", dist_frontal: "",
     uso_frontal: "", uso_lateral: "", seguranca: "", obs: "", ativo: true,
+    descricao: "", cenario_padrao: "" as "" | Cenario, exercicios: "",
   });
   const setTec = (k: keyof typeof t) => (v: string | boolean) => setT((x) => ({ ...x, [k]: v }));
   // Papel de cada lado do footprint (entrada / frente / costas / lateral) + vão da entrada.
@@ -77,6 +79,8 @@ export default function CadastrarEquipamentoScreen() {
       uso_lateral: existente.uso_lateral_cm ? String(existente.uso_lateral_cm) : "",
       seguranca: existente.seguranca_cm ? String(existente.seguranca_cm) : "",
       obs: existente.obs ?? "", ativo: existente.ativo !== false,
+      descricao: existente.descricao ?? "", cenario_padrao: (existente.cenario_padrao ?? "") as "" | Cenario,
+      exercicios: (existente.exercicios ?? []).join("\n"),
     });
     setLados({ ...LADOS_PADRAO, ...(existente.lados ?? {}) });
     setDistEntrada(existente.dist_entrada_cm ? String(existente.dist_entrada_cm) : "");
@@ -85,6 +89,8 @@ export default function CadastrarEquipamentoScreen() {
   const set = (k: keyof typeof f) => (v: string) => setF((x) => ({ ...x, [k]: v }));
   const larg = Number(f.largura) || 100, prof = Number(f.profundidade) || 100;
   const aspecto = useMemo(() => prof / larg, [prof, larg]);
+  // Texto da base técnica para este nome — vira o padrão do Dossiê se a descrição ficar vazia.
+  const sugestaoTexto = useMemo(() => baseDoNome(f.nome), [f.nome]);
 
   async function onUpload(file?: File | null) {
     if (!file) return;
@@ -167,6 +173,8 @@ export default function CadastrarEquipamentoScreen() {
       dist_parede_cm: num(t.dist_parede), dist_lateral_cm: num(t.dist_lateral), dist_frontal_cm: num(t.dist_frontal),
       uso_frontal_cm: num(t.uso_frontal), uso_lateral_cm: num(t.uso_lateral), seguranca_cm: num(t.seguranca),
       obs: t.obs || null, ativo: t.ativo,
+      descricao: t.descricao.trim() || null, cenario_padrao: t.cenario_padrao || null,
+      exercicios: normalizarExercicios(t.exercicios.split("\n")).length ? normalizarExercicios(t.exercicios.split("\n")) : null,
       lados, dist_entrada_cm: num(distEntrada),
     };
     if (editando) {
@@ -266,6 +274,39 @@ export default function CadastrarEquipamentoScreen() {
               <Campo label="Distância da ENTRADA (cm)"><input className="fld" inputMode="numeric" value={distEntrada} onChange={(e) => setDistEntrada(e.target.value.replace(/[^\d]/g, ""))} /></Campo>
             </div>
             <Campo label="Observação de instalação"><input className="fld" value={t.obs} onChange={(e) => setTec("obs")(e.target.value)} /></Campo>
+
+            <div className="hairline" />
+            <div className="microlabel" style={{ color: "var(--gold)" }}>CURADORIA (sai no Dossiê)</div>
+            <Campo label="O que é / para que serve — usado no memorial dos equipamentos">
+              <textarea className="fld" rows={3} style={{ resize: "vertical", fontSize: 12.5, lineHeight: 1.5, fontFamily: "inherit" }}
+                placeholder={sugestaoTexto?.oque || "Ex.: cadeira com rolo à frente do tornozelo; sentado, o morador estende os joelhos contra a carga."}
+                value={t.descricao} onChange={(e) => setTec("descricao")(e.target.value)} />
+            </Campo>
+            {!t.descricao.trim() && sugestaoTexto && (
+              <div style={{ fontSize: 11, color: "var(--muted)", lineHeight: 1.5, marginTop: -4 }}>
+                Em branco, o Dossiê usa o texto da base técnica:{" "}
+                <span style={{ color: "#a8a8a4" }}>{sugestaoTexto.oque}</span>{" "}
+                <button className="btn" style={{ padding: "2px 8px", fontSize: 10.5 }} onClick={() => setTec("descricao")(sugestaoTexto.oque)}>usar este texto</button>
+              </div>
+            )}
+            <Campo label="Exercícios de musculação executáveis no aparelho — um por linha">
+              <textarea className="fld" rows={4} style={{ resize: "vertical", fontSize: 12.5, lineHeight: 1.5, fontFamily: "inherit" }}
+                placeholder={sugestaoTexto?.exercicios?.slice(0, 3).join("\n") || "Só exercícios resistidos feitos no próprio equipamento — sem peso corporal, alongamento ou mobilidade."}
+                value={t.exercicios} onChange={(e) => setTec("exercicios")(e.target.value)} />
+            </Campo>
+            {!t.exercicios.trim() && !!sugestaoTexto?.exercicios?.length && (
+              <div style={{ fontSize: 11, color: "var(--muted)", lineHeight: 1.5, marginTop: -4 }}>
+                Em branco, o Dossiê usa os {sugestaoTexto.exercicios.length} exercícios da base técnica.{" "}
+                <button className="btn" style={{ padding: "2px 8px", fontSize: 10.5 }}
+                  onClick={() => setTec("exercicios")(sugestaoTexto.exercicios!.join("\n"))}>trazer a lista para editar</button>
+              </div>
+            )}
+            <Campo label="Cenário padrão ao entrar no projeto">
+              <select className="fld" value={t.cenario_padrao} onChange={(e) => setTec("cenario_padrao")(e.target.value)}>
+                <option value="">Sugestão automática ({CENARIOS[cenarioSugerido(f.nome, f.zona)].label})</option>
+                {(Object.keys(CENARIOS) as Cenario[]).map((k) => <option key={k} value={k}>{CENARIOS[k].label}</option>)}
+              </select>
+            </Campo>
             <div>
               <input ref={fileRef} type="file" style={{ display: "none" }} onChange={(e) => onUpload(e.target.files?.[0])} />
               <button className="btn btn-blue" onClick={() => fileRef.current?.click()}>{busy || "⭱ Subir arquivo (DWG/PDF/imagem)"}</button>

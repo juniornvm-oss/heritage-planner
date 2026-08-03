@@ -14,6 +14,7 @@ import { snapCm } from "../lib/canvas";
 import { BRL, formatLength, parseLength } from "../lib/units";
 import { ZONAS, CENARIOS, taxaDe, MATERIAIS_PISO, ELEMENTOS_PAREDE, MOBILIARIO_CATALOGO, ACESSORIOS_CATALOGO, LADOS_PADRAO, type AcessorioProjeto, type LadoRect, type MaterialPiso, type TipoElementoParede, type Zona, type Cenario, type ItemPosicionado, type Equipamento, type AreaAcabamento, type ElementoParede, type ItemInfraestrutura } from "../lib/types";
 import { areaPoligonoM2, perimetroCm, bboxPoligono, ehRetangulo, retanguloParaPontos, transladar, m2 } from "../lib/geometria";
+import { CENARIO_DEF, ESPEC_ZONA, cenarioSugerido, composicaoZonas, detalheCenarios, explicarItem, normalizarExercicios } from "../lib/curadoria";
 import { gerarPromptVista } from "../lib/promptVista";
 import { uploadOrcamento, urlOrcamento, removerOrcamentoArquivo, online } from "../lib/supabase";
 
@@ -145,7 +146,10 @@ export default function EditorScreen() {
       nome: m.nome,
       x_cm: snapCm(cena.sala.largura_cm / 2 - w / 2),
       y_cm: snapCm(cena.sala.profundidade_cm / 2 - h / 2),
-      w_cm: w, h_cm: h, rotacao: 0, zona: m.zona, cenario: "balanceado", preco: m.preco,
+      w_cm: w, h_cm: h, rotacao: 0, zona: m.zona,
+      // Já nasce classificado: cadastro do equipamento > base técnica > padrão.
+      cenario: m.cenario_padrao ?? cenarioSugerido(m.nome, m.zona),
+      preco: m.preco,
       imagem: m.imagem ?? null, contorno: m.contorno ?? null,
       uso_frontal_cm: m.uso_frontal_cm ?? null, uso_lateral_cm: m.uso_lateral_cm ?? null,
       seguranca_cm: m.seguranca_cm ?? null, precisa_tomada: m.precisa_tomada ?? null,
@@ -288,8 +292,8 @@ export default function EditorScreen() {
         {!somenteLeitura && !apresentacao && (
           <>
             <span style={{ width: 1, height: 22, background: "var(--line-2)", margin: "0 4px" }} />
-            {/* Abas das 3 etapas */}
-            {([["planta", "1 · Planta"], ["acabamento", "2 · Acabamento"], ["layout", "3 · Layout"], ["fichas", "4 · Fichas"], ["acessorios", "5 · Acessórios"]] as [Etapa, string][]).map(([e, lbl]) => (
+            {/* Abas das etapas */}
+            {([["planta", "1 · Planta"], ["acabamento", "2 · Acabamento"], ["layout", "3 · Layout"], ["fichas", "4 · Fichas"], ["curadoria", "5 · Curadoria"], ["acessorios", "6 · Acessórios"]] as [Etapa, string][]).map(([e, lbl]) => (
               <button key={e} className="btn" onClick={() => irParaEtapa(e)} style={etapa === e
                 ? { borderColor: "var(--gold)", color: "var(--gold)", background: "var(--gold-soft)" }
                 : undefined}>{lbl}</button>
@@ -514,8 +518,10 @@ export default function EditorScreen() {
           </aside>
         )}
 
-        {/* Etapa 5: painel de acessórios substitui canvas + inspetor */}
-        {etapa === "acessorios" && !somenteLeitura ? (
+        {/* Etapas 5 e 6: painéis de tela cheia (substituem canvas + inspetor) */}
+        {etapa === "curadoria" && !somenteLeitura ? (
+          <CuradoriaPanel />
+        ) : etapa === "acessorios" && !somenteLeitura ? (
           <AcessoriosPanel />
         ) : (<>
         {/* Canvas */}
@@ -1165,6 +1171,7 @@ function FichaEquipamento({ item, numero }: { item: ItemPosicionado; numero: num
   const cat = (item.equipamentoId && equipamentos.find((e) => e.id === item.equipamentoId)) || equipamentos.find((e) => e.nome === item.nome);
   const lados = { ...LADOS_PADRAO, ...(item.lados ?? {}) };
   const ladoEntrada = (Object.keys(lados) as LadoRect[]).find((k) => lados[k] === "entrada");
+  const explicacao = explicarItem(item, cat);
   const nomeLado: Record<LadoRect, string> = { topo: "topo", base: "base", esq: "esquerda", dir: "direita" };
   return (
     <div style={{ display: "grid", gap: 12 }}>
@@ -1183,6 +1190,7 @@ function FichaEquipamento({ item, numero }: { item: ItemPosicionado; numero: num
           <span>Medidas</span><b style={{ color: "#e9e9e6" }}>{formatLength(item.w_cm)} × {formatLength(item.h_cm)}{cat?.altura_cm ? ` × ${formatLength(cat.altura_cm)} (A)` : ""}</b>
           {cat?.peso_kg ? <><span>Peso</span><b style={{ color: "#e9e9e6" }}>{cat.peso_kg} kg</b></> : null}
           <span>Zona</span><b style={{ color: ZONAS[item.zona]?.cor }}>{ZONAS[item.zona]?.label}</b>
+          <span>Cenário</span><b style={{ color: CENARIOS[item.cenario]?.cor }}>{CENARIOS[item.cenario]?.label}</b>
           {cat?.categoria ? <><span>Categoria</span><b style={{ color: "#e9e9e6" }}>{cat.categoria}{cat.subcategoria ? ` · ${cat.subcategoria}` : ""}</b></> : null}
           {item.precisa_tomada ? <><span>Elétrica</span><b style={{ color: "#E09A45" }}>⚡ precisa tomada{cat?.voltagem ? ` · ${cat.voltagem} V` : ""}</b></> : null}
           {item.preco ? <><span>Investimento</span><b style={{ color: "var(--gold)" }}>{BRL(item.preco)}</b></> : null}
@@ -1197,14 +1205,48 @@ function FichaEquipamento({ item, numero }: { item: ItemPosicionado; numero: num
         </div>
       </Bloco>
 
-      <Bloco label="FUNÇÃO NO PROJETO">
+      <Bloco label="COMO SAI NO DOSSIÊ">
+        <div style={{ display: "grid", gap: 6, fontSize: 11.5, color: "#a8a8a4", lineHeight: 1.5 }}>
+          <div><b style={{ color: "var(--gold)" }}>O QUE É · </b>{explicacao.oque}</div>
+          <div><b style={{ color: "var(--gold)" }}>TRABALHA · </b>{explicacao.trabalha}</div>
+          <div><b style={{ color: "var(--gold)" }}>POR QUE ESTÁ AQUI · </b>{explicacao.indicacao}</div>
+          <div><b style={{ color: "var(--gold)" }}>ATENÇÃO · </b>{explicacao.atencao}</div>
+          {explicacao.exercicios.length > 0 && (
+            <div><b style={{ color: "var(--gold)" }}>EXERCÍCIOS ({explicacao.exercicios.length}) · </b>{explicacao.exercicios.join(" · ")}</div>
+          )}
+          <div style={{ fontSize: 10.5, color: "#6e6e73", marginTop: 2 }}>
+            {explicacao.padrao
+              ? "Texto padrão da base técnica. Os campos abaixo substituem o que você escrever neles."
+              : "Texto ajustado por você nos campos abaixo."}
+          </div>
+        </div>
+      </Bloco>
+
+      <Bloco label="FUNÇÃO NO PROJETO (substitui “por que está aqui”)">
         <CampoTexto valor={item.funcao ?? ""} placeholder="Ex.: aquecimento cardiovascular dos moradores"
           onSet={(v) => updateItem(item.id, { funcao: v || null })} />
       </Bloco>
 
-      <Bloco label="ONDE NÃO UTILIZAR / RESTRIÇÕES">
+      <Bloco label="ONDE NÃO UTILIZAR / RESTRIÇÕES (substitui “atenção”)">
         <CampoTexto valor={item.restricoes ?? ""} linhas={3} placeholder="Ex.: não usar sem instrutor; contraindicado para reabilitação de joelho…"
           onSet={(v) => updateItem(item.id, { restricoes: v || null })} />
+      </Bloco>
+
+      <Bloco label={`EXERCÍCIOS DE MUSCULAÇÃO (${explicacao.exercicios.length}) — um por linha`}>
+        <CampoTexto valor={(item.exercicios ?? []).join("\n")} linhas={5}
+          placeholder={explicacao.exercicios.length
+            ? "Em branco, o Dossiê usa a lista da base técnica (acima). Escreva aqui para substituí-la."
+            : "Este equipamento não tem lista padrão — só entram exercícios resistidos feitos no próprio aparelho."}
+          onSet={(v) => {
+            const lista = normalizarExercicios(v.split("\n"));
+            updateItem(item.id, { exercicios: lista.length ? lista : null });
+          }} />
+        {!item.exercicios?.length && explicacao.exercicios.length > 0 && (
+          <button className="btn" style={{ padding: "4px 9px", fontSize: 10.5, marginTop: 6 }}
+            onClick={() => updateItem(item.id, { exercicios: explicacao.exercicios })}>
+            ⧉ Copiar a lista padrão para editar
+          </button>
+        )}
       </Bloco>
 
       <Bloco label="DEMAIS DETALHES">
@@ -1217,7 +1259,138 @@ function FichaEquipamento({ item, numero }: { item: ItemPosicionado; numero: num
   );
 }
 
-// Etapa 5 — orçamento de acessórios do projeto (catálogo-base Heritage).
+// Etapa 5 — Curadoria: classifica cada equipamento em Essencial · Balanceado ·
+// Premium e escreve a nota de cada categoria. É o que dá conteúdo às seções
+// 03, 04 e 06 do Dossiê.
+function CuradoriaPanel() {
+  const cena = useProjeto((s) => s.cena);
+  const updateItem = useProjeto((s) => s.updateItem);
+  const classificarEmLote = useProjeto((s) => s.classificarEmLote);
+  const sugerirCenarios = useProjeto((s) => s.sugerirCenarios);
+  const setEspecificacao = useProjeto((s) => s.setEspecificacao);
+  const [abertas, setAbertas] = useState<Record<string, boolean>>({});
+
+  const comp = composicaoZonas(cena);
+  const niveis = detalheCenarios(cena);
+  const naoClassificados = cena.itens.filter((i) => i.cenario !== cenarioSugerido(i.nome, i.zona)).length;
+
+  return (
+    <div style={{ flex: 1, overflow: "auto", padding: "14px calc(16px + var(--sar)) 20px calc(16px + var(--sal))", minWidth: 0 }}>
+      <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 4 }}>
+        <div>
+          <div className="brandface" style={{ fontSize: 18, color: "var(--gold)" }}>CURADORIA POR CENÁRIO</div>
+          <div style={{ fontSize: 12, color: "var(--muted)", maxWidth: 620, lineHeight: 1.5 }}>
+            Classifique cada equipamento em <b style={{ color: "#e9e9e6" }}>Essencial</b>, <b style={{ color: "#e9e9e6" }}>Balanceado</b> ou <b style={{ color: "#e9e9e6" }}>Premium</b> —
+            é isso que separa os três cenários no Dossiê. A especificação de cada categoria já vem pronta; a nota abaixo dela é o que você acrescenta sobre este condomínio.
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          <button className="btn btn-gold" onClick={() => sugerirCenarios(false)} title="Aplica a classificação técnica sugerida em quem ainda está no padrão Balanceado">✨ Sugerir</button>
+          <button className="btn" onClick={() => { if (confirm("Refazer a classificação de TODOS os equipamentos pela sugestão técnica? A classificação manual será substituída.")) sugerirCenarios(true); }} title="Reaplica a sugestão em todos, inclusive nos já classificados">↺ Refazer tudo</button>
+        </div>
+      </div>
+
+      {/* Placar dos três cenários */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: 10, margin: "12px 0 6px" }}>
+        {niveis.map((n) => (
+          <div key={n.cenario} className="card" style={{ padding: 12, borderTop: `3px solid ${n.cor}` }}>
+            <div className="microlabel" style={{ color: n.cor }}>{n.label}</div>
+            <div className="brandface" style={{ fontSize: 21, marginTop: 3 }}>{BRL(n.total)}</div>
+            <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 2 }}>
+              {n.nAcumulado} de {cena.itens.length} equipamentos
+              {n.nNivel > 0 && <> · <span style={{ color: n.cor }}>+{n.nNivel} neste nível</span></>}
+            </div>
+            <div style={{ fontSize: 11, color: "#8a8a8f", marginTop: 6, lineHeight: 1.45 }}>{CENARIO_DEF[n.cenario].resumo}</div>
+          </div>
+        ))}
+      </div>
+      {naoClassificados === 0 && cena.itens.length > 0 && (
+        <div style={{ fontSize: 11.5, color: "var(--muted)", marginBottom: 8 }}>Classificação idêntica à sugestão técnica em todos os {cena.itens.length} equipamentos.</div>
+      )}
+
+      {/* Uma seção por categoria */}
+      {comp.map((c) => {
+        const esp = ESPEC_ZONA[c.zona];
+        const aberta = abertas[c.zona] ?? false;
+        return (
+          <section key={c.zona} className="card" style={{ padding: 14, marginTop: 12, display: "grid", gap: 10 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+              <span style={{ width: 10, height: 10, borderRadius: 2, background: c.cor }} />
+              <span className="brandface" style={{ fontSize: 16, color: c.cor }}>{c.label.toUpperCase()}</span>
+              <span style={{ fontSize: 11.5, color: "var(--muted)" }}>
+                {c.n} equipamentos · {c.areaM2.toFixed(1).replace(".", ",")} m² · {BRL(c.subtotal)}
+              </span>
+              <span style={{ flex: 1 }} />
+              <span style={{ fontSize: 10.5, color: "var(--muted)", letterSpacing: ".06em" }}>TODOS →</span>
+              {(Object.keys(CENARIOS) as Cenario[]).map((k) => (
+                <button key={k} className="btn" style={{ padding: "5px 9px", fontSize: 10.5, borderColor: CENARIOS[k].cor, color: CENARIOS[k].cor }}
+                  onClick={() => classificarEmLote(k, c.zona)}>{CENARIOS[k].label}</button>
+              ))}
+            </div>
+
+            {/* Especificação da categoria (o texto que vai ao Dossiê) */}
+            <div style={{ background: "var(--panel-2)", border: "1px solid var(--line)", borderRadius: 8, padding: "10px 12px" }}>
+              <button className="btn" style={{ padding: "3px 8px", fontSize: 10.5, float: "right" }}
+                onClick={() => setAbertas((a) => ({ ...a, [c.zona]: !aberta }))}>{aberta ? "− Ocultar" : "+ Especificação"}</button>
+              <div style={{ fontSize: 11.5, color: "#b6b6b1", lineHeight: 1.55 }}>{esp.oque}</div>
+              {aberta && (
+                <div style={{ display: "grid", gap: 7, marginTop: 9, fontSize: 11.5, color: "#a8a8a4", lineHeight: 1.55 }}>
+                  <div><b style={{ color: "var(--gold)" }}>O QUE ENTREGA · </b>{esp.entrega}</div>
+                  <div><b style={{ color: "var(--gold)" }}>DIMENSIONAMENTO · </b>{esp.criterio}</div>
+                  <div><b style={{ color: "var(--gold)" }}>OBRA &amp; OPERAÇÃO · </b>{esp.operacao}</div>
+                </div>
+              )}
+              <div style={{ marginTop: 10 }}>
+                <span className="microlabel">NESTA ACADEMIA (opcional — entra no Dossiê logo abaixo da especificação)</span>
+                <CampoTexto valor={cena.especificacoes?.[c.zona] ?? ""} linhas={2}
+                  placeholder="Ex.: zona posicionada junto à vidraça para aproveitar a luz natural; 4 esteiras atendem o pico das 19h."
+                  onSet={(v) => setEspecificacao(c.zona, v)} />
+              </div>
+            </div>
+
+            {/* Equipamentos da categoria */}
+            <div style={{ display: "grid", gap: 5 }}>
+              {c.itens.map((it) => {
+                const numero = cena.itens.findIndex((x) => x.id === it.id) + 1;
+                const sugerido = cenarioSugerido(it.nome, it.zona);
+                return (
+                  <div key={it.id} style={{ display: "flex", alignItems: "center", gap: 9, background: "var(--panel-2)", border: "1px solid var(--line)", borderRadius: 8, padding: "6px 10px", flexWrap: "wrap" }}>
+                    <span style={{ width: 21, height: 21, borderRadius: 999, background: "var(--gold)", color: "#0C0C0E", display: "grid", placeItems: "center", fontSize: 10.5, fontWeight: 800, flexShrink: 0 }}>{numero}</span>
+                    <span style={{ fontSize: 12.5, color: "#e9e9e6", fontWeight: 600, minWidth: 160, flex: 1 }}>{it.nome}</span>
+                    <span style={{ fontSize: 11, color: "var(--muted)", whiteSpace: "nowrap" }}>{formatLength(it.w_cm)} × {formatLength(it.h_cm)}</span>
+                    <span style={{ fontSize: 12, color: it.preco ? "var(--gold)" : "#6e6e73", minWidth: 78, textAlign: "right", whiteSpace: "nowrap" }}>{it.preco ? BRL(it.preco) : "incluso"}</span>
+                    {it.cenario !== sugerido && (
+                      <button className="btn" style={{ padding: "3px 8px", fontSize: 10, color: "var(--muted)" }}
+                        title={`A base técnica sugere ${CENARIOS[sugerido].label} para este equipamento`}
+                        onClick={() => updateItem(it.id, { cenario: sugerido })}>sugerido: {CENARIOS[sugerido].label}</button>
+                    )}
+                    <div style={{ display: "flex", gap: 4 }}>
+                      {(Object.keys(CENARIOS) as Cenario[]).map((k) => (
+                        <button key={k} className="btn" onClick={() => updateItem(it.id, { cenario: k })}
+                          style={{
+                            padding: "5px 10px", fontSize: 10.5, whiteSpace: "nowrap",
+                            borderColor: it.cenario === k ? CENARIOS[k].cor : "var(--line-2)",
+                            color: it.cenario === k ? CENARIOS[k].cor : "var(--muted)",
+                            background: it.cenario === k ? "rgba(255,255,255,.05)" : undefined,
+                          }}>{CENARIOS[k].label}</button>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        );
+      })}
+
+      {cena.itens.length === 0 && (
+        <div style={{ color: "var(--muted)", fontSize: 12.5, marginTop: 16 }}>Nenhum equipamento posicionado — adicione na Etapa 3 (Layout).</div>
+      )}
+    </div>
+  );
+}
+
+// Etapa 6 — orçamento de acessórios do projeto (catálogo-base Heritage).
 function AcessoriosPanel() {
   const acessorios = useProjeto((s) => s.cena.acessorios ?? []);
   const addAcessorio = useProjeto((s) => s.addAcessorio);

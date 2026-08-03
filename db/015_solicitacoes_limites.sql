@@ -8,17 +8,21 @@
 -- Os valores acompanham o formulário: 25 MB de anexos (dataURL base64) e textos
 -- com folga sobre o que um síndico escreve de verdade.
 --
+-- APLICADA em 2026-08-03 no projeto gdxxbhgpleuivyxmaxnm. A tabela estava vazia
+-- (0 linhas), então as constraints entraram já validadas — sem NOT VALID. Se um
+-- dia reaplicar num banco com histórico que estoure os limites, acrescente
+-- `not valid` ao final de cada `add constraint` e valide depois de limpar:
+--   select id, condominio, octet_length(anexos::text) as bytes
+--     from planner.solicitacoes order by bytes desc limit 10;
+--   alter table planner.solicitacoes validate constraint solicitacoes_anexos_tamanho;
+--
 -- Reversível: alter table planner.solicitacoes drop constraint <nome>;
-
--- Linhas já existentes podem estourar o limite; NOT VALID aplica a regra só aos
--- INSERTs novos. Rode o `validate` do fim depois de conferir/limpar o histórico.
 
 alter table planner.solicitacoes
   drop constraint if exists solicitacoes_anexos_tamanho;
 alter table planner.solicitacoes
   add constraint solicitacoes_anexos_tamanho
-  check (octet_length(anexos::text) <= 26214400)  -- 25 MB
-  not valid;
+  check (octet_length(anexos::text) <= 26214400);  -- 25 MB
 
 alter table planner.solicitacoes
   drop constraint if exists solicitacoes_textos_tamanho;
@@ -34,11 +38,4 @@ alter table planner.solicitacoes
     and length(visao)                     <= 5000
     and length(coalesce(observacoes, '')) <= 5000
     and coalesce(array_length(estilos, 1), 0) <= 20
-  )
-  not valid;
-
--- Depois de conferir que o histórico cabe nos limites:
---   select id, condominio, octet_length(anexos::text) as bytes
---     from planner.solicitacoes order by bytes desc limit 10;
---   alter table planner.solicitacoes validate constraint solicitacoes_anexos_tamanho;
---   alter table planner.solicitacoes validate constraint solicitacoes_textos_tamanho;
+  );

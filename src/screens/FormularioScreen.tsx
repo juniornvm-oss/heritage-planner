@@ -59,7 +59,13 @@ async function lerAnexo(file: File): Promise<AnexoSolicitacao> {
   return { tipo: "foto", nome: file.name, dataUrl: c.toDataURL("image/jpeg", 0.82) };
 }
 
-const LIMITE_MB = 12;
+const LIMITE_MB = 12;      // por arquivo
+const LIMITE_TOTAL_MB = 25; // soma de todos os anexos — o pacote vai inteiro numa linha do banco
+
+/** Peso real do dataURL em bytes (base64 infla ~33% sobre o arquivo original). */
+const pesoAnexo = (a: AnexoSolicitacao) => a.dataUrl.length;
+const pesoTotal = (xs: AnexoSolicitacao[]) => xs.reduce((s, a) => s + pesoAnexo(a), 0);
+const emMB = (bytes: number) => (bytes / (1024 * 1024)).toFixed(1).replace(".", ",");
 
 export default function FormularioScreen() {
   const [f, setF] = useState({ ...VAZIO });
@@ -77,7 +83,15 @@ export default function FormularioScreen() {
     setErro(null);
     for (const file of Array.from(files)) {
       if (file.size > LIMITE_MB * 1024 * 1024) { setErro(`"${file.name}" passa de ${LIMITE_MB} MB. Reduza e tente de novo.`); continue; }
-      try { const anexo = await lerAnexo(file); setAnexos((xs) => [...xs, anexo]); }
+      try {
+        const anexo = await lerAnexo(file);
+        let coube = true;
+        setAnexos((xs) => {
+          if (pesoTotal(xs) + pesoAnexo(anexo) > LIMITE_TOTAL_MB * 1024 * 1024) { coube = false; return xs; }
+          return [...xs, anexo];
+        });
+        if (!coube) setErro(`Os anexos somam mais de ${LIMITE_TOTAL_MB} MB. Remova algum antes de adicionar "${file.name}".`);
+      }
       catch { setErro(`Não consegui ler "${file.name}".`); }
     }
   }
@@ -155,6 +169,11 @@ export default function FormularioScreen() {
           </Campo>
           <Campo label="Planta e fotos do espaço (PDF ou imagens)">
             <input className="fld" type="file" accept="image/*,application/pdf" multiple onChange={(e) => void adicionarArquivos(e.target.files)} />
+            {anexos.length > 0 && (
+              <div style={{ color: "var(--muted)", fontSize: 11.5, marginTop: 6 }}>
+                {anexos.length} anexo{anexos.length > 1 ? "s" : ""} · {emMB(pesoTotal(anexos))} MB de {LIMITE_TOTAL_MB} MB
+              </div>
+            )}
             {anexos.length > 0 && (
               <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8 }}>
                 {anexos.map((a, i) => (

@@ -2,7 +2,9 @@
 // Só acessível logado (rota protegida).
 import { useEffect, useState } from "react";
 import Shell from "../ui/Shell";
+import LinkFormulario from "../ui/LinkFormulario";
 import { obterConfigConsultor, salvarConfigConsultor, trocarSenha, online } from "../lib/supabase";
+import { useLibrary } from "../store/libraryStore";
 import type { ConfigConsultor } from "../lib/types";
 
 const Campo = ({ label, children }: { label: string; children: React.ReactNode }) => (
@@ -27,17 +29,36 @@ export default function CadastroScreen() {
   const [msg, setMsg] = useState<string | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const setConfigGlobal = useLibrary((s) => s.setConfig);
 
   const set = (k: keyof ConfigConsultor) => (v: string | number | null) => setC((x) => ({ ...x, [k]: v }));
 
+  // O honorário fica como texto enquanto se digita — guardado como número, "0,5"
+  // viraria 0 no meio da digitação e o campo não aceitaria a vírgula.
+  const [honorario, setHonorario] = useState("");
+  const honorarioNum = honorario.trim() ? Number(honorario.replace(",", ".")) : null;
+  const honorarioInvalido = honorario.trim() !== "" && !(Number.isFinite(honorarioNum) && honorarioNum! > 0 && honorarioNum! <= 100);
+
   useEffect(() => {
     if (!online) { setCarregando(false); return; }
-    (async () => { setC((await obterConfigConsultor()) ?? {}); setCarregando(false); })();
+    (async () => {
+      const cfg = (await obterConfigConsultor()) ?? {};
+      setC(cfg);
+      setHonorario(cfg.honorario_pct != null ? String(cfg.honorario_pct).replace(".", ",") : "");
+      setCarregando(false);
+    })();
   }, []);
 
   async function salvar() {
+    if (honorarioInvalido) { setErro("Honorário deve ser um percentual entre 0 e 100 (ex.: 0,5)."); return; }
     setBusy(true); setMsg(null); setErro(null);
-    try { await salvarConfigConsultor(c); setMsg("Cadastro salvo."); }
+    const proximo = { ...c, honorario_pct: honorarioNum };
+    try {
+      await salvarConfigConsultor(proximo);
+      setC(proximo);
+      setConfigGlobal(proximo); // honorário/rodapé valem no app e no PDF sem recarregar
+      setMsg("Cadastro salvo.");
+    }
     catch (e) { setErro((e as Error).message); }
     finally { setBusy(false); }
   }
@@ -67,6 +88,8 @@ export default function CadastroScreen() {
       <p style={{ color: "var(--muted)", fontSize: 13, marginBottom: 18 }}>Seus dados entram na capa e no rodapé do PDF de entrega.</p>
 
       <div style={{ display: "grid", gap: 18, maxWidth: 720 }}>
+        <LinkFormulario config={c} />
+
         <section className="card" style={{ padding: 20, display: "grid", gap: 14 }}>
           <div className="brandface" style={{ fontSize: 18, color: "var(--gold)" }}>Dados do consultor</div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
@@ -78,7 +101,11 @@ export default function CadastroScreen() {
             <Campo label="E-mail"><input className="fld" type="email" value={c.email ?? ""} onChange={(e) => set("email")(e.target.value)} /></Campo>
             <Campo label="Site / Instagram"><input className="fld" value={c.site ?? ""} onChange={(e) => set("site")(e.target.value)} /></Campo>
             <Campo label="Cidade / UF"><input className="fld" value={c.cidade_uf ?? ""} onChange={(e) => set("cidade_uf")(e.target.value)} /></Campo>
-            <Campo label="Honorário (%)"><input className="fld" inputMode="decimal" value={c.honorario_pct ?? ""} onChange={(e) => set("honorario_pct")(e.target.value ? Number(e.target.value.replace(",", ".")) : null)} /></Campo>
+            <Campo label="Honorário (% do teto)">
+              <input className="fld" inputMode="decimal" placeholder="0,5" value={honorario}
+                onChange={(e) => setHonorario(e.target.value)}
+                style={honorarioInvalido ? { borderColor: "var(--red)" } : undefined} />
+            </Campo>
           </div>
           <Campo label="Assinatura / rodapé do dossiê">
             <textarea className="fld" rows={2} value={c.rodape ?? ""} onChange={(e) => set("rodape")(e.target.value)} placeholder="Ex.: Heritage · Assessoria Técnica de Implantação" />

@@ -4,7 +4,7 @@ import type Konva from "konva";
 import EditorCanvas, { type Etapa, type FerramentaEstrutura, type FerramentaAcab } from "../editor/EditorCanvas";
 import { useProjeto } from "../store/projetoStore";
 import { useLibrary } from "../store/libraryStore";
-import { obterProjeto, criarProjeto, obterConfigConsultor } from "../lib/supabase";
+import { obterProjeto, criarProjeto } from "../lib/supabase";
 import { heritageProjeto } from "../lib/seed";
 import { lerPlanta } from "../lib/planta";
 import { lerPlantaVetorial } from "../lib/plantaVetorial";
@@ -12,7 +12,7 @@ import { exportarPdf } from "../lib/export/pdfExport";
 import { resumo } from "../lib/validation";
 import { snapCm } from "../lib/canvas";
 import { BRL, formatLength, parseLength } from "../lib/units";
-import { ZONAS, CENARIOS, TAXA_ASSESSORIA, MATERIAIS_PISO, ELEMENTOS_PAREDE, MOBILIARIO_CATALOGO, ACESSORIOS_CATALOGO, LADOS_PADRAO, type AcessorioProjeto, type LadoRect, type MaterialPiso, type TipoElementoParede, type Zona, type Cenario, type ItemPosicionado, type Equipamento, type AreaAcabamento, type ElementoParede, type ItemInfraestrutura } from "../lib/types";
+import { ZONAS, CENARIOS, taxaDe, MATERIAIS_PISO, ELEMENTOS_PAREDE, MOBILIARIO_CATALOGO, ACESSORIOS_CATALOGO, LADOS_PADRAO, type AcessorioProjeto, type LadoRect, type MaterialPiso, type TipoElementoParede, type Zona, type Cenario, type ItemPosicionado, type Equipamento, type AreaAcabamento, type ElementoParede, type ItemInfraestrutura } from "../lib/types";
 import { areaPoligonoM2, perimetroCm, bboxPoligono, ehRetangulo, retanguloParaPontos, transladar, m2 } from "../lib/geometria";
 import { gerarPromptVista } from "../lib/promptVista";
 import { uploadOrcamento, urlOrcamento, removerOrcamentoArquivo, online } from "../lib/supabase";
@@ -31,6 +31,8 @@ export default function EditorScreen() {
   const equipamentos = useLibrary((s) => s.equipamentos);
   const acabamentos = useLibrary((s) => s.acabamentos);
   const recarregarBiblioteca = useLibrary((s) => s.recarregar);
+  const config = useLibrary((s) => s.config);
+  const taxa = taxaDe(config);
   useEffect(() => { void recarregarBiblioteca(); }, [recarregarBiblioteca]);
 
   const [erro, setErro] = useState<string | null>(null);
@@ -257,7 +259,6 @@ export default function EditorScreen() {
     setBusy("Gerando PDF…");
     try {
       const png = stageRef.current ? stageRef.current.toDataURL({ pixelRatio: 2 }) : null;
-      const config = await obterConfigConsultor();
       await exportarPdf({ ...projeto, cena }, png, equipamentos, config);
     } catch (e) { setAviso(`Falha ao gerar o PDF: ${(e as Error).message}`); } finally { setBusy(null); }
   }
@@ -709,7 +710,7 @@ export default function EditorScreen() {
           </span>
         ))}
         {teto > 0 && <span style={{ marginLeft: "auto", fontSize: 12, color: saldo >= 0 ? "var(--green)" : "var(--red)" }}>
-          Teto {BRL(teto)} · Assessoria {BRL(Math.round(teto * TAXA_ASSESSORIA))} · Saldo {BRL(saldo)}
+          Teto {BRL(teto)} · Assessoria {BRL(Math.round(teto * taxa))} · Saldo {BRL(saldo)}
         </span>}
       </div>}
     </div>

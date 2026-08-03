@@ -1,11 +1,14 @@
 import { create } from "zustand";
-import type { Equipamento, Acabamento } from "../lib/types";
-import { listarEquipamentos, listarAcabamentos } from "../lib/supabase";
+import type { Equipamento, Acabamento, ConfigConsultor } from "../lib/types";
+import { listarEquipamentos, listarAcabamentos, obterConfigConsultor } from "../lib/supabase";
 import { CATALOGO_LOCAL, ACABAMENTOS_LOCAL } from "../lib/seed";
 
 interface LibraryState {
   equipamentos: Equipamento[];
   acabamentos: Acabamento[];
+  /** Cadastro do consultor — honorário, identidade e rodapé do PDF. */
+  config: ConfigConsultor | null;
+  setConfig: (c: ConfigConsultor) => void;
   carregado: boolean;
   carregar: () => Promise<void>;
   recarregar: () => Promise<void>; // força nova busca (ex.: ao abrir um projeto)
@@ -21,6 +24,8 @@ const casa = (e: Equipamento, ref: string) => (e.id ? e.id === ref : e.nome === 
 export const useLibrary = create<LibraryState>((set, get) => ({
   equipamentos: CATALOGO_LOCAL,
   acabamentos: ACABAMENTOS_LOCAL,
+  config: null,
+  setConfig(c) { set({ config: c }); },
   carregado: false,
   async carregar() {
     if (get().carregado) return;
@@ -28,10 +33,11 @@ export const useLibrary = create<LibraryState>((set, get) => ({
   },
   async recarregar() {
     try {
-      const [eq, ac] = await Promise.all([listarEquipamentos(), listarAcabamentos()]);
+      const [eq, ac, cfg] = await Promise.all([listarEquipamentos(), listarAcabamentos(), obterConfigConsultor()]);
       set({
         equipamentos: eq.length ? eq : CATALOGO_LOCAL,
         acabamentos: ac.length ? ac : ACABAMENTOS_LOCAL,
+        config: cfg,
         carregado: true,
       });
     } catch {

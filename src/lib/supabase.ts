@@ -174,12 +174,25 @@ export async function criarSolicitacao(s: Solicitacao): Promise<void> {
   if (error) throw error;
 }
 
-/** Lista as solicitações (consultor logado). */
+// Lista enxuta — sem `anexos`, que carrega planta e fotos em dataURL. Trazer a
+// coluna aqui fazia a caixa de entrada baixar os anexos de TODAS as solicitações
+// de uma vez (mesmo motivo pelo qual COLS_LISTA omite foto_fachada).
+const COLS_SOLICITACAO_LISTA = "id,criado_em,status,condominio,cidade,sindico,whatsapp,email,unidades,dimensoes,localizacao,climatizacao,faixa_etaria,estilos,visao,objetivo,orcamento_teto,aprovacao,observacoes,projeto_id";
+
+/** Lista as solicitações (consultor logado) — sem os anexos. */
 export async function listarSolicitacoes(): Promise<Solicitacao[]> {
   if (!sb) return [];
-  const { data, error } = await sb.from("solicitacoes").select("*").order("criado_em", { ascending: false });
+  const { data, error } = await sb.from("solicitacoes").select(COLS_SOLICITACAO_LISTA).order("criado_em", { ascending: false });
   if (error) throw error;
   return (data as Solicitacao[]) || [];
+}
+
+/** Uma solicitação completa, com os anexos — buscada ao abrir o detalhe. */
+export async function obterSolicitacao(id: string): Promise<Solicitacao | null> {
+  if (!sb) return null;
+  const { data, error } = await sb.from("solicitacoes").select("*").eq("id", id).maybeSingle();
+  if (error) throw error;
+  return (data as Solicitacao) || null;
 }
 
 export async function atualizarStatusSolicitacao(
@@ -192,18 +205,26 @@ export async function atualizarStatusSolicitacao(
   if (error) throw error;
 }
 
-/** "11,0 x 11,2" (metros) → { largura_cm, profundidade_cm }. */
-function dimensoesParaCm(txt?: string | null): { largura_cm: number; profundidade_cm: number } {
-  const nums = String(txt ?? "").replace(",", ".").match(/[\d.]+/g)?.map(Number) ?? [];
-  const l = nums[0] ? Math.round(nums[0] * 100) : 1000;
-  const p = nums[1] ? Math.round(nums[1] * 100) : 800;
-  return { largura_cm: l, profundidade_cm: p };
+/** "11,0 x 11,2" (metros) → { largura_cm, profundidade_cm }. `null` quando não dá
+ *  para ler os dois números — quem chama decide o que fazer (antes virava 10 × 8 m
+ *  em silêncio e o projeto nascia com a sala errada). */
+export function dimensoesParaCm(txt?: string | null): { largura_cm: number; profundidade_cm: number } | null {
+  const nums = String(txt ?? "").replace(/,/g, ".").match(/\d+(?:\.\d+)?/g)?.map(Number) ?? [];
+  const [l, p] = nums;
+  if (!(l > 0) || !(p > 0)) return null;
+  return { largura_cm: Math.round(l * 100), profundidade_cm: Math.round(p * 100) };
 }
 
-/** Converte uma solicitação em projeto editável e marca a solicitação. */
-export async function converterSolicitacaoEmProjeto(s: Solicitacao): Promise<Projeto> {
+/** Converte uma solicitação em projeto editável e marca a solicitação.
+ *  `dimensoes` só é necessário quando o texto do síndico não é legível. */
+export async function converterSolicitacaoEmProjeto(
+  s: Solicitacao,
+  dimensoes?: { largura_cm: number; profundidade_cm: number },
+): Promise<Projeto> {
   if (!sb) throw new Error("Supabase não configurado");
-  const { largura_cm, profundidade_cm } = dimensoesParaCm(s.dimensoes);
+  const medida = dimensoes ?? dimensoesParaCm(s.dimensoes);
+  if (!medida) throw new Error(`Não consegui ler as dimensões "${s.dimensoes}".`);
+  const { largura_cm, profundidade_cm } = medida;
   const foto = (s.anexos ?? []).find((a) => a.tipo === "foto")?.dataUrl ?? null;
   const obs = [
     s.visao && `Visão do síndico: ${s.visao}`,
@@ -243,7 +264,11 @@ export async function obterConfigConsultor(): Promise<ConfigConsultor | null> {
 export async function salvarConfigConsultor(patch: ConfigConsultor): Promise<void> {
   if (!sb) throw new Error("Supabase não configurado");
   const { id: _i, atualizado_em: _a, ...limpo } = patch;
-  const { error } = await sb.from("config_consultor").update({ ...limpo, atualizado_em: new Date().toISOString() }).eq("id", 1);
+  // upsert, não update: se a linha semente (id=1) não existir, um update acertaria
+  // zero linhas sem erro e a tela diria "salvo" tendo perdido tudo.
+  const { error } = await sb
+    .from("config_consultor")
+    .upsert({ ...limpo, id: 1, atualizado_em: new Date().toISOString() }, { onConflict: "id" });
   if (error) throw error;
 }
 

@@ -2,9 +2,12 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import Shell from "../ui/Shell";
+import LinkFormulario from "../ui/LinkFormulario";
+import { useLibrary } from "../store/libraryStore";
 import { BRL } from "../lib/units";
 import {
-  listarSolicitacoes, converterSolicitacaoEmProjeto, atualizarStatusSolicitacao, online,
+  listarSolicitacoes, obterSolicitacao, converterSolicitacaoEmProjeto,
+  atualizarStatusSolicitacao, dimensoesParaCm, online,
 } from "../lib/supabase";
 import type { Solicitacao } from "../lib/types";
 
@@ -19,6 +22,7 @@ function dataBR(iso?: string) {
 
 export default function SolicitacoesScreen() {
   const nav = useNavigate();
+  const config = useLibrary((s) => s.config);
   const [lista, setLista] = useState<Solicitacao[]>([]);
   const [sel, setSel] = useState<Solicitacao | null>(null);
   const [carregando, setCarregando] = useState(true);
@@ -33,10 +37,36 @@ export default function SolicitacoesScreen() {
   }
   useEffect(() => { if (online) void recarregar(); else setCarregando(false); }, []);
 
+  // A lista vem sem `anexos`; a planta e as fotos só descem ao abrir o detalhe.
+  async function selecionar(s: Solicitacao) {
+    setSel(s); setErro(null);
+    if (!s.id || s.anexos !== undefined) return;
+    try {
+      const completa = await obterSolicitacao(s.id);
+      if (completa) setSel((atual) => (atual?.id === s.id ? completa : atual));
+    } catch (e) { setErro("Não consegui carregar os anexos. " + (e as Error).message); }
+  }
+
   async function converter(s: Solicitacao) {
     if (!confirm(`Converter "${s.condominio}" em um projeto editável?`)) return;
+    // O síndico digita em texto livre; se não der para ler os dois números, pergunta
+    // em vez de inventar uma sala de 10 × 8 m.
+    let medida = dimensoesParaCm(s.dimensoes);
+    if (!medida) {
+      const resposta = prompt(
+        `Não consegui ler as dimensões enviadas ("${s.dimensoes}").\n\nDigite largura × comprimento em metros (ex.: 11 x 11,2):`,
+        s.dimensoes ?? "",
+      );
+      if (resposta == null) return;
+      medida = dimensoesParaCm(resposta);
+      if (!medida) { setErro("Dimensões inválidas — use o formato 11 x 11,2 (metros)."); return; }
+    }
     setBusy(true); setErro(null);
-    try { const p = await converterSolicitacaoEmProjeto(s); nav(`/projeto/${p.id}/leitura`); }
+    try {
+      const completa = s.anexos === undefined && s.id ? (await obterSolicitacao(s.id)) ?? s : s;
+      const p = await converterSolicitacaoEmProjeto(completa, medida);
+      nav(`/projeto/${p.id}/leitura`);
+    }
     catch (e) { setErro((e as Error).message); setBusy(false); }
   }
   async function arquivar(s: Solicitacao) {
@@ -57,12 +87,17 @@ export default function SolicitacoesScreen() {
 
       {erro && <div style={{ color: "#e88", marginBottom: 12 }}>{erro}</div>}
       {carregando ? <div style={{ color: "var(--muted)" }}>Carregando…</div>
-        : lista.length === 0 ? <div style={{ color: "var(--muted)" }}>Nenhuma solicitação ainda. Compartilhe o link do formulário com os síndicos.</div>
+        : lista.length === 0 ? (
+          <div style={{ display: "grid", gap: 14, maxWidth: 620 }}>
+            <div style={{ color: "var(--muted)" }}>Nenhuma solicitação ainda. Mande o link do formulário para os síndicos.</div>
+            <LinkFormulario config={config} />
+          </div>
+        )
         : (
         <div style={{ display: "grid", gridTemplateColumns: "minmax(280px, 360px) 1fr", gap: 18, alignItems: "start" }}>
           <div style={{ display: "grid", gap: 8 }}>
             {lista.map((s) => (
-              <button key={s.id} className="card card-btn" onClick={() => setSel(s)}
+              <button key={s.id} className="card card-btn" onClick={() => void selecionar(s)}
                 style={{ padding: 14, borderColor: sel?.id === s.id ? "var(--gold)" : "var(--line-2)", opacity: s.status === "arquivada" ? 0.55 : 1 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
                   <span style={{ fontWeight: 700 }}>{s.condominio}</span>

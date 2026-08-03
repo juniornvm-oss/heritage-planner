@@ -4,7 +4,8 @@ import Shell from "../ui/Shell";
 import { criarProjeto, atualizarProjeto, obterProjeto, online } from "../lib/supabase";
 import { lerPlanta } from "../lib/planta";
 import { BRL } from "../lib/units";
-import { TAXA_ASSESSORIA, type Cena, type PlantaFundo, type Projeto } from "../lib/types";
+import { useLibrary } from "../store/libraryStore";
+import { taxaDe, taxaLabel, type Cena, type PlantaFundo, type Projeto } from "../lib/types";
 
 // ── Componentes de campo ───────────────────────────────────────────────
 const Campo = ({ label, children }: { label: string; children: React.ReactNode }) => (
@@ -87,6 +88,7 @@ async function lerFotoReduzida(file: File): Promise<string> {
 export default function LeituraScreen() {
   const { id } = useParams();
   const nav = useNavigate();
+  const taxa = taxaDe(useLibrary((s) => s.config));
   const editando = !!id && id !== "heritage";
 
   const [f, setF] = useState({ ...VAZIO });
@@ -233,7 +235,7 @@ export default function LeituraScreen() {
             <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 14, alignItems: "end" }}>
               <Campo label="Orçamento-teto"><Moeda valor={orcamento} onChange={setOrcamento} /></Campo>
               <div style={{ fontSize: 13, color: "var(--gold)", paddingBottom: 12 }}>
-                Honorário da assessoria (0,5%): <b>{BRL(Math.round(teto * TAXA_ASSESSORIA))}</b>
+                Honorário da assessoria ({taxaLabel(taxa)}): <b>{BRL(Math.round(teto * taxa))}</b>
               </div>
             </div>
           </Secao>

@@ -16,7 +16,17 @@ export const CENARIOS: Record<Cenario, { label: string; cor: string; ordem: numb
   premium: { label: "Premium", cor: "#8B78BC", ordem: 3 },
 };
 
-export const TAXA_ASSESSORIA = 0.005; // 0,5% do teto do condomínio
+export const TAXA_ASSESSORIA = 0.005; // 0,5% do teto do condomínio (padrão)
+
+/** Honorário efetivo (fração) — vem do Cadastro do consultor; cai no padrão se vazio. */
+export const taxaDe = (c?: { honorario_pct?: number | null } | null): number => {
+  const pct = Number(c?.honorario_pct);
+  return Number.isFinite(pct) && pct > 0 ? pct / 100 : TAXA_ASSESSORIA;
+};
+
+/** Fração → rótulo pt-BR ("0,5%"). */
+export const taxaLabel = (taxa: number): string =>
+  (taxa * 100).toLocaleString("pt-BR", { maximumFractionDigits: 2 }) + "%";
 
 /** Categorias e subcategorias do catálogo de equipamentos. */
 export const CATEGORIAS_EQUIP: Record<string, string[]> = {

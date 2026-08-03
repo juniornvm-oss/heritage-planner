@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import Shell from "../ui/Shell";
-import { listarProjetos, online, criarProjeto } from "../lib/supabase";
+import { listarProjetos, online } from "../lib/supabase";
 import { heritageProjeto } from "../lib/seed";
 import { BRL } from "../lib/units";
-import { TAXA_ASSESSORIA, type Projeto } from "../lib/types";
+import { taxaDe, taxaLabel, type Projeto } from "../lib/types";
 import {
   FASES, progressoProjeto, statusDaFase, STATUS_LABEL, STATUS_COR, type Fase, type StatusFase,
 } from "../lib/fases";
+import { useLibrary } from "../store/libraryStore";
 
 const PILARES = [
   { titulo: "Custo-benefício", nota: "Cada real no equipamento certo" },
@@ -18,26 +19,13 @@ const PILARES = [
 
 export default function HomeScreen() {
   const nav = useNavigate();
+  const taxa = taxaDe(useLibrary((s) => s.config));
   const [projetos, setProjetos] = useState<Projeto[]>([]);
   const [carregando, setCarregando] = useState(true);
   const [ativoId, setAtivoId] = useState<string>("heritage");
-  const [dupBusy, setDupBusy] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
 
   const heritage = useMemo(() => heritageProjeto(), []);
-
-  // Abre o Heritage como projeto REAL e editável: cria uma vez, depois reabre o mesmo.
-  async function abrirHeritage() {
-    if (!online) { setErro("Configure o Supabase para editar e salvar."); return; }
-    setDupBusy(true); setErro(null);
-    try {
-      const existente = projetos.find((p) => (p.nome ?? "").trim().toLowerCase() === "heritage");
-      if (existente?.id) { nav(`/projeto/${existente.id}`); return; }
-      const base = heritageProjeto();
-      const p = await criarProjeto({ nome: "Heritage", orcamento_teto: base.orcamento_teto, cena: base.cena });
-      nav(`/projeto/${p.id}`);
-    } catch (e) { setErro((e as Error).message); setDupBusy(false); }
-  }
 
   useEffect(() => {
     (async () => {
@@ -45,8 +33,9 @@ export default function HomeScreen() {
         const ps = await listarProjetos();
         setProjetos(ps);
         if (ps[0]?.id) setAtivoId(ps[0].id);
-      } catch {
-        /* offline: fica só com o modelo Heritage */
+      } catch (e) {
+        // Offline/sem permissão: fica só com o modelo Heritage, mas diz por quê.
+        if (online) setErro("Não consegui carregar seus projetos. " + (e as Error).message);
       } finally {
         setCarregando(false);
       }
@@ -71,7 +60,7 @@ export default function HomeScreen() {
         <p style={{ color: "var(--muted)", fontSize: 15, maxWidth: 680, marginTop: 12, lineHeight: 1.6 }}>
           Do diagnóstico ao dossiê executivo: uma trilha em quatro fases que transforma o
           orçamento-teto na melhor academia possível — pronta para o engenheiro e o arquiteto
-          executarem. Honorário de <b style={{ color: "var(--text)" }}>{(TAXA_ASSESSORIA * 100).toLocaleString("pt-BR")}%</b> do teto de investimento.
+          executarem. Honorário de <b style={{ color: "var(--text)" }}>{taxaLabel(taxa)}</b> do teto de investimento.
         </p>
 
         {/* Pilares */}
@@ -140,19 +129,21 @@ export default function HomeScreen() {
             Modo local (Supabase não configurado) — exibindo apenas o modelo Heritage.
           </p>
         )}
-        <p style={{ color: "var(--muted)", fontSize: 12.5, marginBottom: 12 }}>
-          O <b style={{ color: "#c9c9c4" }}>Heritage</b> é o projeto de <b style={{ color: "var(--gold)" }}>referência</b> — o estudo que deu origem a esta plataforma. Fica aqui só para consulta. Para tocar o seu, comece pela <b style={{ color: "var(--gold)" }}>Nova leitura</b> e siga a trilha.
-        </p>
+        {!temHeritageReal && (
+          <p style={{ color: "var(--muted)", fontSize: 12.5, marginBottom: 12 }}>
+            O <b style={{ color: "#c9c9c4" }}>Heritage</b> é o projeto de <b style={{ color: "var(--gold)" }}>referência</b> — o estudo que deu origem a esta plataforma. Fica aqui só para consulta. Para tocar o seu, comece pela <b style={{ color: "var(--gold)" }}>Nova leitura</b> e siga a trilha.
+          </p>
+        )}
         {erro && <p style={{ color: "var(--red)", fontSize: 12.5, marginBottom: 12 }}>{erro}</p>}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 16 }}>
-          <ProjetoCard projeto={heritage} modelo onAbrir={() => nav("/projeto/heritage")} onSelecionar={() => setAtivoId("heritage")} ativo={ativoId === "heritage"} />
-          {carregando && <div style={{ color: "var(--muted)", alignSelf: "center" }}>Carregando…</div>}
-          {projetos.map((p) => (
-            <ProjetoCard key={p.id} projeto={p}
+          {/* `todos` já esconde o modelo local quando existe um Heritage real no banco. */}
+          {todos.map((p) => (
+            <ProjetoCard key={p.id} projeto={p} taxa={taxa} modelo={p.id === "heritage"}
               onAbrir={() => nav(`/projeto/${p.id}`)}
               onSelecionar={() => setAtivoId(p.id!)}
               ativo={ativoId === p.id} />
           ))}
+          {carregando && <div style={{ color: "var(--muted)", alignSelf: "center" }}>Carregando…</div>}
         </div>
       </section>
     </Shell>
@@ -199,9 +190,8 @@ function StatusPill({ status }: { status: StatusFase }) {
 }
 
 // ── Card de projeto ──────────────────────────────────────────────
-function ProjetoCard({ projeto, modelo, ativo, onAbrir, onSelecionar, onDuplicar, dupBusy }: {
-  projeto: Projeto; modelo?: boolean; ativo?: boolean; onAbrir: () => void; onSelecionar: () => void;
-  onDuplicar?: () => void; dupBusy?: boolean;
+function ProjetoCard({ projeto, taxa, modelo, ativo, onAbrir, onSelecionar }: {
+  projeto: Projeto; taxa: number; modelo?: boolean; ativo?: boolean; onAbrir: () => void; onSelecionar: () => void;
 }) {
   const itens = projeto.cena?.itens ?? [];
   const total = itens.reduce((s, i) => s + (i.preco || 0), 0);
@@ -229,7 +219,7 @@ function ProjetoCard({ projeto, modelo, ativo, onAbrir, onSelecionar, onDuplicar
 
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginTop: 2 }}>
         <div style={{ fontSize: 13, color: "var(--gold)", fontWeight: 700 }}>{BRL(total)}</div>
-        {teto > 0 && <div style={{ fontSize: 11, color: "var(--muted)" }}>Teto {BRL(teto)} · 0,5% {BRL(Math.round(teto * TAXA_ASSESSORIA))}</div>}
+        {teto > 0 && <div style={{ fontSize: 11, color: "var(--muted)" }}>Teto {BRL(teto)} · {taxaLabel(taxa)} {BRL(Math.round(teto * taxa))}</div>}
       </div>
 
       <div style={{ display: "flex", gap: 8, marginTop: 2 }}>

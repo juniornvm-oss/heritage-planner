@@ -10,7 +10,8 @@ import { lerCotacoes } from "../lib/readers";
 import { heritageProjeto } from "../lib/seed";
 import { resumo } from "../lib/validation";
 import { BRL } from "../lib/units";
-import { CENARIOS, TAXA_ASSESSORIA, type Cenario, type Cotacao, type Fornecedor, type Projeto } from "../lib/types";
+import { useLibrary } from "../store/libraryStore";
+import { CENARIOS, taxaDe, taxaLabel, type Cenario, type Cotacao, type Fornecedor, type Projeto } from "../lib/types";
 
 const Campo = ({ label, children }: { label: string; children: React.ReactNode }) => (
   <label style={{ display: "grid", gap: 5, minWidth: 0 }}>
@@ -38,6 +39,7 @@ const Secao = ({ n, titulo, desc, right, children }: { n: string; titulo: string
 export default function CuradoriaScreen() {
   const { id } = useParams();
   const nav = useNavigate();
+  const taxa = taxaDe(useLibrary((s) => s.config));
   const ehHeritage = id === "heritage";
   const podeCotar = online && !!id && !ehHeritage;
 
@@ -160,7 +162,7 @@ export default function CuradoriaScreen() {
               })}
             </div>
             {teto > 0 && <div style={{ fontSize: 12, color: "var(--muted)" }}>
-              Teto {BRL(teto)} · Honorário 0,5% {BRL(Math.round(teto * TAXA_ASSESSORIA))} · {projeto.cena?.itens.length ?? 0} equipamentos
+              Teto {BRL(teto)} · Honorário {taxaLabel(taxa)} {BRL(Math.round(teto * taxa))} · {projeto.cena?.itens.length ?? 0} equipamentos
             </div>}
           </Secao>
         )}

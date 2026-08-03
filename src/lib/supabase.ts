@@ -243,7 +243,11 @@ export async function obterConfigConsultor(): Promise<ConfigConsultor | null> {
 export async function salvarConfigConsultor(patch: ConfigConsultor): Promise<void> {
   if (!sb) throw new Error("Supabase não configurado");
   const { id: _i, atualizado_em: _a, ...limpo } = patch;
-  const { error } = await sb.from("config_consultor").update({ ...limpo, atualizado_em: new Date().toISOString() }).eq("id", 1);
+  // upsert, não update: se a linha semente (id=1) não existir, um update acertaria
+  // zero linhas sem erro e a tela diria "salvo" tendo perdido tudo.
+  const { error } = await sb
+    .from("config_consultor")
+    .upsert({ ...limpo, id: 1, atualizado_em: new Date().toISOString() }, { onConflict: "id" });
   if (error) throw error;
 }
 

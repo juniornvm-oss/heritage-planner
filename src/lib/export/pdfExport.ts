@@ -6,7 +6,7 @@ import { BRL, formatLength } from "../units";
 import { areaPoligonoM2 } from "../geometria";
 import {
   CENARIO_DEF, classificacaoPendente, composicaoZonas, detalheCenarios,
-  especificacaoDaZona, explicarItem,
+  especificacaoDaZona, exerciciosDaCena, explicarItem,
 } from "../curadoria";
 
 // Paleta do dossiê
@@ -307,9 +307,16 @@ export async function montarDossie(
   if (cena.itens.length) {
     secao("04 · Memorial dos Equipamentos");
     paragrafo(
-      "Um verbete por equipamento, agrupado por categoria: o que é, o que trabalha, por que está neste projeto e o que exige atenção. A numeração é a mesma da planta e da lista técnica.",
+      "Um verbete por equipamento, agrupado por categoria: o que é, o que trabalha, por que está neste projeto, o que exige atenção e os exercícios que ele executa. A numeração é a mesma da planta e da lista técnica.",
       9, MUTED,
     );
+    const totalEx = exerciciosDaCena(cena, (it) => (it.equipamentoId && catId.get(it.equipamentoId)) || catNome.get(it.nome));
+    if (totalEx.length) {
+      paragrafo(
+        `Somados, os equipamentos deste projeto executam ${totalEx.length} exercícios resistidos de musculação distintos. A lista de cada verbete conta apenas exercícios resistidos feitos no próprio aparelho — exercícios de peso corporal, alongamento e mobilidade não entram, e acessórios não são contabilizados.`,
+        9, MUTED,
+      );
+    }
     y -= 6;
     for (const c of comp) {
       ensure(56);
@@ -351,6 +358,9 @@ export async function montarDossie(
         campo("Trabalha", ex.trabalha, M + 24, CW - 24, 88);
         campo("Por que está aqui", ex.indicacao, M + 24, CW - 24, 88);
         campo("Atenção", ex.atencao, M + 24, CW - 24, 88);
+        if (ex.exercicios.length) {
+          campo(`Exercícios (${ex.exercicios.length})`, ex.exercicios.join("  ·  "), M + 24, CW - 24, 88);
+        }
         if (ex.detalhes) campo("Detalhes", ex.detalhes, M + 24, CW - 24, 88);
         y -= 2;
         page.drawLine({ start: { x: M, y }, end: { x: A4.w - M, y }, thickness: 0.4, color: LINE });

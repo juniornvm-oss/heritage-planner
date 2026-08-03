@@ -14,7 +14,7 @@ import { snapCm } from "../lib/canvas";
 import { BRL, formatLength, parseLength } from "../lib/units";
 import { ZONAS, CENARIOS, taxaDe, MATERIAIS_PISO, ELEMENTOS_PAREDE, MOBILIARIO_CATALOGO, ACESSORIOS_CATALOGO, LADOS_PADRAO, type AcessorioProjeto, type LadoRect, type MaterialPiso, type TipoElementoParede, type Zona, type Cenario, type ItemPosicionado, type Equipamento, type AreaAcabamento, type ElementoParede, type ItemInfraestrutura } from "../lib/types";
 import { areaPoligonoM2, perimetroCm, bboxPoligono, ehRetangulo, retanguloParaPontos, transladar, m2 } from "../lib/geometria";
-import { CENARIO_DEF, ESPEC_ZONA, cenarioSugerido, composicaoZonas, detalheCenarios, explicarItem } from "../lib/curadoria";
+import { CENARIO_DEF, ESPEC_ZONA, cenarioSugerido, composicaoZonas, detalheCenarios, explicarItem, normalizarExercicios } from "../lib/curadoria";
 import { gerarPromptVista } from "../lib/promptVista";
 import { uploadOrcamento, urlOrcamento, removerOrcamentoArquivo, online } from "../lib/supabase";
 
@@ -1211,6 +1211,9 @@ function FichaEquipamento({ item, numero }: { item: ItemPosicionado; numero: num
           <div><b style={{ color: "var(--gold)" }}>TRABALHA · </b>{explicacao.trabalha}</div>
           <div><b style={{ color: "var(--gold)" }}>POR QUE ESTÁ AQUI · </b>{explicacao.indicacao}</div>
           <div><b style={{ color: "var(--gold)" }}>ATENÇÃO · </b>{explicacao.atencao}</div>
+          {explicacao.exercicios.length > 0 && (
+            <div><b style={{ color: "var(--gold)" }}>EXERCÍCIOS ({explicacao.exercicios.length}) · </b>{explicacao.exercicios.join(" · ")}</div>
+          )}
           <div style={{ fontSize: 10.5, color: "#6e6e73", marginTop: 2 }}>
             {explicacao.padrao
               ? "Texto padrão da base técnica. Os campos abaixo substituem o que você escrever neles."
@@ -1227,6 +1230,23 @@ function FichaEquipamento({ item, numero }: { item: ItemPosicionado; numero: num
       <Bloco label="ONDE NÃO UTILIZAR / RESTRIÇÕES (substitui “atenção”)">
         <CampoTexto valor={item.restricoes ?? ""} linhas={3} placeholder="Ex.: não usar sem instrutor; contraindicado para reabilitação de joelho…"
           onSet={(v) => updateItem(item.id, { restricoes: v || null })} />
+      </Bloco>
+
+      <Bloco label={`EXERCÍCIOS DE MUSCULAÇÃO (${explicacao.exercicios.length}) — um por linha`}>
+        <CampoTexto valor={(item.exercicios ?? []).join("\n")} linhas={5}
+          placeholder={explicacao.exercicios.length
+            ? "Em branco, o Dossiê usa a lista da base técnica (acima). Escreva aqui para substituí-la."
+            : "Este equipamento não tem lista padrão — só entram exercícios resistidos feitos no próprio aparelho."}
+          onSet={(v) => {
+            const lista = normalizarExercicios(v.split("\n"));
+            updateItem(item.id, { exercicios: lista.length ? lista : null });
+          }} />
+        {!item.exercicios?.length && explicacao.exercicios.length > 0 && (
+          <button className="btn" style={{ padding: "4px 9px", fontSize: 10.5, marginTop: 6 }}
+            onClick={() => updateItem(item.id, { exercicios: explicacao.exercicios })}>
+            ⧉ Copiar a lista padrão para editar
+          </button>
+        )}
       </Bloco>
 
       <Bloco label="DEMAIS DETALHES">

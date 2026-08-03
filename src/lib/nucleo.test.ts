@@ -9,7 +9,8 @@ import { resumo } from "./validation";
 import { montarDossie } from "./export/pdfExport";
 import {
   baseDoNome, cenarioSugerido, classificacaoPendente, composicaoZonas,
-  detalheCenarios, especificacaoDaZona, explicarItem,
+  detalheCenarios, especificacaoDaZona, exerciciosDaCena, exerciciosDoItem,
+  explicarItem, normalizarExercicios,
 } from "./curadoria";
 import { heritageProjeto } from "./seed";
 
@@ -217,5 +218,52 @@ describe("curadoria — especificação e explicação", () => {
     expect(new TextDecoder().decode(bytes.slice(0, 5))).toBe("%PDF-");
     // Memorial + especificações fazem o documento crescer bem acima da versão só-tabela.
     expect(bytes.length).toBeGreaterThan(20000);
+  });
+});
+
+describe("curadoria — exercícios de musculação por equipamento", () => {
+  const itemDe = (nome: string) => heritageProjeto().cena!.itens.find((i) => i.nome === nome)!;
+
+  it("lista os exercícios resistidos das máquinas e dos bancos", () => {
+    expect(exerciciosDoItem(itemDe("Leg Press 45°")).length).toBeGreaterThan(3);
+    expect(exerciciosDoItem(itemDe("Puxada + Remada"))).toContain("Puxada frontal com pegada aberta");
+    expect(exerciciosDoItem(itemDe("Banco 0-90°"))).toContain("Supino inclinado com halteres");
+  });
+
+  it("não inventa exercício onde não se faz musculação", () => {
+    // Ergômetro, móvel de guarda e área de solo ficam de fora — a regra é só
+    // exercício RESISTIDO feito no próprio equipamento.
+    for (const nome of ["Esteira", "Bike Horizontal", "Elíptico", "Escada", "Estante Dumbbells", "Torre Halteres", "Colchonetes", "Espaldar"]) {
+      expect(exerciciosDoItem(itemDe(nome))).toEqual([]);
+    }
+  });
+
+  it("a ficha do projeto e o catálogo vencem a base técnica, nessa ordem", () => {
+    const item = itemDe("Leg Press 45°");
+    const doCatalogo = { nome: "Leg Press 45°", largura_cm: 246, profundidade_cm: 158, zona: "forca" as const, preco: 0, exercicios: ["Leg press do fornecedor"] };
+    expect(exerciciosDoItem(item, doCatalogo)).toEqual(["Leg press do fornecedor"]);
+    expect(exerciciosDoItem({ ...item, exercicios: ["Só este"] }, doCatalogo)).toEqual(["Só este"]);
+    // Lista vazia não conta como override — cai de volta no padrão.
+    expect(exerciciosDoItem({ ...item, exercicios: [] }).length).toBeGreaterThan(3);
+  });
+
+  it("limpa a lista digitada: sem vazios, sem repetido, na ordem escrita", () => {
+    expect(normalizarExercicios(["  Agachamento  ", "", "agachamento", "Leg press", "   "]))
+      .toEqual(["Agachamento", "Leg press"]);
+  });
+
+  it("conta os exercícios distintos da sala sem somar aparelhos repetidos", () => {
+    const c = heritageProjeto().cena!;
+    const distintos = exerciciosDaCena(c);
+    const somaBruta = c.itens.reduce((s, i) => s + exerciciosDoItem(i).length, 0);
+    expect(distintos.length).toBeGreaterThan(30);
+    // Há dois bancos 0-90° no modelo: a soma bruta repete, a lista distinta não.
+    expect(distintos.length).toBeLessThan(somaBruta);
+    expect(new Set(distintos).size).toBe(distintos.length);
+  });
+
+  it("a explicação do item carrega a lista para o memorial", () => {
+    expect(explicarItem(itemDe("Squat Machine")).exercicios).toContain("Agachamento guiado");
+    expect(explicarItem(itemDe("Esteira")).exercicios).toEqual([]);
   });
 });

@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import type { Projeto, Cena, Cenario, ItemPosicionado, PlantaFundo, AreaAcabamento, PlantaVetorial, EstruturaPlanta, Parede, Abertura, PilarPlanta, Cota, ElementoParede, ItemInfraestrutura, AcessorioProjeto, AnexoOrcamento, Zona } from "../lib/types";
 import { CENARIOS, ZONAS } from "../lib/types";
-import { cenarioSugerido } from "../lib/curadoria";
+import { cenarioSugerido, normalizarExercicios } from "../lib/curadoria";
 import { gerarEstrutura, estruturaVazia } from "../lib/estrutura";
 import { bboxPoligono, retanguloParaPontos, transladar } from "../lib/geometria";
 import { salvarCena } from "../lib/supabase";
@@ -26,6 +26,8 @@ function normalizarCena(bruta: Cena | null | undefined): Cena {
     ...it,
     cenario: it.cenario && CENARIOS[it.cenario] ? it.cenario : "balanceado",
     zona: it.zona && ZONAS[it.zona] ? it.zona : "livre",
+    // Lista de exercícios pode chegar do banco como null/string/lixo.
+    exercicios: Array.isArray(it.exercicios) ? normalizarExercicios(it.exercicios) : null,
   }));
   const acabamentos = (Array.isArray(base.acabamentos) ? base.acabamentos : []).map(normalizarArea);
   const cotas = Array.isArray(base.cotas) ? base.cotas : [];

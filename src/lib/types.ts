@@ -57,6 +57,7 @@ export interface Equipamento {
   codigo?: string | null; // código interno
   descricao?: string | null; // o que é / para que serve — sai no memorial do Dossiê
   cenario_padrao?: Cenario | null; // cenário sugerido ao posicionar no projeto
+  exercicios?: string[] | null; // exercícios resistidos executáveis no aparelho
   precisa_tomada?: boolean | null;
   voltagem?: "127" | "220" | "bivolt" | null;
   ponto_internet?: boolean | null;
@@ -89,7 +90,7 @@ export const CAMPOS_TECNICOS = [
   "categoria", "subcategoria", "altura_cm", "peso_kg", "fornecedor", "codigo",
   "precisa_tomada", "voltagem", "ponto_internet", "dist_parede_cm", "dist_lateral_cm",
   "dist_frontal_cm", "uso_frontal_cm", "uso_lateral_cm", "seguranca_cm", "obs", "ativo",
-  "lados", "dist_entrada_cm", "descricao", "cenario_padrao",
+  "lados", "dist_entrada_cm", "descricao", "cenario_padrao", "exercicios",
 ] as const;
 
 /** Fornecedor (planner.fornecedores) — global, reaproveitado entre projetos. */
@@ -162,6 +163,9 @@ export interface ItemPosicionado {
   funcao?: string | null; // função/uso deste equipamento no projeto
   restricoes?: string | null; // onde NÃO utilizar / restrições
   detalhes?: string | null; // demais detalhes (instalação, entrega, obs.)
+  /** Exercícios resistidos de musculação executáveis NESTE equipamento.
+   *  Sobrescreve o catálogo e a base técnica. */
+  exercicios?: string[] | null;
   // Transformações do editor profissional.
   flipH?: boolean;
   flipV?: boolean;

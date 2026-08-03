@@ -30,7 +30,8 @@ controlado por RLS). Sem ela, o app roda em modo local com o projeto "Heritage (
   Balanceado · Premium** (em lote por categoria, com sugestão técnica automática) e
   escreve a nota de cada categoria. É o que separa os três cenários no Dossiê.
 - **Biblioteca de equipamentos** — catálogo (com import de planilha/CSV), com
-  descrição ("o que é / para que serve") e cenário padrão por equipamento.
+  descrição ("o que é / para que serve"), cenário padrão e a lista de exercícios
+  de musculação de cada equipamento.
 - **Biblioteca de acabamentos** — pisos/paredes/revestimentos.
 
 ## Estrutura
@@ -40,7 +41,7 @@ src/
   lib/        types, units (cm), canvas (coordenadas/snapping), supabase,
               readers (planilha), planta (PDF/DWG→fundo), validation, export/pdfExport,
               curadoria (especificação das categorias, verbete de cada equipamento,
-              cenário sugerido)
+              exercícios resistidos por aparelho, cenário sugerido)
   store/      projetoStore (cena + undo/redo), libraryStore
   screens/    Projetos, NovoProjeto, Editor, Bibliotecas, OrientationGuard
   editor/     EditorCanvas (Konva)

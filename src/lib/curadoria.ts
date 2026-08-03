@@ -84,6 +84,10 @@ export interface BaseEquip {
   /** Trechos do nome que identificam o equipamento (minúsculo, sem acento). */
   chaves: string[];
   cenario: Cenario;
+  /** Exercícios RESISTIDOS de musculação executáveis no aparelho. Ausente
+   *  de propósito em ergômetros, móveis de guarda e área de solo: ali não se
+   *  faz exercício resistido, e inventar lista ali seria enganar o síndico. */
+  exercicios?: string[];
   oque: string;
   trabalha: string;
   indicacao: string;
@@ -95,6 +99,25 @@ export const BASE_EQUIP: BaseEquip[] = [
   // ── Força guiada ─────────────────────────────────────────────────────────
   {
     chaves: ["wire cross + smith", "cross + smith", "smith rack", "wire cross"],
+    exercicios: [
+      "Agachamento livre no Smith",
+      "Agachamento frontal no Smith",
+      "Afundo (passada) no Smith",
+      "Elevação pélvica com barra no Smith",
+      "Supino reto no Smith",
+      "Supino inclinado no Smith",
+      "Desenvolvimento de ombros no Smith",
+      "Remada curvada no Smith",
+      "Encolhimento de ombros no Smith",
+      "Panturrilha em pé no Smith",
+      "Puxada alta na polia",
+      "Remada baixa na polia",
+      "Crucifixo no cabo",
+      "Tríceps na polia alta",
+      "Rosca de bíceps na polia baixa",
+      "Elevação lateral na polia",
+      "Face pull na polia",
+    ],
     cenario: "essencial",
     oque:
       "Estação combinada: de um lado a barra guiada do Smith, que corre em trilho fixo; do outro, torres de polias reguláveis em altura. Uma só estrutura entrega agachamento, supino e dezenas de exercícios de cabo.",
@@ -106,6 +129,25 @@ export const BASE_EQUIP: BaseEquip[] = [
   },
   {
     chaves: ["cross over", "crossover", "polia dupla", "estacao de polias"],
+    exercicios: [
+      "Crucifixo no cabo pela polia alta",
+      "Crucifixo no cabo pela polia baixa",
+      "Crossover unilateral",
+      "Puxada alta unilateral",
+      "Remada na polia",
+      "Face pull",
+      "Elevação lateral na polia",
+      "Elevação frontal na polia",
+      "Tríceps na corda",
+      "Tríceps unilateral com pegada supinada",
+      "Rosca de bíceps na polia",
+      "Rosca martelo na corda",
+      "Pull-over na polia alta",
+      "Extensão de quadril na polia (coice de glúteo)",
+      "Abdução de quadril na polia",
+      "Rotação de tronco na polia (lenhador)",
+      "Abdominal na polia alta",
+    ],
     cenario: "premium",
     oque:
       "Torre de polias com dois braços reguláveis em altura e ângulo. A carga vem por cabo, então a resistência é constante do início ao fim do movimento.",
@@ -117,6 +159,19 @@ export const BASE_EQUIP: BaseEquip[] = [
   },
   {
     chaves: ["puxada + remada", "puxada e remada", "pulley", "puxada", "remada"],
+    exercicios: [
+      "Puxada frontal com pegada aberta",
+      "Puxada frontal com pegada supinada",
+      "Puxada com triângulo (pegada neutra)",
+      "Puxada unilateral",
+      "Pull-over na polia alta",
+      "Remada sentada com pegada neutra",
+      "Remada sentada com pegada aberta",
+      "Remada sentada unilateral",
+      "Face pull na polia alta",
+      "Tríceps na polia alta",
+      "Rosca de bíceps na polia baixa",
+    ],
     cenario: "essencial",
     oque:
       "Estação dupla de costas: em cima, a puxada alta (movimento de trazer a barra até o peito); embaixo, a remada sentada horizontal.",
@@ -128,6 +183,14 @@ export const BASE_EQUIP: BaseEquip[] = [
   },
   {
     chaves: ["leg press"],
+    exercicios: [
+      "Leg press 45° tradicional",
+      "Leg press com pés altos (ênfase em glúteo e posterior)",
+      "Leg press com pés baixos (ênfase em quadríceps)",
+      "Leg press com pés afastados (ênfase em adutores)",
+      "Leg press unilateral",
+      "Panturrilha no leg press",
+    ],
     cenario: "essencial",
     oque:
       "Plataforma inclinada a 45° na qual o morador empurra a carga com as pernas, sentado e apoiado no encosto.",
@@ -139,6 +202,14 @@ export const BASE_EQUIP: BaseEquip[] = [
   },
   {
     chaves: ["squat machine", "agachamento guiado", "hack"],
+    exercicios: [
+      "Agachamento guiado",
+      "Agachamento com pés à frente (ênfase em glúteo)",
+      "Agachamento sumô (ênfase em adutores)",
+      "Agachamento unilateral",
+      "Afundo na máquina",
+      "Panturrilha em pé na máquina",
+    ],
     cenario: "balanceado",
     oque:
       "Máquina de agachamento com trajetória guiada e apoio para ombros ou costas, que reproduz o agachamento livre sem exigir equilíbrio.",
@@ -150,6 +221,12 @@ export const BASE_EQUIP: BaseEquip[] = [
   },
   {
     chaves: ["leg extension", "extensora", "extensao de joelho"],
+    exercicios: [
+      "Extensão de joelhos bilateral",
+      "Extensão de joelhos unilateral",
+      "Extensão com pausa isométrica no topo",
+      "Extensão com ênfase excêntrica",
+    ],
     cenario: "balanceado",
     oque:
       "Cadeira com rolo à frente do tornozelo: sentado, o morador estende os joelhos contra a carga.",
@@ -161,6 +238,12 @@ export const BASE_EQUIP: BaseEquip[] = [
   },
   {
     chaves: ["leg curl", "flexora", "mesa flexora"],
+    exercicios: [
+      "Flexão de joelhos bilateral",
+      "Flexão de joelhos unilateral",
+      "Flexão com pausa isométrica",
+      "Flexão com ênfase excêntrica",
+    ],
     cenario: "balanceado",
     oque:
       "Mesa (deitado) ou cadeira (sentado) em que o morador flexiona os joelhos puxando o rolo contra a carga.",
@@ -172,6 +255,13 @@ export const BASE_EQUIP: BaseEquip[] = [
   },
   {
     chaves: ["elevacao pelvica", "hip thrust", "gluteo"],
+    exercicios: [
+      "Elevação pélvica bilateral",
+      "Elevação pélvica unilateral",
+      "Elevação pélvica com pausa isométrica no topo",
+      "Elevação pélvica com pés afastados (ênfase em glúteo médio)",
+      "Elevação pélvica com amplitude parcial (metade superior)",
+    ],
     cenario: "balanceado",
     oque:
       "Banco de apoio para as costas com almofada sobre o quadril: o morador eleva o quadril contra a carga, partindo do chão.",
@@ -183,6 +273,14 @@ export const BASE_EQUIP: BaseEquip[] = [
   },
   {
     chaves: ["abducao", "aducao", "adutor", "abdutor", "dual inner", "inner outer"],
+    exercicios: [
+      "Abdução de quadril sentado",
+      "Abdução com tronco inclinado à frente (ênfase em glúteo médio)",
+      "Abdução unilateral",
+      "Adução de quadril sentado",
+      "Adução unilateral",
+      "Adução com pausa isométrica",
+    ],
     cenario: "balanceado",
     oque:
       "Cadeira com apoios laterais para as coxas: abrir as pernas contra a carga (abdução) ou fechá-las (adução). Muitas vezes o mesmo aparelho faz as duas funções.",
@@ -194,6 +292,12 @@ export const BASE_EQUIP: BaseEquip[] = [
   },
   {
     chaves: ["delt raise", "elevacao lateral", "deltoide", "ombro"],
+    exercicios: [
+      "Elevação lateral bilateral",
+      "Elevação lateral unilateral",
+      "Elevação lateral com pausa isométrica",
+      "Elevação lateral parcial (metade inferior da amplitude)",
+    ],
     cenario: "premium",
     oque:
       "Máquina de elevação lateral: sentado, o morador afasta os braços do corpo contra almofadas, com trajetória guiada.",
@@ -205,6 +309,14 @@ export const BASE_EQUIP: BaseEquip[] = [
   },
   {
     chaves: ["supino maquina", "chest press", "peitoral", "voador", "peck"],
+    exercicios: [
+      "Supino reto na máquina",
+      "Supino inclinado na máquina",
+      "Supino unilateral",
+      "Crucifixo (voador) na máquina",
+      "Crucifixo unilateral",
+      "Voador inverso para posterior de ombro, nos aparelhos com regulagem para o movimento",
+    ],
     cenario: "essencial",
     oque:
       "Máquina de empurrar sentado (chest press) ou de fechar os braços à frente (voador), com trajetória guiada.",
@@ -216,6 +328,12 @@ export const BASE_EQUIP: BaseEquip[] = [
   },
   {
     chaves: ["triceps", "biceps", "rosca", "panturrilha", "abdominal", "lombar"],
+    exercicios: [
+      "Movimento principal do aparelho, bilateral",
+      "Versão unilateral, quando o aparelho permite",
+      "Variação com pausa isométrica",
+      "Variação com ênfase excêntrica",
+    ],
     cenario: "premium",
     oque: "Máquina de grupo muscular isolado, com trajetória guiada e ajuste de carga por pino.",
     trabalha: "O grupo indicado no nome do aparelho.",
@@ -309,6 +427,22 @@ export const BASE_EQUIP: BaseEquip[] = [
   },
   {
     chaves: ["banco 0-90", "banco regulavel", "banco ajustavel", "banco 0 90"],
+    exercicios: [
+      "Supino reto com halteres",
+      "Supino inclinado com halteres",
+      "Crucifixo reto",
+      "Crucifixo inclinado",
+      "Desenvolvimento de ombros sentado",
+      "Elevação lateral sentado",
+      "Remada unilateral apoiada (serrote)",
+      "Rosca direta sentada",
+      "Rosca inclinada",
+      "Rosca martelo sentado",
+      "Tríceps testa deitado",
+      "Tríceps francês sentado",
+      "Pull-over com halter",
+      "Encolhimento de ombros sentado",
+    ],
     cenario: "essencial",
     oque:
       "Banco com encosto regulável de 0° (horizontal) até 90° (vertical), normalmente com assento também ajustável.",
@@ -319,6 +453,14 @@ export const BASE_EQUIP: BaseEquip[] = [
   },
   {
     chaves: ["banco supino", "supino reto", "banco reto"],
+    exercicios: [
+      "Supino reto com barra",
+      "Supino com pegada fechada (ênfase em tríceps)",
+      "Supino reto com halteres",
+      "Crucifixo reto com halteres",
+      "Tríceps testa deitado com barra",
+      "Pull-over com barra ou halter",
+    ],
     cenario: "balanceado",
     oque: "Banco horizontal com suportes para a barra, para supino com peso livre.",
     trabalha: "Peitoral, ombro anterior e tríceps.",
@@ -328,6 +470,15 @@ export const BASE_EQUIP: BaseEquip[] = [
   },
   {
     chaves: ["banco declinado", "banco inclinado"],
+    exercicios: [
+      "Supino declinado com barra",
+      "Supino declinado com halteres",
+      "Crucifixo declinado",
+      "Supino inclinado com barra",
+      "Supino inclinado com halteres",
+      "Crucifixo inclinado",
+      "Tríceps testa no banco declinado",
+    ],
     cenario: "premium",
     oque: "Banco de ângulo fixo, inclinado ou declinado, para variação do supino com halteres ou barra.",
     trabalha: "Porção superior ou inferior do peitoral, conforme o ângulo.",
@@ -336,6 +487,20 @@ export const BASE_EQUIP: BaseEquip[] = [
   },
   {
     chaves: ["rack", "gaiola", "power rack", "squat rack"],
+    exercicios: [
+      "Agachamento livre com barra",
+      "Agachamento frontal",
+      "Agachamento sumô",
+      "Afundo (passada) com barra",
+      "Bom-dia (good morning)",
+      "Levantamento terra parcial (rack pull)",
+      "Remada curvada com barra",
+      "Desenvolvimento militar em pé",
+      "Supino reto com barra dentro do rack",
+      "Elevação pélvica com barra",
+      "Encolhimento de ombros com barra",
+      "Panturrilha em pé com barra",
+    ],
     cenario: "balanceado",
     oque: "Estrutura de quatro colunas com barras de segurança reguláveis, para agachamento e supino com peso livre.",
     trabalha: "Corpo inteiro, conforme o exercício.",
@@ -401,20 +566,48 @@ export interface ExplicacaoEquip {
   indicacao: string;
   atencao: string;
   detalhes?: string;
+  /** Exercícios resistidos de musculação executáveis no aparelho. Vazio quando
+   *  o equipamento não é de musculação (ergômetro, guarda, solo). */
+  exercicios: string[];
   /** true quando nada foi escrito na ficha e o texto veio 100% do padrão. */
   padrao: boolean;
+}
+
+/** Lista limpa: sem vazios, sem repetidos, na ordem em que foi escrita. */
+export function normalizarExercicios(lista?: string[] | null): string[] {
+  const vistos = new Set<string>();
+  const out: string[] = [];
+  for (const e of lista ?? []) {
+    const t = String(e || "").trim();
+    if (!t) continue;
+    const chave = normalizar(t);
+    if (vistos.has(chave)) continue;
+    vistos.add(chave);
+    out.push(t);
+  }
+  return out;
+}
+
+/** Exercícios do item: ficha do projeto > catálogo > base técnica. */
+export function exerciciosDoItem(item: ItemPosicionado, cat?: Equipamento | null): string[] {
+  const doItem = normalizarExercicios(item.exercicios);
+  if (doItem.length) return doItem;
+  const doCatalogo = normalizarExercicios(cat?.exercicios);
+  if (doCatalogo.length) return doCatalogo;
+  return normalizarExercicios(baseDoNome(item.nome)?.exercicios);
 }
 
 export function explicarItem(item: ItemPosicionado, cat?: Equipamento | null): ExplicacaoEquip {
   const b = baseDoNome(item.nome);
   const z = ESPEC_ZONA[item.zona] ?? ESPEC_ZONA.livre;
-  const daFicha = !!(item.funcao || item.restricoes || item.detalhes || cat?.descricao);
+  const daFicha = !!(item.funcao || item.restricoes || item.detalhes || item.exercicios?.length || cat?.descricao);
   return {
     oque: (cat?.descricao || "").trim() || b?.oque || z.oque,
     trabalha: b?.trabalha || "—",
     indicacao: (item.funcao || "").trim() || b?.indicacao || z.entrega,
     atencao: (item.restricoes || "").trim() || b?.atencao || z.operacao,
     detalhes: (item.detalhes || cat?.obs || "").trim() || undefined,
+    exercicios: exerciciosDoItem(item, cat),
     padrao: !daFicha,
   };
 }
@@ -447,6 +640,14 @@ export const CENARIO_DEF: Record<Cenario, DefCenario> = {
 };
 
 // ── 4. Leituras agregadas para o Dossiê ────────────────────────────────────
+
+/** Exercícios resistidos DISTINTOS que a sala inteira oferece (sem repetir o
+ *  que dois aparelhos iguais fazem). */
+export function exerciciosDaCena(cena: Cena, cat?: (it: ItemPosicionado) => Equipamento | null | undefined): string[] {
+  const todos: string[] = [];
+  for (const it of cena.itens ?? []) todos.push(...exerciciosDoItem(it, cat?.(it)));
+  return normalizarExercicios(todos);
+}
 
 export interface ComposicaoZona {
   zona: Zona;

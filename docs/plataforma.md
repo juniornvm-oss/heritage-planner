@@ -63,8 +63,13 @@ Essencial/Balanceado/Premium é só uma etiqueta por item. Regra good/better/bes
 
 O **conteúdo técnico** que explica essas escolhas vive em `src/lib/curadoria.ts`:
 especificação de cada categoria (zona), verbete de cada equipamento (o que é, o
-que trabalha, por que está no projeto, o que exige atenção) e o cenário sugerido
-por equipamento. É tudo padrão — o texto do consultor (ficha do item e nota da
+que trabalha, por que está no projeto, o que exige atenção, e os exercícios
+resistidos de musculação que ele executa) e o cenário sugerido por equipamento.
+
+A lista de exercícios cobre **só exercício resistido feito no próprio aparelho**.
+Ergômetro, móvel de guarda e área de solo ficam sem lista de propósito (`exercicios`
+ausente na base), e acessórios não entram — nada de peso corporal, alongamento ou
+mobilidade. É tudo padrão — o texto do consultor (ficha do item e nota da
 categoria) sempre vence o padrão, e o Dossiê imprime o que vencer.
 
 ## Fases de construção

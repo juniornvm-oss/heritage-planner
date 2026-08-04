@@ -27,7 +27,7 @@ onde vive no sistema e em que fase é construído.
 | 01 | Relatório de Diagnóstico | `projetos.perfil`/`infraestrutura` + seção no relatório | DB + tools |
 | 02 | Layout Funcional da Planta | Planner SVG em escala real | app (existe) |
 | 03 | Lista Técnica de Equipamentos | Itens do layout + catálogo (`equipamentos`), agrupados por categoria com a especificação de cada uma (`lib/curadoria.ts`) | app + DB |
-| 04 | 3+ Cotações por Categoria | `cotacoes` + `fornecedores` | DB (+ UI futura) |
+| 04 | 3+ Cotações por Categoria | PDF do fornecedor → leitura (`lib/orcamentoPdf.ts`) → conferência → `orcamentos` + `cotacoes` + `fornecedores`; comparativo por item e marcação da compra escolhida | app + DB |
 | 05 | Matriz de Priorização | impacto × valor percebido × necessidade por item | tools (+ UI futura) |
 | 06 | Cenários de Investimento | tag Essencial/Balanceado/Premium por item (Etapa 5 · Curadoria, em lote e com sugestão técnica) + totais e incrementos | app |
 | 07 | Planta Renderizada | Export "Imprimir/PDF" da planta | app (existe) |

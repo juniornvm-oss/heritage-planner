@@ -1,5 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
-import type { Projeto, Equipamento, Acabamento, Fornecedor, Cotacao } from "./types";
+import type { Projeto, Equipamento, Acabamento, Fornecedor, Cotacao, Orcamento } from "./types";
 import { CAMPOS_TECNICOS } from "./types";
 
 // Empacota a ficha técnica no jsonb `tecnico` (coluna aditiva 013) e separa as
@@ -157,9 +157,60 @@ export async function inserirCotacao(c: Cotacao): Promise<Cotacao> {
   return data as Cotacao;
 }
 
+export async function atualizarCotacao(id: string, patch: Partial<Cotacao>): Promise<void> {
+  if (!sb) throw new Error("Supabase não configurado");
+  const { id: _i, criado_em: _c, ...limpo } = patch;
+  const { error } = await sb.from("cotacoes").update(limpo).eq("id", id);
+  if (error) throw error;
+}
+
 export async function removerCotacao(id: string): Promise<void> {
   if (!sb) throw new Error("Supabase não configurado");
   const { error } = await sb.from("cotacoes").delete().eq("id", id);
+  if (error) throw error;
+}
+
+// ── Orçamentos em PDF (migração 016) ─────────────────────────────────────────
+
+export async function listarOrcamentos(projetoId: string): Promise<Orcamento[]> {
+  if (!sb) return [];
+  const { data, error } = await sb.from("orcamentos").select("*").eq("projeto_id", projetoId).order("criado_em");
+  if (error) return [];
+  return (data as Orcamento[]) || [];
+}
+
+/** Grava o cabeçalho + todas as linhas conferidas de uma proposta. */
+export async function inserirOrcamento(o: Orcamento, linhas: Cotacao[]): Promise<Orcamento> {
+  if (!sb) throw new Error("Supabase não configurado");
+  const { id: _id, criado_em: _c, ...cab } = o;
+  const { data, error } = await sb.from("orcamentos").insert(cab).select().single();
+  if (error) throw error;
+  const salvo = data as Orcamento;
+  if (linhas.length) {
+    const payload = linhas.map(({ id: _li, criado_em: _lc, ...l }) => ({
+      ...l, projeto_id: o.projeto_id, orcamento_id: salvo.id, fornecedor_id: o.fornecedor_id ?? null,
+    }));
+    const { error: e2 } = await sb.from("cotacoes").insert(payload);
+    if (e2) {
+      // Cabeçalho sem linhas é lixo — desfaz para não sujar a tela.
+      await sb.from("orcamentos").delete().eq("id", salvo.id!);
+      throw e2;
+    }
+  }
+  return salvo;
+}
+
+export async function atualizarOrcamento(id: string, patch: Partial<Orcamento>): Promise<void> {
+  if (!sb) throw new Error("Supabase não configurado");
+  const { id: _i, criado_em: _c, ...limpo } = patch;
+  const { error } = await sb.from("orcamentos").update(limpo).eq("id", id);
+  if (error) throw error;
+}
+
+/** Remove a proposta; as linhas caem junto pelo `on delete cascade`. */
+export async function removerOrcamento(id: string): Promise<void> {
+  if (!sb) throw new Error("Supabase não configurado");
+  const { error } = await sb.from("orcamentos").delete().eq("id", id);
   if (error) throw error;
 }
 

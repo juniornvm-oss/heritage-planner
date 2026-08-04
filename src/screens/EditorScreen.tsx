@@ -1417,9 +1417,29 @@ function CuradoriaPanel() {
         <div style={{ color: "var(--muted)", fontSize: 12.5, marginTop: 16 }}>Nenhum equipamento posicionado — adicione na Etapa 3 (Layout).</div>
       )}
 
+      <ParecerPanel />
       <InventarioPanel />
       <SecoesDossiePanel />
     </div>
+  );
+}
+
+// Parecer técnico: a defesa do layout, nas palavras do consultor.
+function ParecerPanel() {
+  const parecer = useProjeto((s) => s.cena.parecer ?? "");
+  const setParecer = useProjeto((s) => s.setParecer);
+  return (
+    <section className="card" style={{ padding: 14, marginTop: 16, display: "grid", gap: 8 }}>
+      <div>
+        <span className="brandface" style={{ fontSize: 16, color: "var(--gold)" }}>PARECER TÉCNICO</span>
+        <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 2 }}>
+          A sua defesa do layout — por que a sala está organizada assim. Sai no Dossiê logo depois da planta.
+        </div>
+      </div>
+      <CampoTexto valor={parecer} linhas={6}
+        placeholder="Ex.: A ergometria ocupa a face da vidraça para aproveitar a vista e a luz natural; a força guiada forma um circuito de membros inferiores no fundo da sala; o corredor central de 1 m garante circulação e rota de fuga…"
+        onSet={setParecer} />
+    </section>
   );
 }
 

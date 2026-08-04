@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import Shell from "../ui/Shell";
 import {
-  obterProjeto, online,
+  obterProjeto, online, salvarCena,
   listarFornecedores, inserirFornecedor, removerFornecedor,
   listarCotacoes, inserirCotacao, atualizarCotacao, removerCotacao,
   listarOrcamentos, inserirOrcamento, atualizarOrcamento, removerOrcamento,
@@ -224,6 +224,30 @@ export default function CuradoriaScreen() {
     } catch (e) { setErro((e as Error).message); }
   }
 
+  /** Leva as linhas ESCOLHIDAS de acessório para a cena do projeto — é de lá
+   *  que o Dossiê monta a tabela de acessórios. */
+  async function enviarAcessoriosAoProjeto() {
+    if (!projeto?.cena || !id) return;
+    const escolhidosAc = cotacoes.filter((c) => c.escolhida && c.tipo === "acessorio" && c.equipamento);
+    if (!escolhidosAc.length) { setErro("Marque primeiro (✓) as linhas de acessório escolhidas no comparativo."); return; }
+    setErro(null);
+    const atuais = [...(projeto.cena.acessorios ?? [])];
+    let novos = 0, atualizados = 0;
+    for (const c of escolhidosAc) {
+      const qtd = Math.max(1, Math.round(Number(c.qtd) || 1));
+      const preco_un = c.preco_un ?? (c.valor != null ? c.valor / qtd : 0);
+      const idx = atuais.findIndex((a) => a.nome.trim().toLowerCase() === c.equipamento!.trim().toLowerCase());
+      if (idx >= 0) { atuais[idx] = { ...atuais[idx], qtd, preco_un }; atualizados++; }
+      else { atuais.push({ id: crypto.randomUUID(), nome: c.equipamento!, qtd, preco_un }); novos++; }
+    }
+    const cenaNova = { ...projeto.cena, acessorios: atuais };
+    try {
+      await salvarCena(id, cenaNova);
+      setProjeto({ ...projeto, cena: cenaNova });
+      setStatus(`Acessórios no projeto: ${novos} novo(s), ${atualizados} atualizado(s) — já saem no Dossiê.`);
+    } catch (e) { setErro((e as Error).message); }
+  }
+
   async function abrirPdf(path?: string | null) {
     if (!path) { setErro("Esta proposta não tem arquivo guardado."); return; }
     try { window.open(await urlOrcamento(path), "_blank"); }
@@ -314,6 +338,11 @@ export default function CuradoriaScreen() {
                     <span className="chip" style={{ padding: "2px 9px", fontSize: 10.5, borderColor: "var(--green)", color: "var(--green)" }}>
                       Compra escolhida: {BRL(Math.round(escolhidas.total))} · {escolhidas.n} item(ns) · {escolhidas.fornecedores} fornecedor(es)
                     </span>
+                  )}
+                  {cotacoes.some((c) => c.escolhida && c.tipo === "acessorio") && (
+                    <button className="btn" style={{ padding: "4px 10px", fontSize: 11 }}
+                      title="Grava as linhas de acessório escolhidas na cena do projeto — é de lá que o Dossiê monta a tabela"
+                      onClick={() => void enviarAcessoriosAoProjeto()}>→ Enviar acessórios ao projeto</button>
                   )}
                 </div>
                 {orcamentos.length === 0 ? (

@@ -441,24 +441,29 @@ export interface ItemInventario {
 export interface OpcoesDossie {
   acabamentos?: boolean;   // revestimentos, espelhos e mobiliário
   capacidade?: boolean;    // capacidade & ocupação
-  cenarios?: boolean;      // 06 · cenários de investimento
-  matriz?: boolean;        // 05 · matriz de priorização
+  cenarios?: boolean;      // cenários de investimento
+  matriz?: boolean;        // matriz de priorização
   inventario?: boolean;    // inventário reaproveitado/residual
   acessorios?: boolean;    // lista de acessórios
+  marcas?: boolean;        // apresentação das marcas do projeto
+  exercicios?: boolean;    // exercícios contemplados pela academia
 }
 
 /** Padrão: tudo ligado (o dossiê completo). */
 export const OPCOES_DOSSIE_PADRAO: Required<OpcoesDossie> = {
-  acabamentos: true, capacidade: true, cenarios: true, matriz: true, inventario: true, acessorios: true,
+  acabamentos: true, capacidade: true, cenarios: true, matriz: true, inventario: true,
+  acessorios: true, marcas: true, exercicios: true,
 };
 
 export const ROTULO_SECAO_DOSSIE: Record<keyof OpcoesDossie, string> = {
   acabamentos: "Revestimentos, espelhos e mobiliário",
   capacidade: "Capacidade & ocupação",
-  cenarios: "06 · Cenários de investimento",
-  matriz: "05 · Matriz de priorização",
+  cenarios: "Cenários de investimento",
+  matriz: "Matriz de priorização",
   inventario: "Inventário (reaproveitado/residual)",
   acessorios: "Acessórios",
+  marcas: "Marcas do projeto",
+  exercicios: "Exercícios contemplados",
 };
 
 /** PDF de orçamento anexado ao projeto (arquivo no Storage; metadados na cena). */
@@ -548,6 +553,8 @@ export interface Cena {
   inventario?: ItemInventario[];
   /** Seções opcionais do Dossiê (ausente = tudo ligado). */
   dossie?: OpcoesDossie;
+  /** Parecer técnico do consultor — a defesa do layout, no Dossiê. */
+  parecer?: string | null;
 }
 
 /** Diagnóstico — perfil de uso do condomínio (planner.projetos.perfil jsonb). */

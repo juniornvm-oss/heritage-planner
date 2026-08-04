@@ -805,6 +805,21 @@ function ItemView({ it, zoom, selected, problema, listening, camadas, lamina, nu
             fontSize={13 / zoom} fontStyle="700" fill="#0C0C0E" listening={false} />
         </>
       )}
+      {/* faixas de orientação: banda suave em cada lado (entrada/frente/costas/
+          lateral), com a cor do papel — aparecem também na planta do Dossiê */}
+      {camadas !== "nada" && (Object.keys(geomLado) as LadoRect[]).map((k) => {
+        const g = geomLado[k], papel = lados[k], info = PAPEL_LADO[papel];
+        const horiz = g.ny !== 0; // topo/base → banda deitada
+        const esp = Math.max(4, Math.min(10, (horiz ? it.h_cm : it.w_cm) * 0.09));
+        const bx = horiz ? 0 : (g.nx < 0 ? 0 : it.w_cm - esp);
+        const by = horiz ? (g.ny < 0 ? 0 : it.h_cm - esp) : 0;
+        return (
+          <Rect key={`b${k}`} x={bx} y={by}
+            width={horiz ? it.w_cm : esp} height={horiz ? esp : it.h_cm}
+            fill={info.cor} opacity={papel === "lateral" ? 0.14 : 0.32}
+            cornerRadius={2} listening={false} />
+        );
+      })}
       {/* letras dos lados (E/F/C/L) — giram junto com o equipamento */}
       {(Object.keys(geomLado) as LadoRect[]).map((k) => {
         const g = geomLado[k], papel = lados[k], info = PAPEL_LADO[papel];

@@ -237,52 +237,6 @@ export async function montarDossie(
   // ── CONTEÚDO ────────────────────────────────────────────────────────────
   novaPagina();
 
-  const perfil = projeto.perfil ?? {};
-  const prioridades = Array.isArray(perfil.prioridades) ? perfil.prioridades : [];
-
-  secN("Diagnóstico — Leitura do Condomínio", 60);
-  cartoes([
-    ["Padrão do condomínio", perfil.padrao ?? ""],
-    ["Moradores", perfil.moradores ?? ""],
-    ["Faixa etária", perfil.faixa_etaria ?? ""],
-    ["Frequência esperada", perfil.frequencia ?? ""],
-    ["Uso", perfil.uso ?? ""],
-    ["Objetivo predominante", perfil.objetivo ?? ""],
-  ]);
-  if (perfil.investimento_perfil) {
-    ensure(16);
-    at("ORÇAMENTO FRENTE AO PADRÃO", M, y, 7, bold, GOLD);
-    at(perfil.investimento_perfil, M + 160, y, 9.5, bold, DARK);
-    y -= 18;
-  }
-  if (prioridades.length) {
-    ensure(18);
-    at("A ACADEMIA É PRIORIDADE PARA", M, y, 7, bold, GOLD);
-    y -= 15;
-    // Chips numerados, na ordem definida na leitura.
-    let px = M;
-    prioridades.forEach((pr, i) => {
-      const txt = `${i + 1}º  ${pr}`;
-      const larg = w(txt, 8.5, bold) + 18;
-      if (px + larg > A4.w - M) { px = M; y -= 22; ensure(22); }
-      page.drawRectangle({ x: px, y: y - 5, width: larg, height: 19, borderColor: GOLD, borderWidth: 0.9 });
-      at(txt, px + 9, y, 8.5, bold, GOLD);
-      px += larg + 8;
-    });
-    y -= 26;
-  }
-  y -= 4;
-
-  secN("Análise de Infraestrutura", 50);
-  cartoes([
-    ["Elétrica", projeto.infraestrutura?.eletrica ?? ""],
-    ["Climatização", projeto.infraestrutura?.climatizacao ?? ""],
-    ["Piso / contrapiso", projeto.infraestrutura?.piso ?? ""],
-    ["Acesso", projeto.infraestrutura?.acesso ?? ""],
-  ], 2);
-  if (projeto.observacoes) { y -= 4; at("Observações", M, y, 10, bold, DARK); y -= 14; paragrafo(String(projeto.observacoes), 10, rgb(0.25, 0.25, 0.25)); }
-  y -= 6;
-
   const comp = composicaoZonas(cena);
   // Numeração única por equipamento (a mesma da planta e das fichas).
   const numeroDe = new Map<string, number>();
@@ -344,6 +298,52 @@ export async function montarDossie(
     y -= 4;
   }
 
+  const perfil = projeto.perfil ?? {};
+  const prioridades = Array.isArray(perfil.prioridades) ? perfil.prioridades : [];
+
+  secN("Diagnóstico — Leitura do Condomínio", 60);
+  cartoes([
+    ["Padrão do condomínio", perfil.padrao ?? ""],
+    ["Moradores", perfil.moradores ?? ""],
+    ["Faixa etária", perfil.faixa_etaria ?? ""],
+    ["Frequência esperada", perfil.frequencia ?? ""],
+    ["Uso", perfil.uso ?? ""],
+    ["Objetivo predominante", perfil.objetivo ?? ""],
+  ]);
+  if (perfil.investimento_perfil) {
+    ensure(16);
+    at("ORÇAMENTO FRENTE AO PADRÃO", M, y, 7, bold, GOLD);
+    at(perfil.investimento_perfil, M + 160, y, 9.5, bold, DARK);
+    y -= 18;
+  }
+  if (prioridades.length) {
+    ensure(18);
+    at("A ACADEMIA É PRIORIDADE PARA", M, y, 7, bold, GOLD);
+    y -= 15;
+    // Chips numerados, na ordem definida na leitura.
+    let px = M;
+    prioridades.forEach((pr, i) => {
+      const txt = `${i + 1}º  ${pr}`;
+      const larg = w(txt, 8.5, bold) + 18;
+      if (px + larg > A4.w - M) { px = M; y -= 22; ensure(22); }
+      page.drawRectangle({ x: px, y: y - 5, width: larg, height: 19, borderColor: GOLD, borderWidth: 0.9 });
+      at(txt, px + 9, y, 8.5, bold, GOLD);
+      px += larg + 8;
+    });
+    y -= 26;
+  }
+  y -= 4;
+
+  secN("Análise de Infraestrutura", 50);
+  cartoes([
+    ["Elétrica", projeto.infraestrutura?.eletrica ?? ""],
+    ["Climatização", projeto.infraestrutura?.climatizacao ?? ""],
+    ["Piso / contrapiso", projeto.infraestrutura?.piso ?? ""],
+    ["Acesso", projeto.infraestrutura?.acesso ?? ""],
+  ], 2);
+  if (projeto.observacoes) { y -= 4; at("Observações", M, y, 10, bold, DARK); y -= 14; paragrafo(String(projeto.observacoes), 10, rgb(0.25, 0.25, 0.25)); }
+  y -= 6;
+
   // ── Resumo financeiro: o INVESTIMENTO soma tudo que foi orçado ──────────
   // equipamentos (projeto completo) + acessórios + revestimentos + espelhos,
   // parede e mobiliário. Um número só, sem letra miúda.
@@ -378,6 +378,64 @@ export async function montarDossie(
   ].filter(([, v]) => (v as number) > 0) as [string, number][];
   at(compFin.map(([n, v]) => `${n} ${BRL(Math.round(v))}`).join("   ·   "), M, y, 9, font, MUTED);
   y -= 24;
+
+  // ── Cenários: UM valor (o total) e o resto em percentual ────────────────
+  // Dinheiro confuso derruba a apresentação. Aqui só aparece o investimento
+  // total; Essencial/Balanceado/Premium viram fatias percentuais dele.
+  const niveis = detalheCenarios(cena);
+  if (mostrar.cenarios && investimentoTotal > 0) {
+    secN("Cenários de Investimento", 150);
+    paragrafo(
+      "Como o investimento total se distribui: o núcleo indispensável (Essencial), o nível recomendado (Balanceado), os itens de acabamento do projeto (Premium) e os complementos orçados.",
+      9, MUTED,
+    );
+    y -= 8;
+
+    // O único número da seção.
+    ensure(54);
+    page.drawRectangle({ x: M, y: y - 44, width: CW, height: 48, borderColor: LINE, borderWidth: 1, color: CREAM });
+    at("INVESTIMENTO TOTAL", M + 14, y - 14, 8, bold, MUTED);
+    at(BRL(investimentoTotal), M + 14, y - 38, 19, bold, DARK);
+    y -= 60;
+
+    // Fatias do total (os incrementos de cada nível + complementos).
+    const fatias = [
+      ...niveis.map((n) => ({ rotulo: `${n.label} — ${n.nNivel} equip.`, valor: n.incremento, cor: hexToRgb(n.cor) })),
+      { rotulo: "Acessórios", valor: totalAcess, cor: hexToRgb("#C07A3E") },
+      { rotulo: "Revestimentos, espelhos & mobiliário", valor: totalRevest + totalParede, cor: hexToRgb("#8A8A8F") },
+    ].filter((f) => f.valor > 0);
+    const pctDe = (v: number) => Math.round((v / investimentoTotal) * 100);
+
+    // Barra empilhada
+    ensure(30);
+    const barH = 16;
+    let bx = M;
+    for (const f of fatias) {
+      const bw = (f.valor / investimentoTotal) * CW;
+      page.drawRectangle({ x: bx, y: y - barH, width: bw, height: barH, color: f.cor });
+      bx += bw;
+    }
+    page.drawRectangle({ x: M, y: y - barH, width: CW, height: barH, borderColor: LINE, borderWidth: 0.8 });
+    y -= barH + 14;
+
+    // Legenda: quadradinho, percentual grande, rótulo — sem mais nenhum R$.
+    for (const f of fatias) {
+      ensure(17);
+      page.drawRectangle({ x: M, y: y - 1, width: 9, height: 9, color: f.cor });
+      at(`${pctDe(f.valor)}%`, M + 16, y, 10.5, bold, DARK);
+      at(f.rotulo, M + 52, y, 9.5, font, rgb(0.28, 0.28, 0.28));
+      y -= 16;
+    }
+    y -= 6;
+    if (classificacaoPendente(cena)) {
+      ensure(24);
+      paragrafo(
+        "Todos os equipamentos ainda estão no nível Balanceado — classifique-os na Curadoria para os percentuais refletirem o projeto.",
+        8.5, hexToRgb("#E09A45"),
+      );
+      y -= 6;
+    }
+  }
 
   // ── 03 · Categorias: especificação + lista técnica de cada uma ──
   secN("Categorias & Lista Técnica");
@@ -502,6 +560,36 @@ export async function montarDossie(
     y -= 24;
   }
 
+  // ── Marcas do projeto: quem fabrica o que o condomínio vai comprar ──────
+  if (mostrar.marcas) {
+    const marcas = marcasDaCena(cena, catalogo);
+    const comTexto = marcas.filter((m) => m.resumo);
+    if (comTexto.length) {
+      secN("Marcas do Projeto", 60);
+      paragrafo(
+        "Fabricantes dos equipamentos especificados neste projeto (fontes: sites das marcas e imprensa especializada).",
+        9, MUTED,
+      );
+      y -= 6;
+      for (const m of comTexto) {
+        const linhas = linhasDe(m.resumo!, CW, 9);
+        ensure(30 + linhas.length * 12.5);
+        at(m.nome.toUpperCase(), M, y, 11, bold, DARK);
+        const xInfo = M + w(m.nome.toUpperCase(), 11, bold) + 10;
+        at([m.origem, `${m.n} ${m.n === 1 ? "equipamento" : "equipamentos"} no projeto`].filter(Boolean).join("  ·  "), xInfo, y, 8.5, font, MUTED);
+        y -= 15;
+        linhas.forEach((l) => { at(l, M, y, 9, font, rgb(0.25, 0.25, 0.25)); y -= 12.5; });
+        y -= 10;
+      }
+      const soNome = marcas.filter((m) => !m.resumo);
+      if (soNome.length) {
+        ensure(16);
+        at(`Também presentes: ${soNome.map((m) => m.nome).join(", ")}.`, M, y, 8.5, font, MUTED);
+        y -= 18;
+      }
+    }
+  }
+
   // ── 04 · Memorial: o que é e para que serve cada equipamento ──
   if (cena.itens.length) {
     secN("Memorial dos Equipamentos");
@@ -553,36 +641,6 @@ export async function montarDossie(
         y -= 2;
         page.drawLine({ start: { x: M, y }, end: { x: A4.w - M, y }, thickness: 0.4, color: LINE });
         y -= 12;
-      }
-    }
-  }
-
-  // ── Marcas do projeto: quem fabrica o que o condomínio vai comprar ──────
-  if (mostrar.marcas) {
-    const marcas = marcasDaCena(cena, catalogo);
-    const comTexto = marcas.filter((m) => m.resumo);
-    if (comTexto.length) {
-      secN("Marcas do Projeto", 60);
-      paragrafo(
-        "Fabricantes dos equipamentos especificados neste projeto (fontes: sites das marcas e imprensa especializada).",
-        9, MUTED,
-      );
-      y -= 6;
-      for (const m of comTexto) {
-        const linhas = linhasDe(m.resumo!, CW, 9);
-        ensure(30 + linhas.length * 12.5);
-        at(m.nome.toUpperCase(), M, y, 11, bold, DARK);
-        const xInfo = M + w(m.nome.toUpperCase(), 11, bold) + 10;
-        at([m.origem, `${m.n} ${m.n === 1 ? "equipamento" : "equipamentos"} no projeto`].filter(Boolean).join("  ·  "), xInfo, y, 8.5, font, MUTED);
-        y -= 15;
-        linhas.forEach((l) => { at(l, M, y, 9, font, rgb(0.25, 0.25, 0.25)); y -= 12.5; });
-        y -= 10;
-      }
-      const soNome = marcas.filter((m) => !m.resumo);
-      if (soNome.length) {
-        ensure(16);
-        at(`Também presentes: ${soNome.map((m) => m.nome).join(", ")}.`, M, y, 8.5, font, MUTED);
-        y -= 18;
       }
     }
   }
@@ -762,64 +820,6 @@ export async function montarDossie(
     kv("Investimento por m²", BRL(Math.round(custoM2)));
     if (usuarios > 0) kv("Investimento por usuário simultâneo", BRL(Math.round(r.subtotal / usuarios)));
     y -= 8;
-  }
-
-  // ── Cenários: UM valor (o total) e o resto em percentual ────────────────
-  // Dinheiro confuso derruba a apresentação. Aqui só aparece o investimento
-  // total; Essencial/Balanceado/Premium viram fatias percentuais dele.
-  const niveis = detalheCenarios(cena);
-  if (mostrar.cenarios && investimentoTotal > 0) {
-    secN("Cenários de Investimento", 150);
-    paragrafo(
-      "Como o investimento total se distribui: o núcleo indispensável (Essencial), o nível recomendado (Balanceado), os itens de acabamento do projeto (Premium) e os complementos orçados.",
-      9, MUTED,
-    );
-    y -= 8;
-
-    // O único número da seção.
-    ensure(54);
-    page.drawRectangle({ x: M, y: y - 44, width: CW, height: 48, borderColor: LINE, borderWidth: 1, color: CREAM });
-    at("INVESTIMENTO TOTAL", M + 14, y - 14, 8, bold, MUTED);
-    at(BRL(investimentoTotal), M + 14, y - 38, 19, bold, DARK);
-    y -= 60;
-
-    // Fatias do total (os incrementos de cada nível + complementos).
-    const fatias = [
-      ...niveis.map((n) => ({ rotulo: `${n.label} — ${n.nNivel} equip.`, valor: n.incremento, cor: hexToRgb(n.cor) })),
-      { rotulo: "Acessórios", valor: totalAcess, cor: hexToRgb("#C07A3E") },
-      { rotulo: "Revestimentos, espelhos & mobiliário", valor: totalRevest + totalParede, cor: hexToRgb("#8A8A8F") },
-    ].filter((f) => f.valor > 0);
-    const pctDe = (v: number) => Math.round((v / investimentoTotal) * 100);
-
-    // Barra empilhada
-    ensure(30);
-    const barH = 16;
-    let bx = M;
-    for (const f of fatias) {
-      const bw = (f.valor / investimentoTotal) * CW;
-      page.drawRectangle({ x: bx, y: y - barH, width: bw, height: barH, color: f.cor });
-      bx += bw;
-    }
-    page.drawRectangle({ x: M, y: y - barH, width: CW, height: barH, borderColor: LINE, borderWidth: 0.8 });
-    y -= barH + 14;
-
-    // Legenda: quadradinho, percentual grande, rótulo — sem mais nenhum R$.
-    for (const f of fatias) {
-      ensure(17);
-      page.drawRectangle({ x: M, y: y - 1, width: 9, height: 9, color: f.cor });
-      at(`${pctDe(f.valor)}%`, M + 16, y, 10.5, bold, DARK);
-      at(f.rotulo, M + 52, y, 9.5, font, rgb(0.28, 0.28, 0.28));
-      y -= 16;
-    }
-    y -= 6;
-    if (classificacaoPendente(cena)) {
-      ensure(24);
-      paragrafo(
-        "Todos os equipamentos ainda estão no nível Balanceado — classifique-os na Curadoria para os percentuais refletirem o projeto.",
-        8.5, hexToRgb("#E09A45"),
-      );
-      y -= 6;
-    }
   }
 
   // ── Matriz de priorização: nasce da LEITURA do condomínio ───────────────

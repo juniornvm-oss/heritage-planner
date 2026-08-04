@@ -16,7 +16,7 @@ import { ZONAS, CENARIOS, DESTINOS_INVENTARIO, OPCOES_DOSSIE_PADRAO, ROTULO_SECA
 import { areaPoligonoM2, perimetroCm, bboxPoligono, ehRetangulo, retanguloParaPontos, transladar, m2 } from "../lib/geometria";
 import { CENARIO_DEF, ESPEC_ZONA, cenarioSugerido, composicaoZonas, detalheCenarios, explicarItem, normalizarExercicios } from "../lib/curadoria";
 import { gerarPromptVista } from "../lib/promptVista";
-import { uploadOrcamento, urlOrcamento, removerOrcamentoArquivo, online } from "../lib/supabase";
+import { uploadOrcamento, urlOrcamento, removerOrcamentoArquivo, listarCotacoes, online } from "../lib/supabase";
 
 export default function EditorScreen() {
   const { id } = useParams();
@@ -109,6 +109,14 @@ export default function EditorScreen() {
       }
     })();
   }, [id, abrir]);
+
+  // Cadastro → layout, sem passo manual: sempre que o projeto abre (ou a
+  // biblioteca recarrega), os itens posicionados espelham o catálogo atual.
+  const sincronizarAuto = useProjeto((s) => s.sincronizarComCatalogo);
+  useEffect(() => {
+    if (!projeto || somenteLeitura || !equipamentos.length) return;
+    sincronizarAuto(equipamentos);
+  }, [projeto, somenteLeitura, equipamentos, sincronizarAuto]);
 
   const r = resumo(cena);
   const selItem = cena.itens.find((i) => i.id === selectedId) || null;
@@ -274,7 +282,32 @@ export default function EditorScreen() {
       // Troca só na hora do print e devolve o tema do editor em seguida.
       const png = stageRef.current ? capturarPlantaBranca(stageRef.current) : null;
       if (!png) setAviso("A planta não pôde ser capturada — o Dossiê saiu sem ela. Abra a Etapa 3 (Layout) e exporte de novo.");
-      await exportarPdf({ ...projeto, cena }, png, equipamentos, config);
+      // Acessórios: se a cena ainda não tem, busca as cotações do projeto e usa
+      // as linhas de acessório ESCOLHIDAS (ou todas, se nada foi marcado) —
+      // sem isso o Dossiê saía sem a tabela quando o orçamento veio por PDF.
+      let cenaPdf = cena;
+      if (!(cena.acessorios?.length) && online && projeto.id && projeto.id !== "heritage") {
+        try {
+          const cots = await listarCotacoes(projeto.id);
+          const doTipo = cots.filter((c) => c.tipo === "acessorio" && c.equipamento);
+          const fonte = doTipo.some((c) => c.escolhida) ? doTipo.filter((c) => c.escolhida) : doTipo;
+          // Dedup por nome: prevalece a escolhida; entre iguais, o menor unitário.
+          const porNome = new Map<string, (typeof fonte)[number]>();
+          for (const c of fonte) {
+            const k = c.equipamento!.trim().toLowerCase();
+            const atual = porNome.get(k);
+            if (!atual || (c.preco_un ?? Infinity) < (atual.preco_un ?? Infinity)) porNome.set(k, c);
+          }
+          const acess = [...porNome.values()].map((c) => ({
+            id: c.id ?? crypto.randomUUID(),
+            nome: c.equipamento!,
+            qtd: Math.max(1, Math.round(Number(c.qtd) || 1)),
+            preco_un: c.preco_un ?? (c.valor != null ? c.valor / Math.max(1, Math.round(Number(c.qtd) || 1)) : 0),
+          }));
+          if (acess.length) cenaPdf = { ...cena, acessorios: acess };
+        } catch { /* sem rede: o Dossiê sai com o que a cena tiver */ }
+      }
+      await exportarPdf({ ...projeto, cena: cenaPdf }, png, equipamentos, config);
     } catch (e) { setAviso(`Falha ao gerar o PDF: ${(e as Error).message}`); } finally { setBusy(null); }
   }
 
@@ -1290,7 +1323,7 @@ function FichaEquipamento({ item, numero }: { item: ItemPosicionado; numero: num
 function CuradoriaPanel() {
   const cena = useProjeto((s) => s.cena);
   const updateItem = useProjeto((s) => s.updateItem);
-  const sincronizarPrecos = useProjeto((s) => s.sincronizarPrecos);
+  const sincronizarComCatalogo = useProjeto((s) => s.sincronizarComCatalogo);
   const equipamentosCat = useLibrary((s) => s.equipamentos);
   const classificarEmLote = useProjeto((s) => s.classificarEmLote);
   const sugerirCenarios = useProjeto((s) => s.sugerirCenarios);
@@ -1314,9 +1347,9 @@ function CuradoriaPanel() {
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
           <button className="btn btn-gold" onClick={() => sugerirCenarios(false)} title="Aplica a classificação técnica sugerida em quem ainda está no padrão Balanceado">✨ Sugerir</button>
           <button className="btn" onClick={() => { if (confirm("Refazer a classificação de TODOS os equipamentos pela sugestão técnica? A classificação manual será substituída.")) sugerirCenarios(true); }} title="Reaplica a sugestão em todos, inclusive nos já classificados">↺ Refazer tudo</button>
-          <button className="btn" title="O item congela o preço do dia em que entrou na planta — este botão reaplica o preço atual do catálogo"
-            onClick={() => { const n = sincronizarPrecos(equipamentosCat); alert(n ? `${n} preço(s) atualizado(s) pelo catálogo.` : "Todos os preços já batem com o catálogo."); }}>
-            R$ Atualizar preços</button>
+          <button className="btn" title="Reaplica nos itens da planta o cadastro atual do catálogo (preço, medidas, desenho e ficha técnica) — isso também roda sozinho ao abrir o projeto"
+            onClick={() => { const n = sincronizarComCatalogo(equipamentosCat); alert(n ? `${n} item(ns) atualizado(s) pelo catálogo.` : "Tudo já bate com o catálogo."); }}>
+            ↺ Sincronizar catálogo</button>
         </div>
       </div>
 

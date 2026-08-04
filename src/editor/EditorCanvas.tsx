@@ -857,17 +857,28 @@ function ItemView({ it, zoom, selected, problema, listening, camadas, lamina, nu
           <Line key={i} points={pl.map((v, j) => (j % 2 === 0 ? v * it.w_cm : v * it.h_cm))} stroke={cor} strokeWidth={2 / zoom} listening={false} />
         ))}
       </Group>
-      {!temDesenho && (
-        <Text x={0} y={it.h_cm / 2 - 10} width={it.w_cm} align="center" text={it.nome}
-          fontSize={Math.min(it.w_cm, it.h_cm) >= 85 ? 20 : 15} fill="#F2F2F0" fontStyle="600"
-          rotation={vert ? -90 : 0} offsetX={vert ? (it.w_cm - it.h_cm) / 2 : 0} listening={false} />
-      )}
-      {temDesenho && (
-        <Text x={0} y={it.h_cm - 16} width={it.w_cm} align="center" text={it.nome} fontSize={12} fill="#F2F2F0" fontStyle="600" listening={false} />
-      )}
-      <Text x={0} y={it.h_cm / 2 + 12} width={it.w_cm} align="center" text={`${formatLength(it.w_cm)} × ${formatLength(it.h_cm)}`}
-        fontSize={12} fill={lamina ? "#E9E9E6" : "#9A9AA0"} fontStyle={lamina ? "700" : "400"}
-        listening={false} visible={lamina || (!vert && !temDesenho)} />
+      {(() => {
+        // Rótulo sempre LEGÍVEL: os textos giram junto com o grupo do
+        // equipamento, então em rotações de 90°–270° ficariam de cabeça para
+        // baixo. Cada rótulo gira 180° em torno do próprio centro quando a
+        // rotação efetiva o deixaria invertido.
+        const rotN = (((it.rotacao || 0) % 360) + 360) % 360;
+        const deCabeca = (base: number) => { const t = (rotN + base + 360) % 360; return t > 90 && t < 270; };
+        const fsNome = Math.min(it.w_cm, it.h_cm) >= 85 ? 20 : 15;
+        const rotulo = (chave: string, cy: number, larg: number, texto: string, fs: number, fill: string, peso: string, base: number, vis = true) => (
+          <Group key={chave} x={it.w_cm / 2} y={cy} rotation={base + (deCabeca(base) ? 180 : 0)} listening={false} visible={vis}>
+            <Text x={-larg / 2} y={-fs / 2} width={larg} align="center" text={texto} fontSize={fs} fill={fill} fontStyle={peso} listening={false} />
+          </Group>
+        );
+        return (
+          <>
+            {!temDesenho && rotulo("nome", it.h_cm / 2 - (vert ? 0 : 4), vert ? it.h_cm : it.w_cm, it.nome, fsNome, "#F2F2F0", "600", vert ? -90 : 0)}
+            {temDesenho && rotulo("nomeD", it.h_cm - 10, it.w_cm, it.nome, 12, "#F2F2F0", "600", 0)}
+            {rotulo("medidas", it.h_cm / 2 + 16, it.w_cm, `${formatLength(it.w_cm)} × ${formatLength(it.h_cm)}`, 12,
+              lamina ? "#E9E9E6" : "#9A9AA0", lamina ? "700" : "400", 0, lamina || (!vert && !temDesenho))}
+          </>
+        );
+      })()}
     </Group>
   );
 }

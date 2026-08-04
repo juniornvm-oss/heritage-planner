@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { Projeto, Cena, Cenario, ItemPosicionado, PlantaFundo, AreaAcabamento, PlantaVetorial, EstruturaPlanta, Parede, Abertura, PilarPlanta, Cota, ElementoParede, ItemInfraestrutura, AcessorioProjeto, AnexoOrcamento, Zona } from "../lib/types";
+import type { Projeto, Cena, Cenario, ItemInventario, OpcoesDossie, ItemPosicionado, PlantaFundo, AreaAcabamento, PlantaVetorial, EstruturaPlanta, Parede, Abertura, PilarPlanta, Cota, ElementoParede, ItemInfraestrutura, AcessorioProjeto, AnexoOrcamento, Zona } from "../lib/types";
 import { CENARIOS, ZONAS } from "../lib/types";
 import { cenarioSugerido, normalizarExercicios } from "../lib/curadoria";
 import { gerarEstrutura, estruturaVazia } from "../lib/estrutura";
@@ -34,6 +34,11 @@ function normalizarCena(bruta: Cena | null | undefined): Cena {
   const elementosParede = Array.isArray(base.elementosParede) ? base.elementosParede : [];
   const infra = Array.isArray(base.infra) ? base.infra : [];
   const acessorios = Array.isArray(base.acessorios) ? base.acessorios : [];
+  const inventario = (Array.isArray(base.inventario) ? base.inventario : []).map((i) => ({
+    ...i,
+    qtd: Number(i.qtd) > 0 ? Math.round(Number(i.qtd)) : 1,
+    destino: i.destino === "residual" ? ("residual" as const) : ("reaproveitado" as const),
+  }));
   const anexos = Array.isArray(base.anexos) ? base.anexos : [];
   const e = base.estrutura;
   const estrutura: EstruturaPlanta | null = e && (Array.isArray(e.paredes) || Array.isArray(e.pilares))
@@ -47,7 +52,7 @@ function normalizarCena(bruta: Cena | null | undefined): Cena {
       if (typeof t === "string" && t.trim()) especificacoes[z] = t.trim();
     }
   }
-  return { ...base, sala, itens, acabamentos, cotas, elementosParede, infra, acessorios, anexos, estrutura, especificacoes };
+  return { ...base, sala, itens, acabamentos, cotas, elementosParede, infra, acessorios, anexos, estrutura, especificacoes, inventario };
 }
 
 interface ProjetoState {
@@ -100,6 +105,12 @@ interface ProjetoState {
   sugerirCenarios: (sobrescrever?: boolean) => void;
   /** Etapa 6 — nota da categoria neste projeto (complementa a especificação padrão). */
   setEspecificacao: (zona: Zona, texto: string) => void;
+  // ── Inventário do condomínio (reaproveitado / residual) ──
+  addInventario: (i: ItemInventario) => void;
+  updateInventario: (id: string, patch: Partial<ItemInventario>) => void;
+  removerInventario: (id: string) => void;
+  /** Liga/desliga uma seção opcional do Dossiê. */
+  setOpcaoDossie: (chave: keyof OpcoesDossie, ligado: boolean) => void;
   removerSelecionado: () => void;
   girarSelecionado: (graus?: number) => void;
   duplicarItem: (id: string) => void;
@@ -260,6 +271,20 @@ export const useProjeto = create<ProjetoState>((set, get) => ({
       else delete especificacoes[zona];
       return { past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, especificacoes }, dirty: true };
     });
+  },
+
+  addInventario(i) {
+    set((s) => ({ past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, inventario: [...(s.cena.inventario ?? []), i] }, dirty: true }));
+  },
+  updateInventario(id, patch) {
+    set((s) => ({ past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, inventario: (s.cena.inventario ?? []).map((i) => (i.id === id ? { ...i, ...patch } : i)) }, dirty: true }));
+  },
+  removerInventario(id) {
+    set((s) => ({ past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, inventario: (s.cena.inventario ?? []).filter((i) => i.id !== id) }, dirty: true }));
+  },
+
+  setOpcaoDossie(chave, ligado) {
+    set((s) => ({ cena: { ...s.cena, dossie: { ...(s.cena.dossie ?? {}), [chave]: ligado } }, dirty: true }));
   },
 
   removerSelecionado() {

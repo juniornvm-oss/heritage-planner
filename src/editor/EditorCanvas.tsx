@@ -400,7 +400,9 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoE
         onTouchStart={stageDown} onTouchMove={stageMove} onTouchEnd={stageUp}>
         <Layer x={cam.x} y={cam.y} scaleX={cam.zoom} scaleY={cam.zoom}>
           {/* fundo/hit-area da sala */}
-          <Rect name="bg" x={-2000} y={-2000} width={sala.largura_cm + 4000} height={sala.profundidade_cm + 4000} fill="#0C0C0E" />
+          {/* Fundo da área de trabalho. O nome extra `bg-externo` é o que a
+              exportação do Dossiê procura para pintar de branco no papel. */}
+          <Rect name="bg bg-externo" x={-2000} y={-2000} width={sala.largura_cm + 4000} height={sala.profundidade_cm + 4000} fill="#0C0C0E" />
 
           {/* faixas de piso */}
           {(cfg.pisos || []).map((f) => (

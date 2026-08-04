@@ -12,7 +12,7 @@ import { exportarPdf } from "../lib/export/pdfExport";
 import { resumo } from "../lib/validation";
 import { snapCm } from "../lib/canvas";
 import { BRL, formatLength, parseLength } from "../lib/units";
-import { ZONAS, CENARIOS, taxaDe, MATERIAIS_PISO, ELEMENTOS_PAREDE, MOBILIARIO_CATALOGO, ACESSORIOS_CATALOGO, LADOS_PADRAO, type AcessorioProjeto, type LadoRect, type MaterialPiso, type TipoElementoParede, type Zona, type Cenario, type ItemPosicionado, type Equipamento, type AreaAcabamento, type ElementoParede, type ItemInfraestrutura } from "../lib/types";
+import { ZONAS, CENARIOS, DESTINOS_INVENTARIO, OPCOES_DOSSIE_PADRAO, ROTULO_SECAO_DOSSIE, taxaDe, MATERIAIS_PISO, ELEMENTOS_PAREDE, MOBILIARIO_CATALOGO, ACESSORIOS_CATALOGO, LADOS_PADRAO, type AcessorioProjeto, type LadoRect, type DestinoInventario, type ItemInventario, type OpcoesDossie, type MaterialPiso, type TipoElementoParede, type Zona, type Cenario, type ItemPosicionado, type Equipamento, type AreaAcabamento, type ElementoParede, type ItemInfraestrutura } from "../lib/types";
 import { areaPoligonoM2, perimetroCm, bboxPoligono, ehRetangulo, retanguloParaPontos, transladar, m2 } from "../lib/geometria";
 import { CENARIO_DEF, ESPEC_ZONA, cenarioSugerido, composicaoZonas, detalheCenarios, explicarItem, normalizarExercicios } from "../lib/curadoria";
 import { gerarPromptVista } from "../lib/promptVista";
@@ -262,7 +262,10 @@ export default function EditorScreen() {
     if (!projeto) return;
     setBusy("Gerando PDF…");
     try {
-      const png = stageRef.current ? stageRef.current.toDataURL({ pixelRatio: 2 }) : null;
+      // A planta do Dossiê sai em FUNDO BRANCO: o editor trabalha no escuro,
+      // mas no papel o fundo preto come tinta e some com os traços finos.
+      // Troca só na hora do print e devolve o tema do editor em seguida.
+      const png = stageRef.current ? capturarPlantaBranca(stageRef.current) : null;
       await exportarPdf({ ...projeto, cena }, png, equipamentos, config);
     } catch (e) { setAviso(`Falha ao gerar o PDF: ${(e as Error).message}`); } finally { setBusy(null); }
   }
@@ -721,6 +724,20 @@ export default function EditorScreen() {
       </div>}
     </div>
   );
+}
+
+/** Exporta o stage com o fundo em branco (o editor é escuro; o papel, não).
+ *  Troca a cor do retângulo de fundo, captura e devolve como estava. */
+function capturarPlantaBranca(stage: Konva.Stage): string {
+  const bg = stage.findOne(".bg-externo") as Konva.Rect | undefined;
+  const anterior = bg?.fill();
+  try {
+    bg?.fill("#FFFFFF");
+    return stage.toDataURL({ pixelRatio: 2 });
+  } finally {
+    if (bg && anterior) bg.fill(anterior);
+    stage.batchDraw();
+  }
 }
 
 // Ajuste fino da planta de fundo: rotação e posição (usado por raster e vetorial).
@@ -1386,7 +1403,117 @@ function CuradoriaPanel() {
       {cena.itens.length === 0 && (
         <div style={{ color: "var(--muted)", fontSize: 12.5, marginTop: 16 }}>Nenhum equipamento posicionado — adicione na Etapa 3 (Layout).</div>
       )}
+
+      <InventarioPanel />
+      <SecoesDossiePanel />
     </div>
+  );
+}
+
+// Inventário do condomínio: o que já existe, separado entre o que fica
+// (reaproveitado) e o que sai (residual). Sai numa seção própria do Dossiê.
+function InventarioPanel() {
+  const inventario = useProjeto((s) => s.cena.inventario ?? []);
+  const addInventario = useProjeto((s) => s.addInventario);
+  const updateInventario = useProjeto((s) => s.updateInventario);
+  const removerInventario = useProjeto((s) => s.removerInventario);
+  const porDestino = (d: DestinoInventario) => inventario.filter((i) => i.destino === d);
+  const pecas = (xs: ItemInventario[]) => xs.reduce((t, i) => t + (i.qtd || 1), 0);
+
+  return (
+    <section className="card" style={{ padding: 14, marginTop: 16, display: "grid", gap: 10 }}>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
+        <span className="brandface" style={{ fontSize: 16, color: "var(--gold)" }}>INVENTÁRIO DO CONDOMÍNIO</span>
+        <span style={{ fontSize: 11.5, color: "var(--muted)", flex: 1, minWidth: 240, lineHeight: 1.5 }}>
+          O que já existe na sala. <b style={{ color: "var(--green)" }}>Reaproveitado</b> fica no projeto e não entra no
+          investimento; <b style={{ color: "#b6b6b1" }}>residual</b> sai. Vira uma seção do Dossiê.
+        </span>
+        <button className="btn btn-gold" style={{ padding: "5px 11px", fontSize: 11 }}
+          onClick={() => addInventario({ id: crypto.randomUUID(), nome: "Equipamento existente", qtd: 1, destino: "reaproveitado" })}>
+          ＋ Item
+        </button>
+      </div>
+
+      {inventario.length === 0 ? (
+        <div style={{ fontSize: 12, color: "var(--muted)" }}>
+          Nada levantado ainda. Some o que o condomínio já tem — inclusive o que vai ser descartado: o síndico precisa ver essa conta.
+        </div>
+      ) : (
+        <>
+          <div style={{ display: "flex", gap: 14, fontSize: 11.5 }}>
+            {(Object.keys(DESTINOS_INVENTARIO) as DestinoInventario[]).map((d) => (
+              <span key={d} style={{ color: DESTINOS_INVENTARIO[d].cor }}>
+                {DESTINOS_INVENTARIO[d].label}: <b>{pecas(porDestino(d))}</b> peça(s)
+              </span>
+            ))}
+          </div>
+          <div style={{ display: "grid", gap: 5 }}>
+            {inventario.map((i) => (
+              <div key={i.id} style={{
+                display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap",
+                background: "var(--panel-2)", borderRadius: 8, padding: "7px 9px",
+                border: `1px solid ${DESTINOS_INVENTARIO[i.destino].cor}44`,
+              }}>
+                <input className="fld" style={{ width: 52, padding: "5px 6px", fontSize: 12, textAlign: "right" }}
+                  value={String(i.qtd)} title="Quantidade"
+                  onChange={(e) => updateInventario(i.id, { qtd: Math.max(1, Math.round(Number(e.target.value.replace(/[^\d]/g, "")) || 1)) })} />
+                <input className="fld" style={{ flex: 1, minWidth: 170, padding: "5px 8px", fontSize: 12 }}
+                  value={i.nome} placeholder="Nome do equipamento"
+                  onChange={(e) => updateInventario(i.id, { nome: e.target.value })} />
+                <input className="fld" style={{ width: 130, padding: "5px 8px", fontSize: 11.5 }}
+                  value={i.estado ?? ""} placeholder="Estado"
+                  onChange={(e) => updateInventario(i.id, { estado: e.target.value || null })} />
+                <input className="fld" style={{ flex: 1, minWidth: 190, padding: "5px 8px", fontSize: 11.5 }}
+                  value={i.observacao ?? ""} placeholder="Por que fica / por que sai"
+                  onChange={(e) => updateInventario(i.id, { observacao: e.target.value || null })} />
+                <div style={{ display: "flex", gap: 4 }}>
+                  {(Object.keys(DESTINOS_INVENTARIO) as DestinoInventario[]).map((d) => (
+                    <button key={d} className="btn" onClick={() => updateInventario(i.id, { destino: d })}
+                      style={{
+                        padding: "5px 9px", fontSize: 10.5, whiteSpace: "nowrap",
+                        borderColor: i.destino === d ? DESTINOS_INVENTARIO[d].cor : "var(--line-2)",
+                        color: i.destino === d ? DESTINOS_INVENTARIO[d].cor : "var(--muted)",
+                      }}>{DESTINOS_INVENTARIO[d].label}</button>
+                  ))}
+                </div>
+                <button className="btn" style={{ padding: "4px 8px", fontSize: 11 }} onClick={() => removerInventario(i.id)}>✕</button>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
+// O que entra no PDF: o consultor decide seção a seção.
+function SecoesDossiePanel() {
+  const dossie = useProjeto((s) => s.cena.dossie);
+  const setOpcaoDossie = useProjeto((s) => s.setOpcaoDossie);
+  const atual = { ...OPCOES_DOSSIE_PADRAO, ...(dossie ?? {}) };
+  const chaves = Object.keys(ROTULO_SECAO_DOSSIE) as (keyof OpcoesDossie)[];
+  return (
+    <section className="card" style={{ padding: 14, marginTop: 12, display: "grid", gap: 10 }}>
+      <div>
+        <span className="brandface" style={{ fontSize: 16, color: "var(--gold)" }}>O QUE ENTRA NO DOSSIÊ</span>
+        <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 2 }}>
+          Diagnóstico, planta, resumo financeiro, categorias e memorial saem sempre. O resto é opcional.
+        </div>
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
+        {chaves.map((k) => {
+          const ligado = atual[k] !== false;
+          return (
+            <button key={k} className="btn" onClick={() => setOpcaoDossie(k, !ligado)}
+              style={{
+                padding: "7px 12px", fontSize: 11.5,
+                borderColor: ligado ? "var(--gold)" : "var(--line-2)",
+                color: ligado ? "var(--gold)" : "#6e6e73",
+              }}>{ligado ? "✓ " : "○ "}{ROTULO_SECAO_DOSSIE[k]}</button>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 

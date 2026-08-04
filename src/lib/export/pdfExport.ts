@@ -6,8 +6,10 @@ import { BRL, formatLength } from "../units";
 import { areaPoligonoM2 } from "../geometria";
 import {
   CENARIO_DEF, classificacaoPendente, composicaoZonas, detalheCenarios,
-  especificacaoDaZona, exerciciosDaCena, explicarItem,
+  especificacaoDaZona, exerciciosDoItem, explicarItem,
 } from "../curadoria";
+import { marcasDaCena } from "../marcas";
+import { PAPEL_LADO } from "../types";
 
 // Paleta do dossiê
 const GOLD = rgb(0.722, 0.439, 0.290); // cobre da marca Heritage GymBuilder
@@ -281,27 +283,66 @@ export async function montarDossie(
   if (projeto.observacoes) { y -= 4; at("Observações", M, y, 10, bold, DARK); y -= 14; paragrafo(String(projeto.observacoes), 10, rgb(0.25, 0.25, 0.25)); }
   y -= 6;
 
-  // Planta
-  if (plantaPng) {
-    try {
-      const png = await doc.embedPng(plantaPng);
-      const maxW = CW, maxH = 300;
-      const sc = Math.min(maxW / png.width, maxH / png.height);
-      const iw = png.width * sc, ih = png.height * sc;
-      ensure(ih + 40);
-      secN("Planta — O Projeto na Sala");
-      page.drawRectangle({ x: M, y: y - ih - 8, width: iw + 8, height: ih + 8, borderColor: LINE, borderWidth: 1 });
-      page.drawImage(png, { x: M + 4, y: y - ih - 4, width: iw, height: ih });
-      y -= ih + 16;
-      at(`Sala ${formatLength(cena.sala.largura_cm)} × ${formatLength(cena.sala.profundidade_cm)}  ·  Ocupação ${r.ocupacao}%  ·  ${cena.itens.length} equipamentos`, M, y, 9, font, MUTED);
-      y -= 18;
-    } catch { /* imagem inválida */ }
-  }
-
   const comp = composicaoZonas(cena);
   // Numeração única por equipamento (a mesma da planta e das fichas).
   const numeroDe = new Map<string, number>();
   cena.itens.forEach((it, i) => numeroDe.set(it.id, i + 1));
+
+  // Planta com a legenda numerada AO LADO: o síndico lê o número na planta e
+  // encontra o equipamento na hora, sem folhear.
+  if (plantaPng) {
+    try {
+      const png = await doc.embedPng(plantaPng);
+      const legW = 168;
+      const maxW = CW - legW - 14, maxH = 430;
+      const sc = Math.min(maxW / png.width, maxH / png.height);
+      const iw = png.width * sc, ih = png.height * sc;
+      const altLegenda = cena.itens.length * 12.5 + 16;
+      ensure(Math.max(ih, altLegenda) + 56);
+      secN("Planta — O Projeto na Sala");
+      const topo = y;
+      page.drawRectangle({ x: M, y: y - ih - 8, width: iw + 8, height: ih + 8, borderColor: LINE, borderWidth: 1 });
+      page.drawImage(png, { x: M + 4, y: y - ih - 4, width: iw, height: ih });
+
+      // Legenda numerada
+      const lx = M + iw + 22;
+      let ly = topo - 2;
+      at("EQUIPAMENTOS", lx, ly, 7, bold, GOLD);
+      ly -= 14;
+      for (const it of cena.itens) {
+        if (ly < 80) break; // não invade o rodapé (salas gigantes: sobra fica na lista técnica)
+        at(String(numeroDe.get(it.id)).padStart(2, "0"), lx, ly, 8, bold, GOLD);
+        at(trunc(it.nome, legW - 24, 8), lx + 18, ly, 8, font, rgb(0.25, 0.25, 0.25));
+        ly -= 12.5;
+      }
+
+      y -= Math.max(ih + 16, topo - ly + 6);
+      at(`Sala ${formatLength(cena.sala.largura_cm)} × ${formatLength(cena.sala.profundidade_cm)}  ·  Ocupação ${r.ocupacao}%  ·  ${cena.itens.length} equipamentos`, M, y, 9, font, MUTED);
+      y -= 16;
+      // Legenda das faixas de orientação desenhadas em cada equipamento.
+      let lgx = M;
+      at("ORIENTAÇÃO:", lgx, y, 7, bold, MUTED); lgx += 58;
+      for (const k of ["entrada", "frente", "costas", "lateral"] as const) {
+        const info = PAPEL_LADO[k];
+        page.drawRectangle({ x: lgx, y: y - 1, width: 9, height: 9, color: hexToRgb(info.cor), opacity: 0.5 });
+        at(info.label, lgx + 13, y, 8, font, rgb(0.3, 0.3, 0.3));
+        lgx += 13 + w(info.label, 8, font) + 16;
+      }
+      y -= 18;
+    } catch { /* imagem inválida */ }
+  }
+
+  // ── Parecer técnico: a defesa do layout, nas palavras do consultor ──────
+  if (cena.parecer && cena.parecer.trim()) {
+    secN("Parecer Técnico", 40);
+    for (const par of cena.parecer.split(/\n+/).map((t) => t.trim()).filter(Boolean)) {
+      paragrafo(par, 10, rgb(0.22, 0.22, 0.22));
+      y -= 5;
+    }
+    const quem = [config?.consultor, config?.registro].filter(Boolean).join(" · ");
+    if (quem) { y -= 2; at(quem, M, y, 9, bold, MUTED); y -= 16; }
+    y -= 4;
+  }
 
   // ── Resumo financeiro: o INVESTIMENTO soma tudo que foi orçado ──────────
   // equipamentos (projeto completo) + acessórios + revestimentos + espelhos,
@@ -434,20 +475,40 @@ export async function montarDossie(
   rightAt(BRL(r.cenarios.premium), A4.w - M - 9, y, 10.5, bold, GOLD);
   y -= 28;
 
+  // ── Acessórios (Etapa 5) ──
+  const acess = cena.acessorios ?? [];
+  if (mostrar.acessorios && acess.length) {
+    secN("Acessórios");
+    const qCol = A4.w - M - 200, uCol = A4.w - M - 110, tCol = A4.w - M - 6;
+    page.drawRectangle({ x: M, y: y - 4, width: CW, height: 18, color: CREAM });
+    at("ITEM", M + 6, y, 8, bold, MUTED);
+    rightAt("QTD", qCol, y, 8, bold, MUTED); rightAt("PREÇO UN.", uCol, y, 8, bold, MUTED); rightAt("TOTAL", tCol, y, 8, bold, MUTED);
+    y -= 22;
+    let totalAc = 0;
+    for (const a of acess) {
+      ensure(16);
+      const tot = a.qtd * a.preco_un;
+      totalAc += tot;
+      at(trunc(a.nome, qCol - 40 - M, 9.5), M + 6, y, 9.5, font, DARK);
+      rightAt(String(a.qtd), qCol, y, 9, font, MUTED);
+      rightAt(BRL(a.preco_un), uCol, y, 9, font, MUTED);
+      rightAt(BRL(Math.round(tot)), tCol, y, 9.5, font, DARK);
+      page.drawLine({ start: { x: M, y: y - 5 }, end: { x: A4.w - M, y: y - 5 }, thickness: 0.4, color: LINE });
+      y -= 16;
+    }
+    ensure(16);
+    at("Total em acessórios", M + 6, y, 9, bold, DARK);
+    rightAt(BRL(Math.round(totalAc)), tCol, y, 10, bold, GOLD);
+    y -= 24;
+  }
+
   // ── 04 · Memorial: o que é e para que serve cada equipamento ──
   if (cena.itens.length) {
     secN("Memorial dos Equipamentos");
     paragrafo(
-      "Um verbete por equipamento, agrupado por categoria: o que é, o que trabalha, por que está neste projeto, o que exige atenção e os exercícios que ele executa. A numeração é a mesma da planta e da lista técnica.",
+      "Um verbete por equipamento, agrupado por categoria: o que é, o que trabalha, por que está neste projeto e o que exige atenção.",
       9, MUTED,
     );
-    const totalEx = exerciciosDaCena(cena, (it) => (it.equipamentoId && catId.get(it.equipamentoId)) || catNome.get(it.nome));
-    if (totalEx.length) {
-      paragrafo(
-        `Somados, os equipamentos deste projeto executam ${totalEx.length} exercícios resistidos de musculação distintos. A lista de cada verbete conta apenas exercícios resistidos feitos no próprio aparelho — exercícios de peso corporal, alongamento e mobilidade não entram, e acessórios não são contabilizados.`,
-        9, MUTED,
-      );
-    }
     y -= 6;
     for (const c of comp) {
       ensure(56);
@@ -493,6 +554,64 @@ export async function montarDossie(
         page.drawLine({ start: { x: M, y }, end: { x: A4.w - M, y }, thickness: 0.4, color: LINE });
         y -= 12;
       }
+    }
+  }
+
+  // ── Marcas do projeto: quem fabrica o que o condomínio vai comprar ──────
+  if (mostrar.marcas) {
+    const marcas = marcasDaCena(cena, catalogo);
+    const comTexto = marcas.filter((m) => m.resumo);
+    if (comTexto.length) {
+      secN("Marcas do Projeto", 60);
+      paragrafo(
+        "Fabricantes dos equipamentos especificados neste projeto (fontes: sites das marcas e imprensa especializada).",
+        9, MUTED,
+      );
+      y -= 6;
+      for (const m of comTexto) {
+        const linhas = linhasDe(m.resumo!, CW, 9);
+        ensure(30 + linhas.length * 12.5);
+        at(m.nome.toUpperCase(), M, y, 11, bold, DARK);
+        const xInfo = M + w(m.nome.toUpperCase(), 11, bold) + 10;
+        at([m.origem, `${m.n} ${m.n === 1 ? "equipamento" : "equipamentos"} no projeto`].filter(Boolean).join("  ·  "), xInfo, y, 8.5, font, MUTED);
+        y -= 15;
+        linhas.forEach((l) => { at(l, M, y, 9, font, rgb(0.25, 0.25, 0.25)); y -= 12.5; });
+        y -= 10;
+      }
+      const soNome = marcas.filter((m) => !m.resumo);
+      if (soNome.length) {
+        ensure(16);
+        at(`Também presentes: ${soNome.map((m) => m.nome).join(", ")}.`, M, y, 8.5, font, MUTED);
+        y -= 18;
+      }
+    }
+  }
+
+  // ── Exercícios contemplados: o que dá para treinar nesta academia ───────
+  if (mostrar.exercicios && cena.itens.length) {
+    // Um bloco por equipamento DISTINTO com lista fechada de exercícios.
+    const blocos = new Map<string, { nome: string; exercicios: string[] }>();
+    for (const it of cena.itens) {
+      const cat = (it.equipamentoId && catId.get(it.equipamentoId)) || catNome.get(it.nome) || null;
+      const exs = exerciciosDoItem(it, cat);
+      if (exs.length && !blocos.has(it.nome)) blocos.set(it.nome, { nome: it.nome, exercicios: exs });
+    }
+    if (blocos.size) {
+      secN("Exercícios Contemplados", 60);
+      paragrafo(
+        "Exercícios de musculação executáveis nos equipamentos deste projeto. A lista cobre as máquinas de trajetória definida; bancos, racks e estações de cabo ampliam o repertório com dezenas de variações com pesos livres.",
+        9, MUTED,
+      );
+      y -= 6;
+      for (const b of blocos.values()) {
+        const texto = b.exercicios.join("  ·  ");
+        const linhas = linhasDe(texto, CW - 120, 8.5);
+        ensure(linhas.length * 11.5 + 8);
+        at(trunc(b.nome, 112, 8.5, bold), M, y, 8.5, bold, DARK);
+        linhas.forEach((l, i) => at(l, M + 120, y - i * 11.5, 8.5, font, rgb(0.28, 0.28, 0.28)));
+        y -= linhas.length * 11.5 + 7;
+      }
+      y -= 6;
     }
   }
 
@@ -617,33 +736,6 @@ export async function montarDossie(
     ensure(16);
     at("Total espelhos + parede + mobiliário", M + 6, y, 9, bold, DARK);
     rightAt(BRL(Math.round(totalEtapa2)), vCol, y, 10, bold, GOLD);
-    y -= 24;
-  }
-
-  // ── Acessórios (Etapa 5) ──
-  const acess = cena.acessorios ?? [];
-  if (mostrar.acessorios && acess.length) {
-    secN("Acessórios");
-    const qCol = A4.w - M - 200, uCol = A4.w - M - 110, tCol = A4.w - M - 6;
-    page.drawRectangle({ x: M, y: y - 4, width: CW, height: 18, color: CREAM });
-    at("ITEM", M + 6, y, 8, bold, MUTED);
-    rightAt("QTD", qCol, y, 8, bold, MUTED); rightAt("PREÇO UN.", uCol, y, 8, bold, MUTED); rightAt("TOTAL", tCol, y, 8, bold, MUTED);
-    y -= 22;
-    let totalAc = 0;
-    for (const a of acess) {
-      ensure(16);
-      const tot = a.qtd * a.preco_un;
-      totalAc += tot;
-      at(trunc(a.nome, qCol - 40 - M, 9.5), M + 6, y, 9.5, font, DARK);
-      rightAt(String(a.qtd), qCol, y, 9, font, MUTED);
-      rightAt(BRL(a.preco_un), uCol, y, 9, font, MUTED);
-      rightAt(BRL(Math.round(tot)), tCol, y, 9.5, font, DARK);
-      page.drawLine({ start: { x: M, y: y - 5 }, end: { x: A4.w - M, y: y - 5 }, thickness: 0.4, color: LINE });
-      y -= 16;
-    }
-    ensure(16);
-    at("Total em acessórios", M + 6, y, 9, bold, DARK);
-    rightAt(BRL(Math.round(totalAc)), tCol, y, 10, bold, GOLD);
     y -= 24;
   }
 

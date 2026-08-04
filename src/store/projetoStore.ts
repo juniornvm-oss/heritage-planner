@@ -114,6 +114,8 @@ interface ProjetoState {
   removerInventario: (id: string) => void;
   /** Liga/desliga uma seção opcional do Dossiê. */
   setOpcaoDossie: (chave: keyof OpcoesDossie, ligado: boolean) => void;
+  /** Parecer técnico do consultor (sai no Dossiê, depois da planta). */
+  setParecer: (texto: string) => void;
   removerSelecionado: () => void;
   girarSelecionado: (graus?: number) => void;
   duplicarItem: (id: string) => void;
@@ -301,6 +303,10 @@ export const useProjeto = create<ProjetoState>((set, get) => ({
   },
   removerInventario(id) {
     set((s) => ({ past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, inventario: (s.cena.inventario ?? []).filter((i) => i.id !== id) }, dirty: true }));
+  },
+
+  setParecer(texto) {
+    set((s) => ({ past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, parecer: texto.trim() || null }, dirty: true }));
   },
 
   setOpcaoDossie(chave, ligado) {

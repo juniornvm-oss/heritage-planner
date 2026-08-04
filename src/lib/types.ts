@@ -409,6 +409,58 @@ export const MOBILIARIO_CATALOGO: { tipo: TipoInfra; nome: string; categoria: "A
   { tipo: "guarda_corpo", nome: "Guarda-corpo", categoria: "Decoração", w: 200, h: 10, alt: 110 },
 ];
 
+/** Destino de um equipamento que o condomínio JÁ TEM. */
+export type DestinoInventario = "reaproveitado" | "residual";
+
+export const DESTINOS_INVENTARIO: Record<DestinoInventario, { label: string; cor: string; descricao: string }> = {
+  reaproveitado: {
+    label: "Reaproveitado", cor: "#5FBF7A",
+    descricao: "Permanece no projeto — entra no layout novo sem custo de aquisição.",
+  },
+  residual: {
+    label: "Residual", cor: "#8A8A8F",
+    descricao: "Sai do projeto — sem condição de uso, função repetida ou fora do padrão da sala.",
+  },
+};
+
+/** Equipamento que já existe no condomínio (levantamento da Fase 01). */
+export interface ItemInventario {
+  id: string;
+  nome: string;
+  qtd: number;
+  destino: DestinoInventario;
+  /** Estado de conservação observado na visita. */
+  estado?: string | null;
+  /** Por que foi reaproveitado ou descartado. */
+  observacao?: string | null;
+  /** Valor de mercado estimado (referência para o condomínio). */
+  valor_estimado?: number | null;
+}
+
+/** Seções OPCIONAIS do Dossiê — o consultor liga/desliga por projeto. */
+export interface OpcoesDossie {
+  acabamentos?: boolean;   // revestimentos, espelhos e mobiliário
+  capacidade?: boolean;    // capacidade & ocupação
+  cenarios?: boolean;      // 06 · cenários de investimento
+  matriz?: boolean;        // 05 · matriz de priorização
+  inventario?: boolean;    // inventário reaproveitado/residual
+  acessorios?: boolean;    // lista de acessórios
+}
+
+/** Padrão: tudo ligado (o dossiê completo). */
+export const OPCOES_DOSSIE_PADRAO: Required<OpcoesDossie> = {
+  acabamentos: true, capacidade: true, cenarios: true, matriz: true, inventario: true, acessorios: true,
+};
+
+export const ROTULO_SECAO_DOSSIE: Record<keyof OpcoesDossie, string> = {
+  acabamentos: "Revestimentos, espelhos e mobiliário",
+  capacidade: "Capacidade & ocupação",
+  cenarios: "06 · Cenários de investimento",
+  matriz: "05 · Matriz de priorização",
+  inventario: "Inventário (reaproveitado/residual)",
+  acessorios: "Acessórios",
+};
+
 /** PDF de orçamento anexado ao projeto (arquivo no Storage; metadados na cena). */
 export interface AnexoOrcamento {
   id: string;
@@ -492,6 +544,10 @@ export interface Cena {
   /** Nota da categoria NESTE projeto (Etapa 6) — complementa a especificação
    *  padrão da zona no Dossiê. Chave = zona. */
   especificacoes?: Partial<Record<Zona, string>>;
+  /** Equipamentos que o condomínio já tem: reaproveitados e residuais. */
+  inventario?: ItemInventario[];
+  /** Seções opcionais do Dossiê (ausente = tudo ligado). */
+  dossie?: OpcoesDossie;
 }
 
 /** Diagnóstico — perfil de uso do condomínio (planner.projetos.perfil jsonb). */

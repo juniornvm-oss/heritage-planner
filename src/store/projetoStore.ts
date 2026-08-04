@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { Projeto, Cena, Cenario, ItemInventario, OpcoesDossie, ItemPosicionado, PlantaFundo, AreaAcabamento, PlantaVetorial, EstruturaPlanta, Parede, Abertura, PilarPlanta, Cota, ElementoParede, ItemInfraestrutura, AcessorioProjeto, AnexoOrcamento, Zona } from "../lib/types";
+import type { Projeto, Cena, Cenario, Equipamento, ItemInventario, OpcoesDossie, ItemPosicionado, PlantaFundo, AreaAcabamento, PlantaVetorial, EstruturaPlanta, Parede, Abertura, PilarPlanta, Cota, ElementoParede, ItemInfraestrutura, AcessorioProjeto, AnexoOrcamento, Zona } from "../lib/types";
 import { CENARIOS, ZONAS } from "../lib/types";
 import { cenarioSugerido, normalizarExercicios } from "../lib/curadoria";
 import { gerarEstrutura, estruturaVazia } from "../lib/estrutura";
@@ -105,6 +105,9 @@ interface ProjetoState {
   sugerirCenarios: (sobrescrever?: boolean) => void;
   /** Etapa 6 — nota da categoria neste projeto (complementa a especificação padrão). */
   setEspecificacao: (zona: Zona, texto: string) => void;
+  /** Reaplica nos itens posicionados o preço ATUAL do catálogo (o item congela
+   *  o preço do dia em que foi adicionado). Devolve quantos mudaram. */
+  sincronizarPrecos: (catalogo: Equipamento[]) => number;
   // ── Inventário do condomínio (reaproveitado / residual) ──
   addInventario: (i: ItemInventario) => void;
   updateInventario: (id: string, patch: Partial<ItemInventario>) => void;
@@ -262,6 +265,23 @@ export const useProjeto = create<ProjetoState>((set, get) => ({
       );
       return { past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, itens }, dirty: true };
     });
+  },
+
+  sincronizarPrecos(catalogo) {
+    const porId = new Map<string, Equipamento>();
+    const porNome = new Map<string, Equipamento>();
+    for (const e of catalogo) { if (e.id) porId.set(e.id, e); porNome.set(e.nome, e); }
+    let mudados = 0;
+    set((s) => {
+      const itens = s.cena.itens.map((it) => {
+        const e = (it.equipamentoId && porId.get(it.equipamentoId)) || porNome.get(it.nome);
+        if (e && typeof e.preco === "number" && e.preco !== it.preco) { mudados++; return { ...it, preco: e.preco }; }
+        return it;
+      });
+      if (!mudados) return {};
+      return { past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, itens }, dirty: true };
+    });
+    return mudados;
   },
 
   setEspecificacao(zona, texto) {

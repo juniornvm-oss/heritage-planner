@@ -557,7 +557,30 @@ export interface PerfilUso {
   uso?: string; // "autônomo" | "assistido" (texto livre por flexibilidade)
   moradores?: string;
   objetivo?: string;
+  // ── Leitura que alimenta a matriz de priorização ──
+  padrao?: string; // padrão do condomínio (alto / médio-alto / médio / econômico)
+  investimento_perfil?: string; // adequação do orçamento ao padrão
+  /** Prioridades da academia, NA ORDEM de importância escolhida pelo consultor. */
+  prioridades?: string[];
 }
+
+/** Opções da leitura — mantidas aqui para tela e dossiê falarem a mesma língua. */
+export const PADROES_CONDOMINIO = ["Alto padrão", "Médio-alto padrão", "Médio padrão", "Padrão econômico"];
+export const INVESTIMENTO_PERFIL = [
+  "Adequado ao padrão do condomínio",
+  "Enxuto — priorizar o essencial",
+  "Folgado — dá para ir além do recomendado",
+];
+export const PRIORIDADES_ACADEMIA = [
+  "Estética & hipertrofia",
+  "Emagrecimento & condicionamento",
+  "Saúde do público 50+",
+  "Reabilitação & mobilidade",
+  "Treino de alta intensidade",
+  "Valorização do imóvel",
+  "Atração & retenção de moradores",
+  "Lazer & convivência",
+];
 
 /** Diagnóstico — infraestrutura do local (planner.projetos.infraestrutura jsonb). */
 export interface Infraestrutura {

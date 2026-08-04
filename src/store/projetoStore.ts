@@ -105,9 +105,10 @@ interface ProjetoState {
   sugerirCenarios: (sobrescrever?: boolean) => void;
   /** Etapa 6 — nota da categoria neste projeto (complementa a especificação padrão). */
   setEspecificacao: (zona: Zona, texto: string) => void;
-  /** Reaplica nos itens posicionados o preço ATUAL do catálogo (o item congela
-   *  o preço do dia em que foi adicionado). Devolve quantos mudaram. */
-  sincronizarPrecos: (catalogo: Equipamento[]) => number;
+  /** Espelha nos itens posicionados o cadastro ATUAL do catálogo — preço,
+   *  dimensões, desenho e ficha técnica. Roda sozinho ao abrir o projeto:
+   *  atualizou o cadastro, o layout acompanha. Devolve quantos itens mudaram. */
+  sincronizarComCatalogo: (catalogo: Equipamento[]) => number;
   // ── Inventário do condomínio (reaproveitado / residual) ──
   addInventario: (i: ItemInventario) => void;
   updateInventario: (id: string, patch: Partial<ItemInventario>) => void;
@@ -269,7 +270,7 @@ export const useProjeto = create<ProjetoState>((set, get) => ({
     });
   },
 
-  sincronizarPrecos(catalogo) {
+  sincronizarComCatalogo(catalogo) {
     const porId = new Map<string, Equipamento>();
     const porNome = new Map<string, Equipamento>();
     for (const e of catalogo) { if (e.id) porId.set(e.id, e); porNome.set(e.nome, e); }
@@ -277,8 +278,25 @@ export const useProjeto = create<ProjetoState>((set, get) => ({
     set((s) => {
       const itens = s.cena.itens.map((it) => {
         const e = (it.equipamentoId && porId.get(it.equipamentoId)) || porNome.get(it.nome);
-        if (e && typeof e.preco === "number" && e.preco !== it.preco) { mudados++; return { ...it, preco: e.preco }; }
-        return it;
+        if (!e) return it;
+        // O catálogo é a fonte da verdade destes campos; posição, rotação,
+        // cenário e os textos da ficha continuam sendo do projeto.
+        const patch: Partial<ItemPosicionado> = {};
+        if (it.equipamentoId && e.id === it.equipamentoId && e.nome !== it.nome) patch.nome = e.nome;
+        if (typeof e.preco === "number" && e.preco !== it.preco) patch.preco = e.preco;
+        if (e.largura_cm > 0 && e.largura_cm !== it.w_cm) patch.w_cm = e.largura_cm;
+        if (e.profundidade_cm > 0 && e.profundidade_cm !== it.h_cm) patch.h_cm = e.profundidade_cm;
+        if ((e.imagem ?? null) !== (it.imagem ?? null)) patch.imagem = e.imagem ?? null;
+        if (JSON.stringify(e.contorno ?? null) !== JSON.stringify(it.contorno ?? null)) patch.contorno = e.contorno ?? null;
+        if ((e.uso_frontal_cm ?? null) !== (it.uso_frontal_cm ?? null)) patch.uso_frontal_cm = e.uso_frontal_cm ?? null;
+        if ((e.uso_lateral_cm ?? null) !== (it.uso_lateral_cm ?? null)) patch.uso_lateral_cm = e.uso_lateral_cm ?? null;
+        if ((e.seguranca_cm ?? null) !== (it.seguranca_cm ?? null)) patch.seguranca_cm = e.seguranca_cm ?? null;
+        if ((e.precisa_tomada ?? null) !== (it.precisa_tomada ?? null)) patch.precisa_tomada = e.precisa_tomada ?? null;
+        if (JSON.stringify(e.lados ?? null) !== JSON.stringify(it.lados ?? null)) patch.lados = e.lados ?? null;
+        if ((e.dist_entrada_cm ?? null) !== (it.dist_entrada_cm ?? null)) patch.dist_entrada_cm = e.dist_entrada_cm ?? null;
+        if (!Object.keys(patch).length) return it;
+        mudados++;
+        return { ...it, ...patch };
       });
       if (!mudados) return {};
       return { past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, itens }, dirty: true };

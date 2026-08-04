@@ -26,6 +26,11 @@ controlado por RLS). Sem ela, o app roda em modo local com o projeto "Heritage (
   importar planta baixa (PDF/DWG/DXF/imagem) como fundo + **calibração de escala**, arrastar
   equipamentos, girar 90° com **proporção travada**, validação ao vivo e cenários. Exporta o
   PDF de entrega.
+- **Curadoria & Investimento (Fase 03)** — sobe o **PDF do orçamento** do
+  fornecedor: o app lê fornecedor, itens, quantidades, valores, prazo e garantia,
+  abre a tela de conferência e só grava o que você confirmar. Vale para
+  equipamentos e acessórios. Compara as propostas por item (meta de 3+) e marca a
+  compra escolhida — que pode misturar fornecedores.
 - **Curadoria (Etapa 5 do editor)** — classifica cada equipamento em **Essencial ·
   Balanceado · Premium** (em lote por categoria, com sugestão técnica automática) e
   escreve a nota de cada categoria. É o que separa os três cenários no Dossiê.
@@ -46,6 +51,7 @@ src/
   screens/    Projetos, NovoProjeto, Editor, Bibliotecas, OrientationGuard
   editor/     EditorCanvas (Konva)
 db/           migrações SQL do schema planner (aplicadas no Supabase)
+              016_orcamentos.sql — propostas em PDF + linhas em `cotacoes`
 tools/        scripts locais (importar/ler/relatorio) — pipeline auxiliar
 docs/         plataforma.md (proposta → arquitetura)
 ```

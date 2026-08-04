@@ -105,7 +105,32 @@ export interface Fornecedor {
   criado_em?: string;
 }
 
-/** Cotação de um equipamento/categoria (planner.cotacoes) — por projeto. */
+/** Cabeçalho de um orçamento recebido em PDF (planner.orcamentos) — por projeto.
+ *  Uma proposta de fornecedor = um registro; as linhas ficam em `cotacoes`. */
+export interface Orcamento {
+  id?: string;
+  projeto_id?: string;
+  fornecedor_id?: string | null;
+  fornecedor_nome?: string | null;
+  cnpj?: string | null;
+  arquivo_nome?: string | null;
+  arquivo_path?: string | null; // bucket "orcamentos"
+  documento?: string | null;
+  data_orcamento?: string | null;
+  validade?: string | null;
+  prazo_entrega?: string | null;
+  garantia?: string | null;
+  pagamento?: string | null;
+  frete?: string | null;
+  total?: number | null;
+  /** Proposta final — a escolhida. Mais de um fornecedor pode ser escolhido. */
+  escolhido?: boolean | null;
+  observacoes?: string | null;
+  criado_em?: string;
+}
+
+/** Cotação de um equipamento/categoria (planner.cotacoes) — por projeto.
+ *  Digitada à mão ou lida de um PDF (aí vem com `orcamento_id`). */
 export interface Cotacao {
   id?: string;
   projeto_id?: string;
@@ -119,6 +144,13 @@ export interface Cotacao {
   assistencia?: string | null;
   prazo?: string | null;
   criado_em?: string;
+  // ── Linhas vindas de um PDF de orçamento (migração 016) ──
+  orcamento_id?: string | null;
+  qtd?: number | null;
+  preco_un?: number | null;
+  tipo?: "equipamento" | "acessorio" | null;
+  /** Esta linha é a compra escolhida para o item. */
+  escolhida?: boolean | null;
 }
 
 /** Acabamento/revestimento (planner.acabamentos). */

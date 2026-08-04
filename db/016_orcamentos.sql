@@ -33,6 +33,13 @@ create table if not exists planner.orcamentos (
 
 alter table planner.orcamentos enable row level security;
 
+-- Policies são recriadas (o Postgres não tem "create policy if not exists"),
+-- para o arquivo poder rodar de novo sem erro.
+drop policy if exists planner_orcamentos_select_anon on planner.orcamentos;
+drop policy if exists planner_orcamentos_insert_anon on planner.orcamentos;
+drop policy if exists planner_orcamentos_update_anon on planner.orcamentos;
+drop policy if exists planner_orcamentos_delete_anon on planner.orcamentos;
+
 create policy planner_orcamentos_select_anon on planner.orcamentos for select to anon using (true);
 create policy planner_orcamentos_insert_anon on planner.orcamentos for insert to anon with check (true);
 create policy planner_orcamentos_update_anon on planner.orcamentos for update to anon using (true) with check (true);

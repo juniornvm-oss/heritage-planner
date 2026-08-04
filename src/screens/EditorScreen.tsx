@@ -262,10 +262,18 @@ export default function EditorScreen() {
     if (!projeto) return;
     setBusy("Gerando PDF…");
     try {
+      // Nas etapas Curadoria/Acessórios o canvas não está montado — e sem ele
+      // o Dossiê saía SEM a planta (a parte mais importante). Volta para o
+      // Layout, espera o canvas montar e só então captura.
+      if (!stageRef.current) {
+        irParaEtapa("layout");
+        for (let i = 0; i < 20 && !stageRef.current; i++) await new Promise((r) => setTimeout(r, 100));
+      }
       // A planta do Dossiê sai em FUNDO BRANCO: o editor trabalha no escuro,
       // mas no papel o fundo preto come tinta e some com os traços finos.
       // Troca só na hora do print e devolve o tema do editor em seguida.
       const png = stageRef.current ? capturarPlantaBranca(stageRef.current) : null;
+      if (!png) setAviso("A planta não pôde ser capturada — o Dossiê saiu sem ela. Abra a Etapa 3 (Layout) e exporte de novo.");
       await exportarPdf({ ...projeto, cena }, png, equipamentos, config);
     } catch (e) { setAviso(`Falha ao gerar o PDF: ${(e as Error).message}`); } finally { setBusy(null); }
   }
@@ -1282,6 +1290,8 @@ function FichaEquipamento({ item, numero }: { item: ItemPosicionado; numero: num
 function CuradoriaPanel() {
   const cena = useProjeto((s) => s.cena);
   const updateItem = useProjeto((s) => s.updateItem);
+  const sincronizarPrecos = useProjeto((s) => s.sincronizarPrecos);
+  const equipamentosCat = useLibrary((s) => s.equipamentos);
   const classificarEmLote = useProjeto((s) => s.classificarEmLote);
   const sugerirCenarios = useProjeto((s) => s.sugerirCenarios);
   const setEspecificacao = useProjeto((s) => s.setEspecificacao);
@@ -1304,6 +1314,9 @@ function CuradoriaPanel() {
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
           <button className="btn btn-gold" onClick={() => sugerirCenarios(false)} title="Aplica a classificação técnica sugerida em quem ainda está no padrão Balanceado">✨ Sugerir</button>
           <button className="btn" onClick={() => { if (confirm("Refazer a classificação de TODOS os equipamentos pela sugestão técnica? A classificação manual será substituída.")) sugerirCenarios(true); }} title="Reaplica a sugestão em todos, inclusive nos já classificados">↺ Refazer tudo</button>
+          <button className="btn" title="O item congela o preço do dia em que entrou na planta — este botão reaplica o preço atual do catálogo"
+            onClick={() => { const n = sincronizarPrecos(equipamentosCat); alert(n ? `${n} preço(s) atualizado(s) pelo catálogo.` : "Todos os preços já batem com o catálogo."); }}>
+            R$ Atualizar preços</button>
         </div>
       </div>
 

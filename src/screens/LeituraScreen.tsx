@@ -5,7 +5,7 @@ import { criarProjeto, atualizarProjeto, obterProjeto, online } from "../lib/sup
 import { lerPlanta } from "../lib/planta";
 import { BRL } from "../lib/units";
 import { useLibrary } from "../store/libraryStore";
-import { taxaDe, taxaLabel, type Cena, type PlantaFundo, type Projeto } from "../lib/types";
+import { taxaDe, taxaLabel, PADROES_CONDOMINIO, INVESTIMENTO_PERFIL, PRIORIDADES_ACADEMIA, type Cena, type PlantaFundo, type Projeto } from "../lib/types";
 
 // ── Componentes de campo ───────────────────────────────────────────────
 const Campo = ({ label, children }: { label: string; children: React.ReactNode }) => (
@@ -71,6 +71,7 @@ const ACESSOS = ["Térreo", "Elevador social", "Elevador de serviço", "Escada",
 const VAZIO = {
   nome: "", cep: "", endereco: "", numero: "", sindico: "", contato: "", contatoAdmin: "",
   faixa: "", frequencia: "", uso: "Autônomo (sem professor)", moradores: "", objetivo: "",
+  padrao: "", investimentoPerfil: "",
   eletrica: "", climatizacao: "", piso: "", acesso: "",
   observacoes: "", largura: "1000", profundidade: "800",
 };
@@ -92,6 +93,11 @@ export default function LeituraScreen() {
   const editando = !!id && id !== "heritage";
 
   const [f, setF] = useState({ ...VAZIO });
+  // Prioridades em ORDEM: o toque adiciona no fim; tocar de novo remove.
+  // A ordem escolhida é a ordem da matriz de priorização no Dossiê.
+  const [prioridades, setPrioridades] = useState<string[]>([]);
+  const togglePrioridade = (p: string) =>
+    setPrioridades((xs) => (xs.includes(p) ? xs.filter((x) => x !== p) : [...xs, p]));
   const [foto, setFoto] = useState<string | null>(null);
   const [planta, setPlanta] = useState<PlantaFundo | null>(null);
   const [orcamento, setOrcamento] = useState<number | null>(null);
@@ -116,10 +122,12 @@ export default function LeituraScreen() {
           sindico: p.sindico ?? "", contato: p.contato ?? "", contatoAdmin: p.contato_admin ?? "",
           faixa: perfil.faixa_etaria ?? "", frequencia: perfil.frequencia ?? "", uso: perfil.uso ?? "Autônomo (sem professor)",
           moradores: perfil.moradores ?? "", objetivo: perfil.objetivo ?? "",
+          padrao: perfil.padrao ?? "", investimentoPerfil: perfil.investimento_perfil ?? "",
           eletrica: infra.eletrica ?? "", climatizacao: infra.climatizacao ?? "", piso: infra.piso ?? "", acesso: infra.acesso ?? "",
           observacoes: p.observacoes ?? "",
           largura: String(p.cena?.sala.largura_cm ?? 1000), profundidade: String(p.cena?.sala.profundidade_cm ?? 800),
         });
+        setPrioridades(Array.isArray(perfil.prioridades) ? perfil.prioridades : []);
         setOrcamento(p.orcamento_teto ?? null);
         setFoto(p.foto_fachada ?? null);
         setCenaExistente(p.cena ?? null);
@@ -170,7 +178,11 @@ export default function LeituraScreen() {
       nome: t(f.nome), sindico: t(f.sindico) || null, contato: t(f.contato) || null, contato_admin: t(f.contatoAdmin) || null,
       cep: f.cep.replace(/\D/g, "") || null, endereco: enderecoFinal || null, foto_fachada: foto,
       orcamento_teto: orcamento,
-      perfil: { faixa_etaria: t(f.faixa), frequencia: t(f.frequencia), uso: t(f.uso), moradores: t(f.moradores), objetivo: t(f.objetivo) },
+      perfil: {
+        faixa_etaria: t(f.faixa), frequencia: t(f.frequencia), uso: t(f.uso), moradores: t(f.moradores), objetivo: t(f.objetivo),
+        padrao: t(f.padrao) || undefined, investimento_perfil: t(f.investimentoPerfil) || undefined,
+        prioridades: prioridades.length ? prioridades : undefined,
+      },
       infraestrutura: { eletrica: t(f.eletrica), climatizacao: t(f.climatizacao), piso: t(f.piso), acesso: t(f.acesso) },
       observacoes: t(f.observacoes) || null, cena,
     };
@@ -254,6 +266,38 @@ export default function LeituraScreen() {
                 </select>
               </Campo>
               <Campo label="Objetivo predominante"><Sel value={f.objetivo} onChange={set("objetivo")} opcoes={OBJETIVOS} /></Campo>
+            </div>
+          </Secao>
+
+          <Secao n="C2" titulo="Padrão & prioridades" desc="É daqui que sai a matriz de priorização do Dossiê — toque as prioridades NA ORDEM de importância.">
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+              <Campo label="Padrão do condomínio"><Sel value={f.padrao} onChange={set("padrao")} opcoes={PADROES_CONDOMINIO} /></Campo>
+              <Campo label="Orçamento frente ao padrão"><Sel value={f.investimentoPerfil} onChange={set("investimentoPerfil")} opcoes={INVESTIMENTO_PERFIL} /></Campo>
+            </div>
+            <div>
+              <span className="microlabel">A ACADEMIA É PRIORIDADE PARA…</span>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 7, marginTop: 7 }}>
+                {PRIORIDADES_ACADEMIA.map((pr) => {
+                  const pos = prioridades.indexOf(pr);
+                  const ativa = pos >= 0;
+                  return (
+                    <button key={pr} type="button" className="btn" onClick={() => togglePrioridade(pr)}
+                      style={{
+                        padding: "7px 12px", fontSize: 11.5,
+                        borderColor: ativa ? "var(--gold)" : "var(--line-2)",
+                        color: ativa ? "var(--gold)" : "var(--muted)",
+                        background: ativa ? "var(--gold-soft)" : undefined,
+                      }}>
+                      {ativa ? `${pos + 1}º · ` : ""}{pr}
+                    </button>
+                  );
+                })}
+              </div>
+              {prioridades.length > 0 && (
+                <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 8 }}>
+                  Ordem no Dossiê: {prioridades.map((p, i) => `${i + 1}º ${p}`).join("  ·  ")}
+                </div>
+              )}
             </div>
           </Secao>
 

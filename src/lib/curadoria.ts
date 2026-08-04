@@ -96,444 +96,253 @@ export interface BaseEquip {
 
 /** Ordem não importa: casa sempre a chave MAIS LONGA encontrada no nome. */
 export const BASE_EQUIP: BaseEquip[] = [
+  // Regra dos textos: descrever o que o equipamento É e para que serve, de
+  // forma geral e verificável — sem promessa e sem enfeite. Lista de
+  // exercícios só onde ela é FECHADA (máquina de trajetória fixa). Estação
+  // multiuso, banco e rack não têm lista: seria impossível ser completo, e
+  // lista incompleta passa informação errada.
+
   // ── Força guiada ─────────────────────────────────────────────────────────
   {
     chaves: ["wire cross + smith", "cross + smith", "smith rack", "wire cross"],
-    exercicios: [
-      "Agachamento livre no Smith",
-      "Agachamento frontal no Smith",
-      "Afundo (passada) no Smith",
-      "Elevação pélvica com barra no Smith",
-      "Supino reto no Smith",
-      "Supino inclinado no Smith",
-      "Desenvolvimento de ombros no Smith",
-      "Remada curvada no Smith",
-      "Encolhimento de ombros no Smith",
-      "Panturrilha em pé no Smith",
-      "Puxada alta na polia",
-      "Remada baixa na polia",
-      "Crucifixo no cabo",
-      "Tríceps na polia alta",
-      "Rosca de bíceps na polia baixa",
-      "Elevação lateral na polia",
-      "Face pull na polia",
-    ],
     cenario: "essencial",
-    oque:
-      "Estação combinada: de um lado a barra guiada do Smith, que corre em trilho fixo; do outro, torres de polias reguláveis em altura. Uma só estrutura entrega agachamento, supino e dezenas de exercícios de cabo.",
-    trabalha: "Corpo inteiro — pernas e glúteos no Smith; peito, costas, ombros e braços nas polias.",
-    indicacao:
-      "É a peça de maior aproveitamento por metro quadrado do projeto. Resolve o treino completo de quem chega sem professor e concentra em um ponto o que exigiria quatro máquinas.",
-    atencao:
-      "Requer altura de pé-direito compatível e fixação em piso firme. A barra do Smith deve ter trava de segurança revisada periodicamente.",
+    oque: "Estação combinada: barra guiada (Smith) de um lado e torres de polias reguláveis do outro.",
+    trabalha: "Corpo inteiro — pernas e glúteos na barra guiada; peito, costas, ombros e braços nos cabos.",
+    indicacao: "Estação para múltiplos exercícios guiados e de cabo — concentra em uma estrutura o treino de vários grupos musculares.",
+    atencao: "Exige pé-direito compatível e piso firme. Trava de segurança da barra deve ser revisada periodicamente.",
   },
   {
     chaves: ["cross over", "crossover", "polia dupla", "estacao de polias"],
-    exercicios: [
-      "Crucifixo no cabo pela polia alta",
-      "Crucifixo no cabo pela polia baixa",
-      "Crossover unilateral",
-      "Puxada alta unilateral",
-      "Remada na polia",
-      "Face pull",
-      "Elevação lateral na polia",
-      "Elevação frontal na polia",
-      "Tríceps na corda",
-      "Tríceps unilateral com pegada supinada",
-      "Rosca de bíceps na polia",
-      "Rosca martelo na corda",
-      "Pull-over na polia alta",
-      "Extensão de quadril na polia (coice de glúteo)",
-      "Abdução de quadril na polia",
-      "Rotação de tronco na polia (lenhador)",
-      "Abdominal na polia alta",
-    ],
     cenario: "premium",
-    oque:
-      "Torre de polias com dois braços reguláveis em altura e ângulo. A carga vem por cabo, então a resistência é constante do início ao fim do movimento.",
-    trabalha: "Peito, costas, ombros, braços e core — conforme a altura e o acessório usados.",
-    indicacao:
-      "Amplia o repertório sem ocupar nova área de treino: é onde o professor monta variações e onde o morador experiente busca o acabamento do treino.",
-    atencao:
-      "Precisa de área livre entre as torres para o movimento dos braços. Os puxadores devem ficar em suporte próprio, senão se perdem.",
+    oque: "Torre de polias com dois braços reguláveis em altura e ângulo; a carga vem por cabo.",
+    trabalha: "Peito, costas, ombros, braços e core, conforme a regulagem e o acessório usados.",
+    indicacao: "Estação para múltiplos exercícios de cabo — amplia a variedade de treino sem ocupar nova área.",
+    atencao: "Precisa de área livre entre as torres. Puxadores devem ficar em suporte próprio.",
   },
   {
     chaves: ["puxada + remada", "puxada e remada", "pulley", "puxada", "remada"],
-    exercicios: [
-      "Puxada frontal com pegada aberta",
-      "Puxada frontal com pegada supinada",
-      "Puxada com triângulo (pegada neutra)",
-      "Puxada unilateral",
-      "Pull-over na polia alta",
-      "Remada sentada com pegada neutra",
-      "Remada sentada com pegada aberta",
-      "Remada sentada unilateral",
-      "Face pull na polia alta",
-      "Tríceps na polia alta",
-      "Rosca de bíceps na polia baixa",
-    ],
     cenario: "essencial",
-    oque:
-      "Estação dupla de costas: em cima, a puxada alta (movimento de trazer a barra até o peito); embaixo, a remada sentada horizontal.",
+    oque: "Estação dupla de costas: puxada alta em cima, remada sentada embaixo.",
     trabalha: "Dorsais, trapézio, romboides, posterior de ombro e bíceps.",
-    indicacao:
-      "Nenhuma sala funciona sem estação de puxar. É o contrapeso postural de quem passa o dia sentado — o exercício com maior efeito percebido em dor de coluna e ombro.",
-    atencao:
-      "O banco e o apoio de joelho precisam de regulagem; sem isso, o morador baixo perde a estabilidade e puxa com a lombar.",
+    indicacao: "Cobre os movimentos de puxar — a base do treino de costas em qualquer sala.",
+    atencao: "Banco e apoio de joelho precisam de regulagem para usuários de estaturas diferentes.",
+    exercicios: [
+      "Puxada frontal (pegadas aberta, supinada e neutra)",
+      "Puxada unilateral",
+      "Remada sentada (pegadas neutra e aberta)",
+      "Remada unilateral",
+    ],
   },
   {
     chaves: ["leg press"],
-    exercicios: [
-      "Leg press 45° tradicional",
-      "Leg press com pés altos (ênfase em glúteo e posterior)",
-      "Leg press com pés baixos (ênfase em quadríceps)",
-      "Leg press com pés afastados (ênfase em adutores)",
-      "Leg press unilateral",
-      "Panturrilha no leg press",
-    ],
     cenario: "essencial",
-    oque:
-      "Plataforma inclinada a 45° na qual o morador empurra a carga com as pernas, sentado e apoiado no encosto.",
-    trabalha: "Quadríceps, glúteos e adutores, com a coluna apoiada.",
-    indicacao:
-      "É a forma mais segura de treinar perna com carga alta em sala sem professor em tempo integral: a coluna fica apoiada e a trava de segurança impede o acidente clássico do agachamento livre.",
-    atencao:
-      "Ocupa muito espaço em profundidade. Não indicado com carga alta para quem tem hérnia de disco ou prótese de quadril sem liberação médica.",
+    oque: "Plataforma inclinada a 45° em que o usuário empurra a carga com as pernas, sentado e com a coluna apoiada.",
+    trabalha: "Quadríceps, glúteos e adutores.",
+    indicacao: "Treino de pernas com carga alta e coluna apoiada — adequado a salas de uso autônomo.",
+    atencao: "Ocupa muita profundidade. Carga alta requer liberação em caso de hérnia ou prótese de quadril.",
+    exercicios: [
+      "Leg press tradicional",
+      "Variações de posição dos pés (ênfase em glúteo, quadríceps ou adutores)",
+      "Leg press unilateral",
+      "Panturrilha na plataforma",
+    ],
   },
   {
     chaves: ["squat machine", "agachamento guiado", "hack"],
-    exercicios: [
-      "Agachamento guiado",
-      "Agachamento com pés à frente (ênfase em glúteo)",
-      "Agachamento sumô (ênfase em adutores)",
-      "Agachamento unilateral",
-      "Afundo na máquina",
-      "Panturrilha em pé na máquina",
-    ],
     cenario: "balanceado",
-    oque:
-      "Máquina de agachamento com trajetória guiada e apoio para ombros ou costas, que reproduz o agachamento livre sem exigir equilíbrio.",
+    oque: "Máquina de agachamento com trajetória guiada e apoio para ombros ou costas.",
     trabalha: "Quadríceps, glúteos e posterior de coxa.",
-    indicacao:
-      "Entrega o principal exercício de perna a quem não tem técnica para o agachamento com barra — a maioria absoluta dos moradores de condomínio.",
-    atencao:
-      "Conferir a trava de segurança antes de cada série. Amplitude deve ser reduzida em caso de dor patelar.",
+    indicacao: "Agachamento com carga sem exigir a técnica do exercício livre.",
+    atencao: "Conferir a trava de segurança antes de cada série.",
+    exercicios: ["Agachamento guiado", "Variações de posição dos pés", "Agachamento unilateral", "Panturrilha em pé"],
   },
   {
     chaves: ["leg extension", "extensora", "extensao de joelho"],
-    exercicios: [
-      "Extensão de joelhos bilateral",
-      "Extensão de joelhos unilateral",
-      "Extensão com pausa isométrica no topo",
-      "Extensão com ênfase excêntrica",
-    ],
     cenario: "balanceado",
-    oque:
-      "Cadeira com rolo à frente do tornozelo: sentado, o morador estende os joelhos contra a carga.",
+    oque: "Cadeira com rolo à frente dos tornozelos: sentado, o usuário estende os joelhos contra a carga.",
     trabalha: "Quadríceps, de forma isolada.",
-    indicacao:
-      "Isola a coxa sem exigir equilíbrio nem carga na coluna. É a máquina de entrada para idosos, iniciantes e retorno de lesão de joelho — e a preferida do público de estética.",
-    atencao:
-      "Ajustar o encosto para que o joelho fique alinhado ao eixo da máquina. Amplitude completa pode incomodar joelho com condropatia.",
+    indicacao: "Isola o quadríceps sem carga na coluna — serve de iniciante a avançado.",
+    atencao: "Alinhar o eixo do joelho ao eixo da máquina.",
+    exercicios: ["Extensão de joelhos bilateral", "Extensão unilateral"],
   },
   {
     chaves: ["leg curl", "flexora", "mesa flexora"],
-    exercicios: [
-      "Flexão de joelhos bilateral",
-      "Flexão de joelhos unilateral",
-      "Flexão com pausa isométrica",
-      "Flexão com ênfase excêntrica",
-    ],
     cenario: "balanceado",
-    oque:
-      "Mesa (deitado) ou cadeira (sentado) em que o morador flexiona os joelhos puxando o rolo contra a carga.",
-    trabalha: "Posterior de coxa (isquiotibiais) e panturrilha.",
-    indicacao:
-      "Faz o par obrigatório da extensora: sem posterior treinado, o desequilíbrio com o quadríceps é a origem mais comum de lesão de joelho.",
-    atencao:
-      "Alinhar o eixo do joelho com o eixo da máquina. O rolo deve apoiar acima do calcanhar, nunca sobre o tendão.",
+    oque: "Mesa (deitado) ou cadeira (sentado) em que o usuário flexiona os joelhos contra a carga.",
+    trabalha: "Posterior de coxa (isquiotibiais).",
+    indicacao: "Par da extensora — cobre a flexão de joelho, que nenhuma outra máquina da sala isola.",
+    atencao: "O rolo apoia acima do calcanhar; alinhar o eixo do joelho ao da máquina.",
+    exercicios: ["Flexão de joelhos bilateral", "Flexão unilateral"],
   },
   {
     chaves: ["elevacao pelvica", "hip thrust", "gluteo"],
-    exercicios: [
-      "Elevação pélvica bilateral",
-      "Elevação pélvica unilateral",
-      "Elevação pélvica com pausa isométrica no topo",
-      "Elevação pélvica com pés afastados (ênfase em glúteo médio)",
-      "Elevação pélvica com amplitude parcial (metade superior)",
-    ],
     cenario: "balanceado",
-    oque:
-      "Banco de apoio para as costas com almofada sobre o quadril: o morador eleva o quadril contra a carga, partindo do chão.",
-    trabalha: "Glúteos, com participação de posterior de coxa.",
-    indicacao:
-      "É o exercício de maior valor percebido pelo público feminino e o mais eficiente para glúteo. Em condomínio com perfil de estética, sua ausência é notada de imediato.",
-    atencao:
-      "Exige almofada de quadril em bom estado — sem ela o morador abandona o aparelho. Cuidado com carga alta em quem tem dor lombar.",
+    oque: "Banco com apoio para as costas e almofada sobre o quadril: o usuário eleva o quadril contra a carga.",
+    trabalha: "Glúteos, com participação do posterior de coxa.",
+    indicacao: "Exercício específico de glúteo com carga, em máquina — execução mais simples e segura que a versão com barra livre.",
+    atencao: "Almofada de quadril em bom estado; atenção com carga alta em quem tem dor lombar.",
+    exercicios: ["Elevação pélvica bilateral", "Elevação pélvica unilateral"],
   },
   {
     chaves: ["abducao", "aducao", "adutor", "abdutor", "dual inner", "inner outer"],
-    exercicios: [
-      "Abdução de quadril sentado",
-      "Abdução com tronco inclinado à frente (ênfase em glúteo médio)",
-      "Abdução unilateral",
-      "Adução de quadril sentado",
-      "Adução unilateral",
-      "Adução com pausa isométrica",
-    ],
     cenario: "balanceado",
-    oque:
-      "Cadeira com apoios laterais para as coxas: abrir as pernas contra a carga (abdução) ou fechá-las (adução). Muitas vezes o mesmo aparelho faz as duas funções.",
-    trabalha: "Glúteo médio e abdutores (abrindo); adutores da coxa (fechando).",
-    indicacao:
-      "Cobre o quadril no plano lateral, que nenhuma outra máquina da sala alcança. Tem procura alta e ocupa pouca área.",
-    atencao:
-      "Higienizar o apoio a cada uso. Iniciar com amplitude reduzida — a abertura máxima com carga incomoda quem tem quadril rígido.",
+    oque: "Cadeira com apoios laterais nas coxas: abrir as pernas contra a carga (abdução) ou fechá-las (adução).",
+    trabalha: "Glúteo médio e abdutores; adutores da coxa.",
+    indicacao: "Cobre o quadril no plano lateral, que as demais máquinas não alcançam.",
+    atencao: "Começar com amplitude reduzida em quem tem quadril rígido.",
+    exercicios: ["Abdução de quadril sentado", "Adução de quadril sentado"],
   },
   {
     chaves: ["delt raise", "elevacao lateral", "deltoide", "ombro"],
-    exercicios: [
-      "Elevação lateral bilateral",
-      "Elevação lateral unilateral",
-      "Elevação lateral com pausa isométrica",
-      "Elevação lateral parcial (metade inferior da amplitude)",
-    ],
     cenario: "premium",
-    oque:
-      "Máquina de elevação lateral: sentado, o morador afasta os braços do corpo contra almofadas, com trajetória guiada.",
-    trabalha: "Deltoide medial (a porção que dá largura ao ombro).",
-    indicacao:
-      "Entrega com segurança o exercício que, feito com halteres, quase sempre sai com técnica errada. Item de acabamento estético — grande apelo, função não essencial.",
-    atencao:
-      "Ajustar a altura do assento para que o eixo do ombro coincida com o da máquina. Contraindicada em quadro agudo de tendinite do manguito.",
+    oque: "Máquina de elevação lateral: sentado, o usuário afasta os braços do corpo contra almofadas.",
+    trabalha: "Deltoide medial.",
+    indicacao: "Isola o ombro com trajetória guiada — movimento que, com halteres, exige mais técnica.",
+    atencao: "Alinhar o eixo do ombro ao da máquina. Evitar em quadro agudo de tendinite.",
+    exercicios: ["Elevação lateral bilateral", "Elevação lateral unilateral"],
   },
   {
     chaves: ["supino maquina", "chest press", "peitoral", "voador", "peck"],
-    exercicios: [
-      "Supino reto na máquina",
-      "Supino inclinado na máquina",
-      "Supino unilateral",
-      "Crucifixo (voador) na máquina",
-      "Crucifixo unilateral",
-      "Voador inverso para posterior de ombro, nos aparelhos com regulagem para o movimento",
-    ],
     cenario: "essencial",
-    oque:
-      "Máquina de empurrar sentado (chest press) ou de fechar os braços à frente (voador), com trajetória guiada.",
+    oque: "Máquina de empurrar sentado (chest press) ou de fechar os braços à frente (voador).",
     trabalha: "Peitoral, ombro anterior e tríceps.",
-    indicacao:
-      "É o empurrar da sala com risco quase nulo: dispensa quem segure a barra, o que torna viável treinar peito sem professor ao lado.",
-    atencao:
-      "Regular a altura do assento para que as mãos fiquem na linha do peito. Reduzir amplitude em caso de dor no ombro.",
+    indicacao: "Treino de peito sem necessidade de apoio de outra pessoa.",
+    atencao: "Regular o assento para as mãos ficarem na linha do peito.",
+    exercicios: ["Pressão de peito (supino na máquina)", "Crucifixo (voador)"],
   },
   {
     chaves: ["triceps", "biceps", "rosca", "panturrilha", "abdominal", "lombar"],
-    exercicios: [
-      "Movimento principal do aparelho, bilateral",
-      "Versão unilateral, quando o aparelho permite",
-      "Variação com pausa isométrica",
-      "Variação com ênfase excêntrica",
-    ],
     cenario: "premium",
-    oque: "Máquina de grupo muscular isolado, com trajetória guiada e ajuste de carga por pino.",
+    oque: "Máquina de grupo muscular isolado, com trajetória guiada e carga por pino.",
     trabalha: "O grupo indicado no nome do aparelho.",
-    indicacao:
-      "Complementa o treino depois que os grandes movimentos já estão cobertos. Entra quando sobra área e orçamento.",
-    atencao: "Ajustar assento e apoios antes da primeira série; o alinhamento articular é o que garante o resultado.",
+    indicacao: "Complemento — entra depois que os movimentos principais estão cobertos.",
+    atencao: "Ajustar assento e apoios antes da primeira série.",
   },
 
   // ── Ergometria ───────────────────────────────────────────────────────────
   {
     chaves: ["esteira", "treadmill"],
     cenario: "essencial",
-    oque:
-      "Esteira ergométrica motorizada, com regulagem de velocidade e inclinação e superfície amortecida.",
-    trabalha: "Sistema cardiovascular; membros inferiores em padrão de caminhada e corrida.",
-    indicacao:
-      "É o equipamento mais procurado de qualquer academia de condomínio e o que define a percepção de qualidade da sala. Serve do morador que caminha ao que corre, sem troca de aparelho.",
-    atencao:
-      "Precisa de tomada dedicada e recuo livre atrás para queda segura. Amortecimento em dia é obrigatório: esteira rígida transfere impacto direto para joelho e coluna.",
+    oque: "Esteira motorizada com regulagem de velocidade e inclinação.",
+    trabalha: "Condicionamento cardiovascular; caminhada e corrida.",
+    indicacao: "O equipamento de cardio mais usado em academias de condomínio — atende de quem caminha a quem corre.",
+    atencao: "Tomada dedicada e recuo livre atrás. Manutenção do amortecimento e da manta.",
   },
   {
     chaves: ["escada", "stepmill", "simulador de escada"],
     cenario: "premium",
-    oque:
-      "Simulador de escada com degraus rolantes contínuos: o morador sobe degraus reais, sem descida.",
-    trabalha: "Glúteos, coxas e sistema cardiovascular, com gasto calórico alto.",
-    indicacao:
-      "Maior gasto calórico por minuto entre os aparelhos de ergometria e forte apelo estético para glúteo. É item de vitrine — alta procura no público jovem, dispensável no núcleo mínimo.",
-    atencao:
-      "Exige pé-direito elevado e é o aparelho mais barulhento da sala — afastar de parede compartilhada com unidade residencial. Não indicado a quem tem instabilidade de equilíbrio.",
+    oque: "Simulador de escada com degraus rolantes contínuos.",
+    trabalha: "Condicionamento cardiovascular; glúteos e coxas.",
+    indicacao: "Cardio de intensidade alta, sem necessidade de velocidade de corrida.",
+    atencao: "Pé-direito elevado; é ruidoso — afastar de parede compartilhada com unidade. Não indicado a quem tem instabilidade de equilíbrio.",
   },
   {
     chaves: ["eliptico", "transport", "cross trainer"],
     cenario: "balanceado",
-    oque:
-      "Aparelho de passada elíptica com pedais suspensos e braços móveis: o pé nunca deixa o pedal, então não há impacto.",
-    trabalha: "Sistema cardiovascular, pernas e braços simultaneamente.",
-    indicacao:
-      "É a alternativa à esteira para quem não pode receber impacto — sobrepeso, artrose, pós-operatório, idoso. Em condomínio com faixa etária ampla, é o que mantém metade dos moradores treinando.",
-    atencao: "Ocupa comprimento maior do que aparenta. Verificar folga para a passada completa e para os braços.",
+    oque: "Aparelho de passada elíptica com pedais suspensos e braços móveis — o pé não deixa o pedal.",
+    trabalha: "Condicionamento cardiovascular, sem impacto; pernas e braços.",
+    indicacao: "Alternativa de cardio sem impacto para quem não pode correr.",
+    atencao: "Verificar folga para a passada completa e para os braços.",
   },
   {
     chaves: ["bike horizontal", "bicicleta horizontal", "reclinada", "recumbent"],
     cenario: "essencial",
-    oque:
-      "Bicicleta com assento em formato de poltrona e encosto para as costas, pedais à frente do corpo.",
-    trabalha: "Sistema cardiovascular e pernas, com a coluna apoiada.",
-    indicacao:
-      "É o aparelho de entrada do morador idoso, obeso ou em reabilitação: sentar e levantar é fácil, a coluna fica apoiada e não há risco de queda. Numa sala com faixa 30–70 anos, é indispensável.",
-    atencao: "Regular a distância do assento antes de pedalar — joelho não deve travar em extensão total.",
+    oque: "Bicicleta com assento tipo poltrona, encosto e pedais à frente do corpo.",
+    trabalha: "Condicionamento cardiovascular e pernas, com a coluna apoiada.",
+    indicacao: "A opção de cardio mais acessível para idosos e pessoas em reabilitação: entrada fácil e coluna apoiada.",
+    atencao: "Regular a distância do assento — o joelho não deve estender por completo.",
   },
   {
     chaves: ["bike vertical", "bicicleta vertical", "bike ergometrica"],
     cenario: "balanceado",
-    oque: "Bicicleta ergométrica de postura vertical, com assento e guidão convencionais.",
-    trabalha: "Sistema cardiovascular e pernas, sem impacto.",
-    indicacao: "Ocupa pouca área e cobre o cardio de quem não quer esteira. Boa relação entre custo e ocupação.",
-    atencao: "Assento precisa de ajuste de altura simples — se for difícil de regular, o morador desiste do aparelho.",
+    oque: "Bicicleta ergométrica de postura vertical.",
+    trabalha: "Condicionamento cardiovascular e pernas, sem impacto.",
+    indicacao: "Cardio compacto — ocupa a menor área entre os ergômetros.",
+    atencao: "Ajuste simples de assento é essencial para o uso rotativo.",
   },
   {
     chaves: ["spinning", "bike spinning", "indoor cycle"],
     cenario: "premium",
-    oque:
-      "Bicicleta de roda de inércia com regulagem fina de carga, feita para pedalar em pé e em alta intensidade.",
-    trabalha: "Sistema cardiovascular em alta intensidade; pernas e glúteos.",
-    indicacao:
-      "Atende o morador condicionado que busca treino intenso e ocupa pouco espaço. Item de complemento — sozinha não cobre o cardio da sala.",
-    atencao:
-      "Exige ajuste de assento e guidão a cada usuário; sem orientação inicial, gera dor lombar e de joelho. Manutenção do freio e da correia é frequente.",
+    oque: "Bicicleta de roda de inércia com regulagem fina de carga, para pedalar sentado ou em pé.",
+    trabalha: "Condicionamento cardiovascular em intensidade alta; pernas e glúteos.",
+    indicacao: "Atende quem busca treino intenso; complementa (não substitui) o cardio da sala.",
+    atencao: "Requer ajuste de assento e guidão a cada usuário; manutenção frequente de freio e correia.",
   },
   {
     chaves: ["remo", "remoergometro", "rower"],
     cenario: "premium",
     oque: "Ergômetro de remada com trilho e resistência a ar, água ou magnética.",
-    trabalha: "Corpo inteiro — pernas, costas, core e braços em um só movimento.",
-    indicacao: "Melhor relação entre estímulo global e área ocupada, para quem já tem técnica.",
-    atencao: "Sem orientação, a remada sai puxando pela lombar. Requer demonstração inicial do professor.",
+    trabalha: "Corpo inteiro — pernas, costas, core e braços.",
+    indicacao: "Cardio de corpo inteiro em área pequena, para quem já tem a técnica da remada.",
+    atencao: "Requer orientação inicial — a remada sem técnica sobrecarrega a lombar.",
   },
 
   // ── Peso livre ───────────────────────────────────────────────────────────
   {
     chaves: ["estante dumbbell", "estante de halteres", "torre halteres", "torre de halteres", "suporte de halteres", "rack de halteres"],
     cenario: "essencial",
-    oque:
-      "Estante em aço para guarda dos halteres, em um ou dois níveis, com o peso organizado em ordem crescente.",
-    trabalha: "Não é aparelho de treino: é a infraestrutura que sustenta toda a zona de peso livre.",
-    indicacao:
-      "Sem suporte, o halter fica no chão — vira risco de tropeço, some do condomínio e marca o piso. É o item que preserva o patrimônio da sala.",
-    atencao:
-      "Fixar ou lastrar contra tombamento e prever folga à frente para retirada do par mais pesado sem esbarrar em quem treina ao lado.",
+    oque: "Estante em aço para guarda dos halteres em ordem de peso.",
+    trabalha: "Guarda e organização — não é aparelho de treino.",
+    indicacao: "Mantém o peso livre organizado e fora do chão.",
+    atencao: "Fixar ou lastrar contra tombamento; prever folga à frente para retirada dos pares.",
   },
   {
     chaves: ["banco 0-90", "banco regulavel", "banco ajustavel", "banco 0 90"],
-    exercicios: [
-      "Supino reto com halteres",
-      "Supino inclinado com halteres",
-      "Crucifixo reto",
-      "Crucifixo inclinado",
-      "Desenvolvimento de ombros sentado",
-      "Elevação lateral sentado",
-      "Remada unilateral apoiada (serrote)",
-      "Rosca direta sentada",
-      "Rosca inclinada",
-      "Rosca martelo sentado",
-      "Tríceps testa deitado",
-      "Tríceps francês sentado",
-      "Pull-over com halter",
-      "Encolhimento de ombros sentado",
-    ],
     cenario: "essencial",
-    oque:
-      "Banco com encosto regulável de 0° (horizontal) até 90° (vertical), normalmente com assento também ajustável.",
-    trabalha: "Serve de apoio para peito, ombro, costas e braços com halteres.",
-    indicacao:
-      "É o acessório mais versátil da sala: um banco regulável substitui três bancos fixos. Dois deles evitam fila na zona de peso livre.",
-    atencao: "Verificar periodicamente a trava do encosto e o estofamento — banco com trava frouxa sai de operação imediatamente.",
+    oque: "Banco com encosto regulável de 0° (horizontal) a 90° (vertical).",
+    trabalha: "Apoio para exercícios de peito, ombro, costas e braços.",
+    indicacao: "Banco para múltiplos exercícios com pesos livres, como os halteres — a regulagem de ângulo multiplica as possibilidades de treino.",
+    atencao: "Verificar periodicamente a trava do encosto e o estofamento.",
   },
   {
     chaves: ["banco supino", "supino reto", "banco reto"],
-    exercicios: [
-      "Supino reto com barra",
-      "Supino com pegada fechada (ênfase em tríceps)",
-      "Supino reto com halteres",
-      "Crucifixo reto com halteres",
-      "Tríceps testa deitado com barra",
-      "Pull-over com barra ou halter",
-    ],
     cenario: "balanceado",
-    oque: "Banco horizontal com suportes para a barra, para supino com peso livre.",
+    oque: "Banco horizontal com suportes para barra.",
     trabalha: "Peitoral, ombro anterior e tríceps.",
-    indicacao: "Atende o morador experiente que já treina com barra e busca carga que a máquina não entrega.",
-    atencao:
-      "É o exercício de maior risco da sala sem parceiro de segurança. Em condomínio, recomenda-se usar apenas com professor presente ou dentro de rack com barra de segurança.",
+    indicacao: "Banco para exercícios de empurrar com barra e halteres.",
+    atencao: "Com barra e carga alta, usar com acompanhamento ou dentro de rack com segurança.",
   },
   {
     chaves: ["banco declinado", "banco inclinado"],
-    exercicios: [
-      "Supino declinado com barra",
-      "Supino declinado com halteres",
-      "Crucifixo declinado",
-      "Supino inclinado com barra",
-      "Supino inclinado com halteres",
-      "Crucifixo inclinado",
-      "Tríceps testa no banco declinado",
-    ],
     cenario: "premium",
-    oque: "Banco de ângulo fixo, inclinado ou declinado, para variação do supino com halteres ou barra.",
-    trabalha: "Porção superior ou inferior do peitoral, conforme o ângulo.",
-    indicacao: "Variação de treino para quem já tem rotina consolidada. Entra depois que o banco regulável está atendido.",
-    atencao: "Ângulo fixo limita o uso; priorizar o banco regulável quando a área for disputada.",
+    oque: "Banco de ângulo fixo (inclinado ou declinado).",
+    trabalha: "Apoio para variações de exercícios com halteres e barra.",
+    indicacao: "Banco para múltiplos exercícios com pesos livres, em ângulo fixo — complementa o banco regulável.",
+    atencao: "Por ser de ângulo fixo, priorizar o banco regulável quando a área for disputada.",
   },
   {
     chaves: ["rack", "gaiola", "power rack", "squat rack"],
-    exercicios: [
-      "Agachamento livre com barra",
-      "Agachamento frontal",
-      "Agachamento sumô",
-      "Afundo (passada) com barra",
-      "Bom-dia (good morning)",
-      "Levantamento terra parcial (rack pull)",
-      "Remada curvada com barra",
-      "Desenvolvimento militar em pé",
-      "Supino reto com barra dentro do rack",
-      "Elevação pélvica com barra",
-      "Encolhimento de ombros com barra",
-      "Panturrilha em pé com barra",
-    ],
     cenario: "balanceado",
-    oque: "Estrutura de quatro colunas com barras de segurança reguláveis, para agachamento e supino com peso livre.",
-    trabalha: "Corpo inteiro, conforme o exercício.",
-    indicacao: "É o que torna o peso livre pesado seguro sem parceiro: as barras de segurança param a carga.",
-    atencao: "Exige piso reforçado e altura livre. Ajuste das barras de segurança deve ser feito antes de cada série.",
+    oque: "Estrutura de colunas com apoios e barras de segurança reguláveis, para treino com barra livre.",
+    trabalha: "Estrutura para múltiplos exercícios com barra — agachamento, supino, remada e variações.",
+    indicacao: "Torna o treino pesado com barra mais seguro: as barras de segurança param a carga.",
+    atencao: "Piso reforçado e altura livre; regular as barras de segurança antes de cada série.",
   },
 
   // ── Preparação ───────────────────────────────────────────────────────────
   {
     chaves: ["colchonete", "tatame", "colchao"],
     cenario: "essencial",
-    oque: "Colchonetes de alta densidade para trabalho de solo, guardados em suporte vertical.",
-    trabalha: "Core, mobilidade, alongamento e exercícios de solo em geral.",
-    indicacao:
-      "É o item de menor custo e maior uso da sala: aquecimento, alongamento no fim do treino, abdominal e a série do morador em reabilitação passam todos por aqui.",
-    atencao: "Guardar sempre em pé no suporte. Colchonete no chão vira obstáculo de circulação e perde a vida útil rápido.",
+    oque: "Colchonetes de alta densidade para exercícios de solo.",
+    trabalha: "Core, alongamento e exercícios de solo em geral.",
+    indicacao: "Item de menor custo e uso constante — aquecimento, abdominais e alongamento.",
+    atencao: "Guardar em suporte vertical; no chão viram obstáculo e estragam mais rápido.",
   },
   {
     chaves: ["espaldar", "barra sueca"],
     cenario: "essencial",
-    oque: "Estrutura vertical de barras horizontais fixada à parede, usada como apoio para alongamento e mobilidade.",
-    trabalha: "Alongamento de cadeia posterior, mobilidade de ombro e descompressão de coluna.",
-    indicacao:
-      "Ocupa somente parede — área de treino zero — e atende exatamente o público que mais precisa de alongamento assistido: o morador acima de 50 anos.",
-    atencao: "Fixação em alvenaria firme, com bucha compatível. Verificar aperto dos parafusos periodicamente.",
+    oque: "Estrutura vertical de barras fixada à parede, usada como apoio para alongamento e mobilidade.",
+    trabalha: "Alongamento e mobilidade com apoio.",
+    indicacao: "Ocupa apenas parede e serve principalmente ao público que precisa de apoio para alongar.",
+    atencao: "Fixação em alvenaria firme; conferir o aperto dos parafusos periodicamente.",
   },
   {
     chaves: ["funcional", "kettlebell", "bola", "step", "elastico", "trx"],
     cenario: "balanceado",
-    oque: "Acessórios de treino funcional guardados em suporte próprio na área de preparação.",
+    oque: "Acessórios de treino funcional guardados em suporte próprio.",
     trabalha: "Core, equilíbrio, coordenação e condicionamento geral.",
-    indicacao: "Ampliam muito o repertório do professor com custo baixo e área ocupada quase nula.",
-    atencao: "Exigem área livre de solo e suporte de guarda. Sem organização, se dispersam e somem.",
+    indicacao: "Ampliam a variedade de treino com custo baixo e área quase nula.",
+    atencao: "Exigem área livre de solo e suporte de guarda.",
   },
 ];
 

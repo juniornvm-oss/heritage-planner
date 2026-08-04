@@ -201,7 +201,7 @@ describe("curadoria — especificação e explicação", () => {
     const item = heritageProjeto().cena!.itens.find((i) => i.nome === "Esteira")!;
     const padrao = explicarItem(item, null);
     expect(padrao.padrao).toBe(true);
-    expect(padrao.oque).toContain("Esteira ergométrica");
+    expect(padrao.oque).toContain("Esteira motorizada");
     expect(padrao.trabalha).not.toBe("—");
 
     const ajustado = explicarItem({ ...item, funcao: "Aquecimento dos moradores." }, null);
@@ -224,10 +224,14 @@ describe("curadoria — especificação e explicação", () => {
 describe("curadoria — exercícios de musculação por equipamento", () => {
   const itemDe = (nome: string) => heritageProjeto().cena!.itens.find((i) => i.nome === nome)!;
 
-  it("lista os exercícios resistidos das máquinas e dos bancos", () => {
-    expect(exerciciosDoItem(itemDe("Leg Press 45°")).length).toBeGreaterThan(3);
-    expect(exerciciosDoItem(itemDe("Puxada + Remada"))).toContain("Puxada frontal com pegada aberta");
-    expect(exerciciosDoItem(itemDe("Banco 0-90°"))).toContain("Supino inclinado com halteres");
+  it("lista exercícios só onde a lista é fechada (máquina de trajetória fixa)", () => {
+    expect(exerciciosDoItem(itemDe("Leg Press 45°")).length).toBeGreaterThan(2);
+    expect(exerciciosDoItem(itemDe("Puxada + Remada")).join(" ")).toContain("Puxada frontal");
+    // Banco e estação multiuso NÃO listam exercício por exercício — seria
+    // impossível ser completo. A descrição diz "múltiplos exercícios".
+    expect(exerciciosDoItem(itemDe("Banco 0-90°"))).toEqual([]);
+    expect(explicarItem(itemDe("Banco 0-90°")).indicacao).toContain("múltiplos exercícios");
+    expect(exerciciosDoItem(itemDe("Cross + Smith"))).toEqual([]);
   });
 
   it("não inventa exercício onde não se faz musculação", () => {
@@ -252,13 +256,12 @@ describe("curadoria — exercícios de musculação por equipamento", () => {
       .toEqual(["Agachamento", "Leg press"]);
   });
 
-  it("conta os exercícios distintos da sala sem somar aparelhos repetidos", () => {
+  it("conta os exercícios distintos da sala sem repetir", () => {
     const c = heritageProjeto().cena!;
     const distintos = exerciciosDaCena(c);
     const somaBruta = c.itens.reduce((s, i) => s + exerciciosDoItem(i).length, 0);
-    expect(distintos.length).toBeGreaterThan(30);
-    // Há dois bancos 0-90° no modelo: a soma bruta repete, a lista distinta não.
-    expect(distintos.length).toBeLessThan(somaBruta);
+    expect(distintos.length).toBeGreaterThan(10);
+    expect(distintos.length).toBeLessThanOrEqual(somaBruta);
     expect(new Set(distintos).size).toBe(distintos.length);
   });
 

@@ -12,7 +12,7 @@ import { exportarPdf } from "../lib/export/pdfExport";
 import { resumo } from "../lib/validation";
 import { snapCm } from "../lib/canvas";
 import { BRL, formatLength, parseLength } from "../lib/units";
-import { ZONAS, CENARIOS, DESTINOS_INVENTARIO, OPCOES_DOSSIE_PADRAO, ROTULO_SECAO_DOSSIE, taxaDe, MATERIAIS_PISO, ELEMENTOS_PAREDE, MOBILIARIO_CATALOGO, ACESSORIOS_CATALOGO, LADOS_PADRAO, type AcessorioProjeto, type LadoRect, type DestinoInventario, type ItemInventario, type OpcoesDossie, type MaterialPiso, type TipoElementoParede, type Zona, type Cenario, type ItemPosicionado, type Equipamento, type AreaAcabamento, type ElementoParede, type ItemInfraestrutura } from "../lib/types";
+import { ZONAS, CENARIOS, DESTINOS_INVENTARIO, OPCOES_DOSSIE_PADRAO, ROTULO_SECAO_DOSSIE, TIPOS_AREA, taxaDe, MATERIAIS_PISO, ELEMENTOS_PAREDE, MOBILIARIO_CATALOGO, ACESSORIOS_CATALOGO, LADOS_PADRAO, type AcessorioProjeto, type LadoRect, type AreaFuncional, type TipoArea, type DestinoInventario, type ItemInventario, type OpcoesDossie, type MaterialPiso, type TipoElementoParede, type Zona, type Cenario, type ItemPosicionado, type Equipamento, type AreaAcabamento, type ElementoParede, type ItemInfraestrutura } from "../lib/types";
 import { areaPoligonoM2, perimetroCm, bboxPoligono, ehRetangulo, retanguloParaPontos, transladar, m2 } from "../lib/geometria";
 import { CENARIO_DEF, ESPEC_ZONA, cenarioSugerido, composicaoZonas, detalheCenarios, explicarItem, normalizarExercicios } from "../lib/curadoria";
 import { gerarPromptVista } from "../lib/promptVista";
@@ -29,6 +29,7 @@ export default function EditorScreen() {
   const { selElemParedeId, selInfraId } = useProjeto();
   const { removerElemParede, removerInfra, addInfra } = useProjeto();
   const { duplicarItem, espelharItem } = useProjeto();
+  const { selAreaFuncId, selecionarAreaFunc, addAreaFuncional, updateAreaFuncional, removerAreaFuncional } = useProjeto();
   const equipamentos = useLibrary((s) => s.equipamentos);
   const acabamentos = useLibrary((s) => s.acabamentos);
   const recarregarBiblioteca = useLibrary((s) => s.recarregar);
@@ -56,6 +57,7 @@ export default function EditorScreen() {
   const [modoParede, setModoParede] = useState(false);
   const [modoMoverPlanta, setModoMoverPlanta] = useState(false);
   const [etapa, setEtapa] = useState<Etapa>("planta");
+  const [tipoArea, setTipoArea] = useState<TipoArea>("circulacao"); // Fase 02 · layout de área
   const [ferrEstrutura, setFerrEstrutura] = useState<FerramentaEstrutura>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -129,6 +131,16 @@ export default function EditorScreen() {
   // Cria a área de piso a partir dos vértices desenhados (retângulo ou polígono).
   function onArea(pontos: { x: number; y: number }[]) {
     const bb = bboxPoligono(pontos);
+    // Na Etapa 3 o mesmo desenho cria uma REGIÃO funcional, não um acabamento.
+    if (etapa === "areas") {
+      const nova: AreaFuncional = {
+        id: crypto.randomUUID(), tipo: tipoArea, nome: null, pontos,
+        x_cm: bb.x, y_cm: bb.y, w_cm: bb.w, h_cm: bb.h,
+      };
+      addAreaFuncional(nova);
+      setFerrAcab(null);
+      return;
+    }
     const area: AreaAcabamento = {
       id: crypto.randomUUID(),
       acabamentoId: null,
@@ -337,7 +349,7 @@ export default function EditorScreen() {
           <>
             <span style={{ width: 1, height: 22, background: "var(--line-2)", margin: "0 4px" }} />
             {/* Abas das etapas */}
-            {([["planta", "1 · Planta"], ["acabamento", "2 · Acabamento"], ["layout", "3 · Layout"], ["fichas", "4 · Fichas"], ["curadoria", "5 · Curadoria"], ["acessorios", "6 · Acessórios"]] as [Etapa, string][]).map(([e, lbl]) => (
+            {([["planta", "1 · Planta"], ["acabamento", "2 · Acabamento"], ["areas", "3 · Áreas"], ["layout", "4 · Layout"], ["fichas", "5 · Fichas"], ["curadoria", "6 · Curadoria"], ["acessorios", "7 · Acessórios"]] as [Etapa, string][]).map(([e, lbl]) => (
               <button key={e} className="btn" onClick={() => irParaEtapa(e)} style={etapa === e
                 ? { borderColor: "var(--gold)", color: "var(--gold)", background: "var(--gold-soft)" }
                 : undefined}>{lbl}</button>
@@ -365,6 +377,22 @@ export default function EditorScreen() {
                 <button className="btn" onClick={() => { if (confirm("Remover o arquivo de fundo? O que você desenhou (paredes/portas/pilares) fica.")) { if (cena.plantaVetorial) setPlantaVetorial(null); else setPlanta(null); selecionarEstrutura(null); } }} title="Apagar o arquivo importado, mantendo o desenho">🗋 Tirar fundo</button>
               )}
               {cena.estrutura && <button className="btn" onClick={() => { if (confirm("Apagar toda a estrutura (paredes/portas/pilares)?")) limparEstrutura(); }} title="Limpar estrutura">🗑</button>}
+            </>}
+
+            {/* Ferramentas da ETAPA 3 — ÁREAS (Fase 02 · layout de área) */}
+            {etapa === "areas" && <>
+              <button className="btn" onClick={() => { limparModos(); }} style={!ferrAcab ? { borderColor: "var(--gold)", color: "var(--gold)" } : undefined} title="Selecionar região">➤ Selecionar</button>
+              <button className="btn" onClick={() => { const v = ferrAcab === "rect" ? null : "rect"; limparModos(); setFerrAcab(v); }}
+                style={ferrAcab === "rect" ? { borderColor: "var(--gold)", color: "var(--gold)" } : undefined}>▭ Região</button>
+              <button className="btn" onClick={() => { const v = ferrAcab === "poligono" ? null : "poligono"; limparModos(); setFerrAcab(v); }}
+                style={ferrAcab === "poligono" ? { borderColor: "var(--gold)", color: "var(--gold)" } : undefined}>⬠ Polígono</button>
+              <span style={{ width: 1, height: 22, background: "var(--line-2)", margin: "0 4px" }} />
+              <span style={{ fontSize: 10.5, color: "var(--muted)", letterSpacing: ".06em" }}>TIPO</span>
+              {(Object.keys(TIPOS_AREA) as TipoArea[]).map((k) => (
+                <button key={k} className="btn" onClick={() => setTipoArea(k)}
+                  style={{ padding: "6px 10px", fontSize: 11, ...(tipoArea === k ? { borderColor: TIPOS_AREA[k].cor, color: TIPOS_AREA[k].cor } : {}) }}
+                  title={TIPOS_AREA[k].descricao}>{TIPOS_AREA[k].label}</button>
+              ))}
             </>}
 
             {/* Ferramentas da ETAPA 2 — ACABAMENTO */}
@@ -603,6 +631,10 @@ export default function EditorScreen() {
                   <b style={{ color: "var(--gold)" }}>Etapa 4 · Fichas</b><br /><br />
                   Toque um equipamento na lista à esquerda (ou na planta) para abrir a ficha: características, entrada, posição, função, restrições e demais detalhes.
                 </div>
+          ) : etapa === "areas" ? (
+            <AreasInspector sel={(cena.areas ?? []).find((a) => a.id === selAreaFuncId) ?? null}
+              tipoAtual={tipoArea} onTipoAtual={setTipoArea}
+              onUpdate={updateAreaFuncional} onRemover={removerAreaFuncional} onSelecionar={selecionarAreaFunc} />
           ) : etapa === "planta" ? (
             selEstrutura ? <EstruturaInspector sel={selEstrutura} /> : <PlantaEtapaInspector temPlanta={!!(cena.planta || cena.plantaVetorial)} temEstrutura={!!cena.estrutura} />
           ) : selItem ? (
@@ -1456,6 +1488,91 @@ function CuradoriaPanel() {
     </div>
   );
 }
+
+// Etapa 3 · Fase 02 — inspetor do LAYOUT DE ÁREA: as regiões que decidem
+// onde cada família de equipamento entra e por onde se circula.
+function AreasInspector({ sel, tipoAtual, onTipoAtual, onUpdate, onRemover, onSelecionar }: {
+  sel: AreaFuncional | null;
+  tipoAtual: TipoArea;
+  onTipoAtual: (t: TipoArea) => void;
+  onUpdate: (id: string, patch: Partial<AreaFuncional>) => void;
+  onRemover: (id: string) => void;
+  onSelecionar: (id: string | null) => void;
+}) {
+  const areas = useProjeto((s) => s.cena.areas ?? []);
+  const salaM2 = useProjeto((s) => (s.cena.sala.largura_cm / 100) * (s.cena.sala.profundidade_cm / 100));
+  const m2De = (a: AreaFuncional) => areaPoligonoM2(a.pontos);
+  const total = areas.reduce((t, a) => t + m2De(a), 0);
+
+  return (
+    <div style={{ display: "grid", gap: 12 }}>
+      <div>
+        <div className="brandface" style={{ fontSize: 15, color: "var(--gold)" }}>LAYOUT DE ÁREA</div>
+        <div style={{ fontSize: 11.5, color: "var(--muted)", lineHeight: 1.5, marginTop: 3 }}>
+          Antes dos equipamentos: onde fica a circulação, o cardio, o peso livre, o alongamento. Escolha o tipo na barra e desenhe a região na planta.
+        </div>
+      </div>
+
+      {sel ? (
+        <>
+          <Bloco label="TIPO DA REGIÃO">
+            <select className="fld" value={sel.tipo} onChange={(e) => onUpdate(sel.id, { tipo: e.target.value as TipoArea })}>
+              {(Object.keys(TIPOS_AREA) as TipoArea[]).map((k) => <option key={k} value={k}>{TIPOS_AREA[k].label}</option>)}
+            </select>
+            <div style={{ fontSize: 11, color: "var(--muted)", lineHeight: 1.45, marginTop: 5 }}>{TIPOS_AREA[sel.tipo].descricao}</div>
+          </Bloco>
+          <Bloco label="NOME (opcional)">
+            <CampoTexto valor={sel.nome ?? ""} placeholder={TIPOS_AREA[sel.tipo].label}
+              onSet={(v) => onUpdate(sel.id, { nome: v || null })} />
+          </Bloco>
+          <Bloco label="OBSERVAÇÃO">
+            <CampoTexto valor={sel.observacao ?? ""} linhas={3} placeholder="Ex.: corredor de 1 m ligando a porta à saída de emergência."
+              onSet={(v) => onUpdate(sel.id, { observacao: v || null })} />
+          </Bloco>
+          <div style={{ fontSize: 12, color: "var(--muted)" }}>
+            Área: <b style={{ color: "#e9e9e6" }}>{m2De(sel).toFixed(1).replace(".", ",")} m²</b>
+            {salaM2 > 0 && <> · {Math.round((m2De(sel) / salaM2) * 100)}% da sala</>}
+          </div>
+          <button className="btn" onClick={() => onRemover(sel.id)}>✕ Remover região</button>
+        </>
+      ) : (
+        <Bloco label="PRÓXIMA REGIÃO">
+          <select className="fld" value={tipoAtual} onChange={(e) => onTipoAtual(e.target.value as TipoArea)}>
+            {(Object.keys(TIPOS_AREA) as TipoArea[]).map((k) => <option key={k} value={k}>{TIPOS_AREA[k].label}</option>)}
+          </select>
+          <div style={{ fontSize: 11, color: "var(--muted)", lineHeight: 1.45, marginTop: 5 }}>{TIPOS_AREA[tipoAtual].descricao}</div>
+        </Bloco>
+      )}
+
+      <div className="hairline" />
+      <div>
+        <span className="microlabel">REGIÕES ({areas.length})</span>
+        <div style={{ display: "grid", gap: 4, marginTop: 6 }}>
+          {areas.map((a) => (
+            <button key={a.id} onClick={() => onSelecionar(a.id)} style={{
+              display: "flex", alignItems: "center", gap: 8, textAlign: "left", cursor: "pointer",
+              background: selDaLista(a, sel) ? "var(--gold-soft)" : "var(--panel-2)",
+              border: `1px solid ${selDaLista(a, sel) ? "var(--gold)" : "var(--line)"}`,
+              borderRadius: 7, padding: "6px 9px", color: "#c9c9c4", font: "600 11.5px 'DM Sans'",
+            }}>
+              <span style={{ width: 9, height: 9, borderRadius: 2, background: TIPOS_AREA[a.tipo].cor, flexShrink: 0 }} />
+              <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.nome || TIPOS_AREA[a.tipo].label}</span>
+              <span style={{ color: "var(--muted)", fontWeight: 400 }}>{m2De(a).toFixed(1).replace(".", ",")} m²</span>
+            </button>
+          ))}
+          {areas.length === 0 && <div style={{ fontSize: 11.5, color: "var(--muted)" }}>Nenhuma região ainda — escolha o tipo e desenhe na planta.</div>}
+        </div>
+        {areas.length > 0 && salaM2 > 0 && (
+          <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 8 }}>
+            Zoneado: <b style={{ color: "var(--gold)" }}>{total.toFixed(1).replace(".", ",")} m²</b> de {salaM2.toFixed(1).replace(".", ",")} m² ({Math.round((total / salaM2) * 100)}%)
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const selDaLista = (a: AreaFuncional, sel: AreaFuncional | null) => !!sel && sel.id === a.id;
 
 // Parecer técnico: a defesa do layout, nas palavras do consultor.
 function ParecerPanel() {

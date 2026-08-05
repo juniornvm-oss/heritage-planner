@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { Projeto, Cena, Cenario, Equipamento, ItemInventario, OpcoesDossie, ItemPosicionado, PlantaFundo, AreaAcabamento, PlantaVetorial, EstruturaPlanta, Parede, Abertura, PilarPlanta, Cota, ElementoParede, ItemInfraestrutura, AcessorioProjeto, AnexoOrcamento, Zona } from "../lib/types";
+import type { Projeto, Cena, Cenario, AreaFuncional, Equipamento, ItemInventario, OpcoesDossie, ItemPosicionado, PlantaFundo, AreaAcabamento, PlantaVetorial, EstruturaPlanta, Parede, Abertura, PilarPlanta, Cota, ElementoParede, ItemInfraestrutura, AcessorioProjeto, AnexoOrcamento, Zona } from "../lib/types";
 import { CENARIOS, ZONAS } from "../lib/types";
 import { cenarioSugerido, normalizarExercicios } from "../lib/curadoria";
 import { gerarEstrutura, estruturaVazia } from "../lib/estrutura";
@@ -14,6 +14,12 @@ function normalizarArea(a: AreaAcabamento): AreaAcabamento {
 }
 
 export type SelEstrutura = { tipo: "parede" | "pilar" | "abertura"; id: string } | null;
+
+/** bbox do polígono — mantém x/y/w/h em dia junto com os pontos. */
+const bboxDe = (pontos: { x: number; y: number }[]) => {
+  const bb = bboxPoligono(pontos);
+  return { x_cm: bb.x, y_cm: bb.y, w_cm: bb.w, h_cm: bb.h };
+};
 
 const CENA_VAZIA: Cena = { sala: { largura_cm: 1000, profundidade_cm: 800 }, planta: null, itens: [] };
 
@@ -34,6 +40,9 @@ function normalizarCena(bruta: Cena | null | undefined): Cena {
   const elementosParede = Array.isArray(base.elementosParede) ? base.elementosParede : [];
   const infra = Array.isArray(base.infra) ? base.infra : [];
   const acessorios = Array.isArray(base.acessorios) ? base.acessorios : [];
+  const areas = (Array.isArray(base.areas) ? base.areas : [])
+    .filter((a) => Array.isArray(a.pontos) && a.pontos.length >= 3)
+    .map((a) => ({ ...a, ...bboxDe(a.pontos) }));
   const inventario = (Array.isArray(base.inventario) ? base.inventario : []).map((i) => ({
     ...i,
     qtd: Number(i.qtd) > 0 ? Math.round(Number(i.qtd)) : 1,
@@ -52,7 +61,7 @@ function normalizarCena(bruta: Cena | null | undefined): Cena {
       if (typeof t === "string" && t.trim()) especificacoes[z] = t.trim();
     }
   }
-  return { ...base, sala, itens, acabamentos, cotas, elementosParede, infra, acessorios, anexos, estrutura, especificacoes, inventario };
+  return { ...base, sala, itens, acabamentos, cotas, elementosParede, infra, acessorios, anexos, estrutura, especificacoes, inventario, areas };
 }
 
 interface ProjetoState {
@@ -117,6 +126,12 @@ interface ProjetoState {
   setOpcaoDossie: (chave: keyof OpcoesDossie, ligado: boolean) => void;
   /** Parecer técnico do consultor (sai no Dossiê, depois da planta). */
   setParecer: (texto: string) => void;
+  // ── Fase 02 · layout de área: regiões funcionais da sala ──
+  selAreaFuncId: string | null;
+  selecionarAreaFunc: (id: string | null) => void;
+  addAreaFuncional: (a: AreaFuncional) => void;
+  updateAreaFuncional: (id: string, patch: Partial<AreaFuncional>, commit?: boolean) => void;
+  removerAreaFuncional: (id: string) => void;
   removerSelecionado: () => void;
   girarSelecionado: (graus?: number) => void;
   duplicarItem: (id: string) => void;
@@ -160,6 +175,7 @@ export const useProjeto = create<ProjetoState>((set, get) => ({
   selElemParedeId: null,
   selInfraId: null,
   selEstrutura: null,
+  selAreaFuncId: null,
   dirty: false,
   salvando: false,
   past: [],
@@ -321,6 +337,27 @@ export const useProjeto = create<ProjetoState>((set, get) => ({
   },
   removerInventario(id) {
     set((s) => ({ past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, inventario: (s.cena.inventario ?? []).filter((i) => i.id !== id) }, dirty: true }));
+  },
+
+  selecionarAreaFunc(id) {
+    set({ selAreaFuncId: id, selectedId: null, selectedAcabId: null, selElemParedeId: null, selInfraId: null, selEstrutura: null });
+  },
+  addAreaFuncional(a) {
+    const norm = { ...a, ...bboxDe(a.pontos) };
+    set((s) => ({ past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, areas: [...(s.cena.areas ?? []), norm] }, selAreaFuncId: a.id, dirty: true }));
+  },
+  updateAreaFuncional(id, patch, commit = true) {
+    set((s) => {
+      const areas = (s.cena.areas ?? []).map((a) => {
+        if (a.id !== id) return a;
+        const nova = { ...a, ...patch };
+        return patch.pontos ? { ...nova, ...bboxDe(nova.pontos) } : nova;
+      });
+      return { past: commit ? [...s.past, clone(s.cena)] : s.past, future: commit ? [] : s.future, cena: { ...s.cena, areas }, dirty: true };
+    });
+  },
+  removerAreaFuncional(id) {
+    set((s) => ({ past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, areas: (s.cena.areas ?? []).filter((a) => a.id !== id) }, selAreaFuncId: null, dirty: true }));
   },
 
   setParecer(texto) {

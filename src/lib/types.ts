@@ -466,6 +466,37 @@ export const ROTULO_SECAO_DOSSIE: Record<keyof OpcoesDossie, string> = {
   exercicios: "Exercícios contemplados",
 };
 
+// ── Fase 02: LAYOUT DE ÁREA — as regiões da sala, antes dos equipamentos ────
+/** Região funcional da academia. É o zoneamento que decide ONDE cada família
+ *  de equipamento entra e por onde se circula. */
+export type TipoArea =
+  | "circulacao" | "cardio" | "musculacao" | "articulados" | "peso_livre"
+  | "bateria" | "alongamento" | "funcional" | "avaliacao" | "apoio";
+
+export const TIPOS_AREA: Record<TipoArea, { label: string; cor: string; descricao: string }> = {
+  circulacao: { label: "Circulação", cor: "#5FC8E8", descricao: "Corredores e rota de fuga — área que fica permanentemente livre." },
+  cardio: { label: "Cardio", cor: "#4A90C4", descricao: "Esteiras, bikes, elípticos e escadas — exige tomada e recuo de segurança." },
+  musculacao: { label: "Musculação guiada", cor: "#C9A227", descricao: "Máquinas de carga selecionada, com trajetória definida." },
+  articulados: { label: "Equipamentos articulados", cor: "#D8A657", descricao: "Máquinas de alavanca com anilhas (plate loaded)." },
+  peso_livre: { label: "Peso livre", cor: "#C07A3E", descricao: "Halteres, barras, bancos e racks — piso reforçado e área de queda." },
+  bateria: { label: "Bateria de máquinas", cor: "#B5763A", descricao: "Máquinas alinhadas em sequência de treino (circuito)." },
+  alongamento: { label: "Alongamento", cor: "#8B78BC", descricao: "Solo, colchonetes e espaldar — fora do fluxo de circulação." },
+  funcional: { label: "Funcional", cor: "#7FB77E", descricao: "Área livre para treino funcional e acessórios." },
+  avaliacao: { label: "Avaliação física", cor: "#9E8CC0", descricao: "Espaço reservado para avaliação e atendimento." },
+  apoio: { label: "Apoio", cor: "#8A8A8F", descricao: "Recepção, bebedouro, guarda-volumes e demais apoios." },
+};
+
+/** Região desenhada na planta (polígono em cm, mundo). */
+export interface AreaFuncional {
+  id: string;
+  tipo: TipoArea;
+  /** Nome livre — em branco, usa o rótulo do tipo. */
+  nome?: string | null;
+  pontos: { x: number; y: number }[];
+  x_cm: number; y_cm: number; w_cm: number; h_cm: number; // bbox
+  observacao?: string | null;
+}
+
 /** PDF de orçamento anexado ao projeto (arquivo no Storage; metadados na cena). */
 export interface AnexoOrcamento {
   id: string;
@@ -555,6 +586,56 @@ export interface Cena {
   dossie?: OpcoesDossie;
   /** Parecer técnico do consultor — a defesa do layout, no Dossiê. */
   parecer?: string | null;
+  /** Fase 02 — layout de área: as regiões funcionais da sala. */
+  areas?: AreaFuncional[];
+}
+
+/** Papel de quem representa o condomínio na decisão. */
+export type PapelContato = "sindico" | "administrador" | "zelador" | "conselho" | "outro";
+
+export const PAPEIS_CONTATO: Record<PapelContato, string> = {
+  sindico: "Síndico(a)",
+  administrador: "Administrador(a)",
+  zelador: "Zelador(a)",
+  conselho: "Conselho",
+  outro: "Outro",
+};
+
+/** Contato do condomínio — o projeto aceita vários (síndico + administradora…). */
+export interface ContatoProjeto {
+  id: string;
+  nome: string;
+  papel: PapelContato;
+  /** Telefone/WhatsApp só com dígitos; a tela formata na exibição. */
+  whatsapp?: string | null;
+  email?: string | null;
+}
+
+/** Endereço destrinchado (o CEP preenche; o consultor ajusta). */
+export interface EnderecoDetalhado {
+  cep?: string | null;
+  rua?: string | null;
+  numero?: string | null;
+  complemento?: string | null;
+  bairro?: string | null;
+  cidade?: string | null;
+  estado?: string | null;
+}
+
+/** Endereço em uma linha — é o que a capa do Dossiê e as listas mostram. */
+export function enderecoEmLinha(e?: EnderecoDetalhado | null): string {
+  if (!e) return "";
+  const rua = [e.rua, e.numero && `nº ${e.numero}`, e.complemento].filter(Boolean).join(", ");
+  return [rua, e.bairro, [e.cidade, e.estado].filter(Boolean).join("/")].filter(Boolean).join(" · ");
+}
+
+/** Telefone brasileiro formatado a partir dos dígitos. */
+export function formatarTelefone(digitos?: string | null): string {
+  const d = String(digitos ?? "").replace(/\D/g, "").slice(0, 11);
+  if (d.length <= 2) return d;
+  if (d.length <= 6) return `(${d.slice(0, 2)}) ${d.slice(2)}`;
+  if (d.length <= 10) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`;
+  return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
 }
 
 /** Diagnóstico — perfil de uso do condomínio (planner.projetos.perfil jsonb). */
@@ -603,8 +684,13 @@ export interface Projeto {
   sindico?: string | null;
   contato?: string | null; // contato do síndico (telefone/WhatsApp)
   contato_admin?: string | null; // contato administrativo (nome · telefone)
-  endereco?: string | null;
+  endereco?: string | null; // linha montada (compatibilidade com o que já existe)
   cep?: string | null;
+  /** Endereço destrinchado (migração 017). */
+  endereco_det?: EnderecoDetalhado | null;
+  /** Contatos do condomínio (migração 017). Substitui sindico/contato/contato_admin,
+   *  que seguem preenchidos para não quebrar o que já lê esses campos. */
+  contatos?: ContatoProjeto[] | null;
   foto_fachada?: string | null; // dataURL (JPEG reduzido)
   orcamento_teto?: number | null;
   taxa_assessoria?: number | null; // coluna gerada no banco — nunca enviar em insert/update

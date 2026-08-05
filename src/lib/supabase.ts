@@ -54,8 +54,13 @@ export async function obterProjeto(id: string): Promise<Projeto | null> {
 export async function criarProjeto(p: Partial<Projeto>): Promise<Projeto> {
   if (!sb) throw new Error("Supabase não configurado");
   const { data, error } = await sb.from("projetos").insert(p).select().single();
-  if (error) throw error;
-  return data as Projeto;
+  if (!error) return data as Projeto;
+  if (!faltaColuna(error)) throw error;
+  const semNovas = { ...p };
+  for (const c of COLS_OPCIONAIS) delete (semNovas as Record<string, unknown>)[c];
+  const r2 = await sb.from("projetos").insert(semNovas).select().single();
+  if (r2.error) throw r2.error;
+  return r2.data as Projeto;
 }
 
 export async function salvarCena(id: string, cena: unknown): Promise<void> {
@@ -66,12 +71,24 @@ export async function salvarCena(id: string, cena: unknown): Promise<void> {
 
 /** Atualiza campos do projeto (ex.: diagnóstico da Leitura). `taxa_assessoria` é gerada
  *  no banco e é removida do patch para não quebrar o update. */
+/** Colunas aditivas recentes: se a migração ainda não rodou, o insert/update
+ *  falha por coluna inexistente. Removemos e tentamos de novo — o projeto salva
+ *  sem elas em vez de o consultor perder o preenchimento. */
+const COLS_OPCIONAIS = ["contatos", "endereco_det"] as const;
+const faltaColuna = (e: unknown) =>
+  /column .* does not exist|could not find the '.*' column/i.test((e as { message?: string })?.message ?? "");
+
 export async function atualizarProjeto(id: string, patch: Partial<Projeto>): Promise<Projeto> {
   if (!sb) throw new Error("Supabase não configurado");
   const { taxa_assessoria: _omit, id: _id, criado_em: _c, ...limpo } = patch;
   const { data, error } = await sb.from("projetos").update(limpo).eq("id", id).select().single();
-  if (error) throw error;
-  return data as Projeto;
+  if (!error) return data as Projeto;
+  if (!faltaColuna(error)) throw error;
+  const semNovas = { ...limpo };
+  for (const c of COLS_OPCIONAIS) delete (semNovas as Record<string, unknown>)[c];
+  const r2 = await sb.from("projetos").update(semNovas).eq("id", id).select().single();
+  if (r2.error) throw r2.error;
+  return r2.data as Projeto;
 }
 
 // ── Bibliotecas ──────────────────────────────────────────────────────────────

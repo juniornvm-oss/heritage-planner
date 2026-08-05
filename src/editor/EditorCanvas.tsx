@@ -9,9 +9,9 @@ import { formatLength } from "../lib/units";
 import { arred } from "../lib/estrutura";
 import { areaPoligonoM2, perimetroCm, projetarNoSegmento, m2, type Ponto } from "../lib/geometria";
 import { gerarCotasAutomaticas } from "../lib/lamina";
-import { MATERIAIS_PISO, ELEMENTOS_PAREDE, PAPEL_LADO, LADOS_PADRAO, type TipoElementoParede, type LadoRect } from "../lib/types";
+import { MATERIAIS_PISO, ELEMENTOS_PAREDE, PAPEL_LADO, LADOS_PADRAO, TIPOS_AREA, type TipoElementoParede, type LadoRect } from "../lib/types";
 
-export type Etapa = "planta" | "acabamento" | "layout" | "fichas" | "curadoria" | "acessorios";
+export type Etapa = "planta" | "acabamento" | "areas" | "layout" | "fichas" | "curadoria" | "acessorios";
 export type FerramentaEstrutura = "parede" | "porta" | "janela" | "pilar" | "apagar" | null;
 export type FerramentaAcab = "rect" | "poligono" | "cota" | "espelho" | "itemParede" | "apagar" | null;
 
@@ -381,6 +381,8 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoE
   };
   const apagandoAcab = etapaAtual === "acabamento" && ferrAcab === "apagar" && !somenteLeitura;
   const areasEscutam = areasAtivas || apagandoAcab; // no modo apagar, o toque precisa chegar na área
+  const selAreaFuncId = useProjeto((s) => s.selAreaFuncId);
+  const selecionarAreaFunc = useProjeto((s) => s.selecionarAreaFunc);
   const camVis = useMemo(() => new Map((pv?.camadas ?? []).map((c) => [c.nome, c.visivel])), [pv]);
 
   // Trocar de ferramenta cancela desenhos parciais.
@@ -585,6 +587,26 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoE
                       updateArea(a.id, { pontos: novo });
                     }} />
                 ))}
+              </Group>
+            );
+          })}
+
+          {/* ── Fase 02: LAYOUT DE ÁREA — regiões funcionais da sala ── */}
+          {(cena.areas ?? []).map((a) => {
+            const def = TIPOS_AREA[a.tipo] ?? TIPOS_AREA.apoio;
+            const sel = selAreaFuncId === a.id;
+            const naEtapa = etapaAtual === "areas";
+            const pts = a.pontos.flatMap((p) => [p.x, p.y]);
+            return (
+              <Group key={a.id} listening={naEtapa && !drawing && !somenteLeitura}
+                onMouseDown={() => selecionarAreaFunc(a.id)} onTap={() => selecionarAreaFunc(a.id)}>
+                <Line points={pts} closed fill={def.cor}
+                  opacity={naEtapa ? (sel ? 0.3 : 0.18) : 0.1}
+                  stroke={def.cor} strokeWidth={(sel ? 3 : 1.5) / cam.zoom}
+                  dash={a.tipo === "circulacao" ? [14 / cam.zoom, 9 / cam.zoom] : undefined} />
+                <Text x={a.x_cm + 8} y={a.y_cm + 8} text={(a.nome || def.label).toUpperCase()}
+                  fontSize={15 / cam.zoom} fontStyle="700" fill={def.cor}
+                  opacity={naEtapa ? 1 : 0.55} listening={false} />
               </Group>
             );
           })}

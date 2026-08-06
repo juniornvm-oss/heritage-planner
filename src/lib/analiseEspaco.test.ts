@@ -367,3 +367,164 @@ describe("projeto Heritage (cena real)", () => {
     expect(a.alertas.some((x) => x.texto.includes("sem área de uso cadastrada"))).toBe(true);
   });
 });
+
+// ── Aberturas e fixações ────────────────────────────────────────────────────
+// A parte da análise que só existe porque a Etapa 1 ganhou variantes: sem
+// modelo de porta e material de parede, nada disto tem o que julgar.
+
+const paredes = () => [
+  { id: "topo", x1: 0, y1: 0, x2: 1000, y2: 0, espessura_cm: 15 },
+  { id: "dir", x1: 1000, y1: 0, x2: 1000, y2: 800, espessura_cm: 15 },
+  { id: "base", x1: 1000, y1: 800, x2: 0, y2: 800, espessura_cm: 15 },
+  { id: "esq", x1: 0, y1: 800, x2: 0, y2: 0, espessura_cm: 15 },
+];
+
+const comEstrutura = (itens: ItemPosicionado[], extra: Partial<Cena> = {}, est: Partial<Cena["estrutura"] & object> = {}): Cena =>
+  cena(itens, { estrutura: { paredes: paredes(), aberturas: [], pilares: [], ...est }, ...extra });
+
+describe("varredura da porta", () => {
+  // Porta de 90 cm centrada em x=500 na parede do topo; a folha varre o
+  // quadrante x∈[455,545], y∈[0,90] para dentro da sala.
+  const porta = (extra = {}) => ({ id: "p", paredeId: "topo", centro_cm: 500, largura_cm: 90, tipo: "porta" as const, ...extra });
+  const naFrente = item({ id: "esteira", x_cm: 470, y_cm: 20, w_cm: 80, h_cm: 200 });
+  const longe = item({ id: "longe", x_cm: 100, y_cm: 400, w_cm: 80, h_cm: 200 });
+
+  it("acusa o equipamento que trava a folha", () => {
+    const a = analisarEspaco(comEstrutura([naFrente], {}, { aberturas: [porta()] }));
+    expect(a.aberturas).toHaveLength(1);
+    expect(a.aberturas[0].ids).toEqual(["esteira"]);
+    expect(a.aberturas[0].status).toBe("critico");
+    expect(a.alertas.some((x) => x.nivel === "critico" && x.texto.includes("varredura da folha"))).toBe(true);
+  });
+
+  it("não acusa quem está fora do arco", () => {
+    const a = analisarEspaco(comEstrutura([longe], {}, { aberturas: [porta()] }));
+    expect(a.aberturas[0].ids).toEqual([]);
+    expect(a.aberturas[0].status).toBe("ok");
+  });
+
+  it("trocar para porta de correr libera o piso", () => {
+    const giro = analisarEspaco(comEstrutura([naFrente], {}, { aberturas: [porta()] }));
+    const correr = analisarEspaco(comEstrutura([naFrente], {}, { aberturas: [porta({ modelo: "correr" })] }));
+    expect(giro.aberturas[0].ids).toHaveLength(1);
+    expect(correr.aberturas[0].ids).toHaveLength(0);
+    expect(correr.aberturas[0].varre).toBe(false);
+    expect(correr.aberturas[0].status).toBe("neutro");
+  });
+
+  it("inverter o lado de abertura tira o equipamento do arco", () => {
+    // Os dois quartos de disco se sobrepõem no miolo do vão, então o caso que
+    // separa um do outro é o CANTO PROFUNDO: 20×20 encostado na ombreira
+    // esquerda, a 75 cm da parede. Do pivô esquerdo (455,0) dista 75 — dentro.
+    // Do pivô direito (545,0) o ponto mais próximo dista 103 — fora do raio 90.
+    const canto = item({ id: "rack", x_cm: 455, y_cm: 75, w_cm: 20, h_cm: 20 });
+    const esq = analisarEspaco(comEstrutura([canto], {}, { aberturas: [porta({ lado: "esquerda" })] }));
+    const dir = analisarEspaco(comEstrutura([canto], {}, { aberturas: [porta({ lado: "direita" })] }));
+    expect(esq.aberturas[0].ids).toEqual(["rack"]);
+    expect(dir.aberturas[0].ids).toEqual([]);
+  });
+
+  it("o arco não muda a área útil — útil = uso + livre continua fechando", () => {
+    const a = analisarEspaco(comEstrutura([naFrente], {}, { aberturas: [porta()] }));
+    expect(a.areaUsoM2.valor + a.areaLivreM2.valor).toBeCloseTo(a.areaUtilM2.valor, 1);
+  });
+
+  it("abertura órfã (parede apagada) é ignorada em vez de quebrar", () => {
+    const a = analisarEspaco(comEstrutura([naFrente], {}, { aberturas: [porta({ paredeId: "fantasma" })] }));
+    expect(a.aberturas).toHaveLength(0);
+  });
+
+  it("janela não reserva piso nenhum", () => {
+    const a = analisarEspaco(comEstrutura([naFrente], {}, {
+      aberturas: [{ id: "j", paredeId: "topo", centro_cm: 500, largura_cm: 120, tipo: "janela" as const }],
+    }));
+    expect(a.aberturas[0].varre).toBe(false);
+    expect(a.aberturas[0].ids).toEqual([]);
+  });
+});
+
+describe("fixação do elemento de parede", () => {
+  const espelho = {
+    id: "esp", tipo: "espelho" as const, paredeId: "topo",
+    offset_cm: 200, largura_cm: 200, altura_cm: 200, dist_piso_cm: 30,
+  };
+
+  it("alvenaria aceita o espelho em silêncio", () => {
+    const a = analisarEspaco(comEstrutura([], { elementosParede: [espelho] }));
+    expect(a.fixacoes).toEqual([]);
+  });
+
+  it("drywall sem reforço vira alerta com a saída escrita", () => {
+    const est = { paredes: paredes().map((p) => (p.id === "topo" ? { ...p, material: "drywall" as const } : p)) };
+    const a = analisarEspaco(comEstrutura([], { elementosParede: [espelho] }, est));
+    expect(a.fixacoes).toHaveLength(1);
+    expect(a.fixacoes[0].nivel).toBe("atencao");
+    expect(a.fixacoes[0].motivo).toContain("reforço");
+    expect(a.alertas.some((x) => x.texto.includes("reforço"))).toBe(true);
+  });
+
+  it("marcar a parede como reforçada silencia o alerta", () => {
+    const est = { paredes: paredes().map((p) => (p.id === "topo" ? { ...p, material: "drywall" as const, reforcada: true } : p)) };
+    expect(analisarEspaco(comEstrutura([], { elementosParede: [espelho] }, est)).fixacoes).toEqual([]);
+  });
+
+  it("vidro não recebe carga nem com reforço", () => {
+    const est = { paredes: paredes().map((p) => (p.id === "topo" ? { ...p, material: "vidro" as const, reforcada: true } : p)) };
+    const a = analisarEspaco(comEstrutura([], { elementosParede: [espelho] }, est));
+    expect(a.fixacoes[0].nivel).toBe("critico");
+  });
+
+  it("espelho sobre a janela é conflito nos dois eixos", () => {
+    // Janela de 120 cm centrada em 200, peitoril 110 → ocupa 140..260 na
+    // horizontal e 110..220 na vertical. O espelho (100..300 × 30..230) invade.
+    const janela = { id: "j", paredeId: "topo", centro_cm: 200, largura_cm: 120, tipo: "janela" as const };
+    const a = analisarEspaco(comEstrutura([], { elementosParede: [espelho] }, { aberturas: [janela] }));
+    expect(a.fixacoes.some((f) => f.motivo.includes("sobrepõe"))).toBe(true);
+  });
+
+  it("elemento acima da verga não conflita com a janela", () => {
+    const janela = { id: "j", paredeId: "topo", centro_cm: 200, largura_cm: 120, tipo: "janela" as const };
+    const tv = { id: "tv", tipo: "tv" as const, paredeId: "topo", offset_cm: 200, largura_cm: 98, altura_cm: 57, dist_piso_cm: 230 };
+    const a = analisarEspaco(comEstrutura([], { elementosParede: [tv] }, { aberturas: [janela] }));
+    expect(a.fixacoes).toEqual([]);
+  });
+
+  it("elemento ao lado da janela não conflita", () => {
+    const janela = { id: "j", paredeId: "topo", centro_cm: 800, largura_cm: 120, tipo: "janela" as const };
+    const a = analisarEspaco(comEstrutura([], { elementosParede: [espelho] }, { aberturas: [janela] }));
+    expect(a.fixacoes).toEqual([]);
+  });
+
+  it("elemento órfão de parede apagada não quebra a análise", () => {
+    const a = analisarEspaco(comEstrutura([], { elementosParede: [{ ...espelho, paredeId: "fantasma" }] }));
+    expect(a.fixacoes).toEqual([]);
+  });
+});
+
+describe("sala vazia continua muda", () => {
+  it("sem abertura e sem elemento, nada de novo é dito", () => {
+    const a = analisarEspaco(cena([]));
+    expect(a.aberturas).toEqual([]);
+    expect(a.fixacoes).toEqual([]);
+  });
+});
+
+describe("mobiliário fixo também trava a porta", () => {
+  const porta = { id: "p", paredeId: "topo", centro_cm: 500, largura_cm: 90, tipo: "porta" as const };
+
+  it("a catraca dentro do arco é acusada, e à parte dos equipamentos", () => {
+    const catraca = { id: "catraca", tipo: "banco" as const, nome: "Catraca", x_cm: 470, y_cm: 10, w_cm: 60, h_cm: 40, rotacao: 0 };
+    const a = analisarEspaco(comEstrutura([], { infra: [catraca] }, { aberturas: [porta] }));
+    expect(a.aberturas[0].idsInfra).toEqual(["catraca"]);
+    expect(a.aberturas[0].ids).toEqual([]); // `ids` continua sendo só equipamento
+    expect(a.aberturas[0].status).toBe("critico");
+    expect(a.alertas.some((x) => x.texto.includes("mobiliário"))).toBe(true);
+  });
+
+  it("tapete não trava porta nenhuma", () => {
+    const tapete = { id: "tapete", tipo: "tapete" as const, nome: "Tapete", x_cm: 470, y_cm: 10, w_cm: 60, h_cm: 40, rotacao: 0 };
+    const a = analisarEspaco(comEstrutura([], { infra: [tapete] }, { aberturas: [porta] }));
+    expect(a.aberturas[0].idsInfra).toEqual([]);
+    expect(a.aberturas[0].status).toBe("ok");
+  });
+});

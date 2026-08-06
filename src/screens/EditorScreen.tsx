@@ -1,8 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import type Konva from "konva";
-import EditorCanvas, { type Etapa, type FerramentaEstrutura, type FerramentaAcab } from "../editor/EditorCanvas";
+import EditorCanvas, { PADROES_PLANTA, type EstadoPonteiro, type Etapa, type FerramentaEstrutura, type FerramentaAcab, type PadroesPlanta } from "../editor/EditorCanvas";
 import { TrilhaEtapas, ModoHUD, type ModoAtivo } from "../editor/TrilhaEtapas";
+import { CaixaFerramentas } from "../editor/CaixaFerramentas";
+import { BarraPropriedades } from "../editor/BarraPropriedades";
+import { PosicaoPonteiro } from "../editor/BarraStatus";
+import { ferramentasDaEtapa, type IdFerramenta } from "../editor/ferramentas";
+import { ElevacaoEsquadria } from "../editor/PreviaEsquadria";
+import {
+  JANELAS, PAREDES, PORTAS, defParede, fichaAbertura, medidaEsquadria, modeloDaAbertura, quadroDeEsquadrias,
+  type FormaPilar, type MaterialParede, type ModeloJanela, type ModeloPorta,
+} from "../lib/esquadrias";
 import { defDaEtapa } from "../editor/etapas";
 import { usePresenca } from "../ui/anim";
 import EntradaPDF, { ACEITA_PDF, ACEITA_PLANTA } from "../ui/EntradaPDF";
@@ -13,7 +22,7 @@ import { heritageProjeto } from "../lib/seed";
 import { lerPlanta } from "../lib/planta";
 import { lerPlantaVetorial } from "../lib/plantaVetorial";
 import { exportarPdf } from "../lib/export/pdfExport";
-import { resumo } from "../lib/validation";
+import { resumo, type Problema } from "../lib/validation";
 import { snapCm } from "../lib/canvas";
 import { BRL, formatLength, parseLength } from "../lib/units";
 import { ZONAS, CENARIOS, DESTINOS_INVENTARIO, OPCOES_DOSSIE_PADRAO, ROTULO_SECAO_DOSSIE, ORDEM_DOSSIE_PADRAO, SECAO_EXIGE_DADO, CIRCULACAO_PADRAO, TIPOS_AREA, taxaDe, MATERIAIS_PISO, ELEMENTOS_PAREDE, MOBILIARIO_CATALOGO, ACESSORIOS_CATALOGO, LADOS_PADRAO, type AcessorioProjeto, type LadoRect, type AreaFuncional, type TipoArea, type DestinoInventario, type ItemInventario, type OpcoesDossie, type SecaoDossie, type Cena, type MaterialPiso, type TipoElementoParede, type Zona, type Cenario, type ItemPosicionado, type Equipamento, type AreaAcabamento, type ElementoParede, type ItemInfraestrutura } from "../lib/types";
@@ -68,6 +77,11 @@ export default function EditorScreen() {
   const [tipoArea, setTipoArea] = useState<TipoArea>("circulacao"); // Fase 02 · layout de área
   const [ferrEstrutura, setFerrEstrutura] = useState<FerramentaEstrutura>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  /** O que a PRÓXIMA parede/porta/janela/pilar vai ser (flyout + barra de propriedades). */
+  const [padroes, setPadroesState] = useState<PadroesPlanta>(PADROES_PLANTA);
+  const setPadroes = (p: Partial<PadroesPlanta>) => setPadroesState((a) => ({ ...a, ...p }));
+  /** Espelho do ponteiro e do zoom, lido por rAF só pela barra de status. */
+  const ponteiroRef = useRef<EstadoPonteiro>({ x: 0, y: 0, zoom: 1, dentro: false });
 
   // Desliga todos os modos/ferramentas (usado ao trocar de etapa).
   function limparModos() {
@@ -172,7 +186,12 @@ export default function EditorScreen() {
     sincronizarAuto(equipamentos);
   }, [projeto, somenteLeitura, equipamentos, sincronizarAuto]);
 
-  const r = resumo(cena);
+  // Análise funcional de espaço: uma fonte só, consumida pelo rodapé, pela
+  // gaveta, pelo mapa de problemas e pelo Dossiê. `resumo` recebe a mesma
+  // instância — antes ele refazia a conta por dentro, e como não era
+  // memoizado, o editor recalculava a análise inteira a cada render.
+  const analise = useMemo(() => analisarEspaco(cena), [cena]);
+  const r = useMemo(() => resumo(cena, analise), [cena, analise]);
   const podeDesfazer = useProjeto((s) => s.past.length > 0);
   const podeRefazer = useProjeto((s) => s.future.length > 0);
 
@@ -190,10 +209,13 @@ export default function EditorScreen() {
     if (modoMoverPlanta) return { nome: "Mover planta", cor: OK, instrucao: "arraste a planta de fundo para posicionar" };
     if (modoRecorte) return { nome: "Recortar", cor: OK, instrucao: "toque 2 cantos: fica só o que estiver dentro" };
     if (modoVista) return { nome: "Vista IA", cor: V, instrucao: "toque onde fica a câmera, depois para onde ela olha", passo: "1 de 2" };
-    if (ferrEstrutura === "parede") return { nome: "Parede", cor: G, instrucao: "toque as 2 pontas da parede", passo: "1 de 2" };
-    if (ferrEstrutura === "pilar") return { nome: "Pilar", cor: G, instrucao: "toque 2 cantos do pilar", passo: "1 de 2" };
-    if (ferrEstrutura === "porta") return { nome: "Porta", cor: G, instrucao: "toque sobre a parede onde fica a porta" };
-    if (ferrEstrutura === "janela") return { nome: "Janela", cor: G, instrucao: "toque sobre a parede onde fica a janela" };
+    // O HUD nomeia a VARIANTE ativa, não só a ferramenta: quem escolheu
+    // "porta de correr" no flyout precisa ver que é ela que vai sair do
+    // próximo toque — senão descobre depois de desenhar cinco.
+    if (ferrEstrutura === "parede") return { nome: `Parede · ${PAREDES[padroes.materialParede].label} ${padroes.espessuraParede} cm`, cor: G, instrucao: "toque as 2 pontas da parede", passo: "1 de 2" };
+    if (ferrEstrutura === "pilar") return { nome: `Pilar · ${padroes.formaPilar === "L" ? "em L" : padroes.formaPilar}`, cor: G, instrucao: "toque 2 cantos do pilar", passo: "1 de 2" };
+    if (ferrEstrutura === "porta") return { nome: `${PORTAS[padroes.modeloPorta].label} · ${padroes.larguraPorta} cm`, cor: G, instrucao: "toque sobre a parede onde fica a porta" };
+    if (ferrEstrutura === "janela") return { nome: `Janela ${JANELAS[padroes.modeloJanela].label.toLowerCase()} · ${padroes.larguraJanela} cm`, cor: G, instrucao: "toque sobre a parede onde fica a janela" };
     if (ferrEstrutura === "apagar") return { nome: "Apagar", cor: X, instrucao: "toque no elemento para apagar" };
     if (ferrAcab === "rect") return { nome: etapa === "areas" ? "Região" : "Área", cor: G, instrucao: "toque 2 cantos", passo: "1 de 2" };
     if (ferrAcab === "poligono") return { nome: "Polígono", cor: G, instrucao: "toque os cantos; toque o 1º ponto (verde) para fechar" };
@@ -204,17 +226,117 @@ export default function EditorScreen() {
     return null;
   })();
 
+  // ── A caixa de ferramentas ────────────────────────────────────────────
+  //
+  // Os modos continuam sendo sete booleanos e dois enums, como sempre foram —
+  // trocar isso por uma máquina de estados nova seria reescrever o editor
+  // inteiro para ganhar zero. O que muda é que existe UM nome por ferramenta,
+  // e a tradução entre esse nome e as flags mora nestas três funções. A caixa
+  // vertical, o HUD e a barra de propriedades falam só o nome.
+
+  /** Qual ferramenta está ligada agora. Sem nenhuma = "selecionar". */
+  const ferramentaAtiva: IdFerramenta =
+    modoCalibrar ? "calibrar"
+    : modoParede ? "alinhar"
+    : modoMoverPlanta ? "moverPlanta"
+    : modoRecorte ? "recortar"
+    : modoVista ? "vista"
+    : ferrEstrutura === "apagar" ? "apagarEstrutura"
+    : ferrEstrutura ? ferrEstrutura
+    : ferrAcab === "rect" ? (etapa === "areas" ? "regiao" : "areaRect")
+    : ferrAcab === "poligono" ? (etapa === "areas" ? "regiaoPoligono" : "areaPoligono")
+    : ferrAcab === "cota" ? "cota"
+    : ferrAcab === "espelho" ? "espelho"
+    : ferrAcab === "itemParede" ? "itemParede"
+    : ferrAcab === "apagar" ? "apagarAcabamento"
+    : "selecionar";
+
+  /** Liga a ferramenta, sem alternar. Usado quando a variante já foi escolhida. */
+  function ligarFerramenta(id: IdFerramenta) {
+    limparModos();
+    switch (id) {
+      case "calibrar": setModoCalibrar(true); break;
+      case "alinhar": setModoParede(true); break;
+      case "moverPlanta": setModoMoverPlanta(true); break;
+      case "recortar": setModoRecorte(true); break;
+      case "vista": setModoVista(true); break;
+      case "parede": case "porta": case "janela": case "pilar": setFerrEstrutura(id); break;
+      case "apagarEstrutura": setFerrEstrutura("apagar"); break;
+      case "regiao": case "areaRect": setFerrAcab("rect"); break;
+      case "regiaoPoligono": case "areaPoligono": setFerrAcab("poligono"); break;
+      case "cota": setFerrAcab("cota"); break;
+      case "espelho": setFerrAcab("espelho"); break;
+      case "itemParede": setFerrAcab("itemParede"); break;
+      case "apagarAcabamento": setFerrAcab("apagar"); break;
+      default: break; // "selecionar" e as ações de um toque
+    }
+  }
+
+  /** Toque no botão: ação de um toque, alternância, ou entrada na ferramenta. */
+  function ativarFerramenta(id: IdFerramenta) {
+    if (id === "importarPlanta") { setEntradaPlanta(true); return; }
+    if (id === "auto") {
+      // Gerar a estrutura recria TODAS as paredes com ids novos, então o que
+      // estava pendurado nelas fica órfão e o store limpa. Quem já pendurou
+      // precisa saber disso antes, não depois.
+      const nEls = cena.elementosParede?.length ?? 0;
+      if (nEls && !confirm(`Gerar a estrutura recria todas as paredes. Os ${nEls} ${nEls === 1 ? "item fixado nelas será removido" : "itens fixados nelas serão removidos"} (espelhos, TVs, pontos elétricos). Continuar?`)) return;
+      gerarEstruturaAuto();
+      return;
+    }
+    // Tocar de novo na ferramenta ativa devolve o ponteiro — o mesmo idioma
+    // de alternância dos botões antigos, agora num lugar só.
+    if (id === ferramentaAtiva || id === "selecionar") { limparModos(); return; }
+    ligarFerramenta(id);
+  }
+
+  /** Escolha no flyout: grava a variante E entra na ferramenta. */
+  function escolherVariante(id: IdFerramenta, v: string) {
+    switch (id) {
+      case "parede": {
+        const m = v as MaterialParede;
+        // O reforço é uma propriedade do DRYWALL/madeira; trocar para alvenaria
+        // com ele ligado marcava a parede como reforçada sem que o botão ⊕
+        // sequer aparecesse para desmarcar.
+        setPadroes({
+          materialParede: m, espessuraParede: PAREDES[m].espessura_cm,
+          ...(PAREDES[m].fixacao === "requer_reforco" ? {} : { paredeReforcada: false }),
+        });
+        break;
+      }
+      case "porta": setPadroes({ modeloPorta: v as ModeloPorta, larguraPorta: PORTAS[v as ModeloPorta].vao_cm }); break;
+      case "janela": setPadroes({ modeloJanela: v as ModeloJanela, larguraJanela: JANELAS[v as ModeloJanela].vao_cm }); break;
+      case "pilar": setPadroes({ formaPilar: v as FormaPilar }); break;
+      case "regiao": case "regiaoPoligono": setTipoArea(v as TipoArea); break;
+      case "itemParede": setTipoElemParede(v as TipoElementoParede); break;
+      default: break;
+    }
+    ligarFerramenta(id);
+  }
+
+  const gruposFerramentas = useMemo(
+    () => ferramentasDaEtapa(etapa, { temFundo: !!cena.planta, temVetorial: !!cena.plantaVetorial }),
+    [etapa, cena.planta, cena.plantaVetorial],
+  );
+  const variantesAtivas: Partial<Record<IdFerramenta, string>> = {
+    parede: padroes.materialParede,
+    porta: padroes.modeloPorta,
+    janela: padroes.modeloJanela,
+    pilar: padroes.formaPilar,
+    regiao: tipoArea, regiaoPoligono: tipoArea,
+    itemParede: tipoElemParede,
+  };
+
   // Mantém o aviso montado durante a animação de saída (sem AnimatePresence).
   const avisoPresenca = usePresenca(!!aviso);
 
-  // Análise funcional de espaço: uma fonte só, consumida pelo rodapé, pela
-  // gaveta e pelo Dossiê. Recalcula a cada mudança da cena — é O(n) sobre
-  // dezenas de itens, custo irrelevante perto de um redraw do canvas.
-  const analise = useMemo(() => analisarEspaco(cena), [cena]);
   const [analiseAberta, setAnaliseAberta] = useState(false);
 
-  /** Ids dos equipamentos com um dado problema — alimenta os chips clicáveis. */
-  const idsComProblema = (tipo: "colisao" | "corredor" | "uso") =>
+  /** Ids dos equipamentos com um dado problema — alimenta os chips clicáveis.
+   *  O parâmetro é o tipo IMPORTADO: escrito à mão, ele ficava mais estreito
+   *  que o valor comparado, e um tipo de problema novo sumia em silêncio —
+   *  sem chip, sem ids e sem erro de compilação. */
+  const idsComProblema = (tipo: Exclude<Problema, null>) =>
     Object.entries(r.problemas).filter(([, v]) => v === tipo).map(([id]) => id);
 
   /** Seleciona o item e vai para a etapa em que ele é editável. O consultor
@@ -468,84 +590,70 @@ export default function EditorScreen() {
         </div>
       )}
 
-      {/* ── Faixa 3: só as ferramentas da etapa ativa ───────────────────── */}
-      <div style={{ display: "flex", alignItems: "center", gap: 8, rowGap: 6, flexWrap: "wrap", padding: "7px calc(12px + var(--sar)) 7px calc(12px + var(--sal))", borderBottom: "1px solid var(--line)", flexShrink: 0, minHeight: 46 }}>
-        {!somenteLeitura && !apresentacao && (
-          <>
-            <span style={{ fontSize: 11, color: "var(--text-4)", maxWidth: 260, lineHeight: 1.35 }}>{defDaEtapa(etapa).ajuda}</span>
-            <span style={{ width: 1, height: 22, background: "var(--line-2)", margin: "0 2px" }} />
+      {/* ── Faixa 3: a BARRA DE PROPRIEDADES ─────────────────────────────
+          Era a faixa de ferramentas: quinze botões que quebravam em duas
+          linhas no iPad e roubavam altura da planta. A escolha de ferramenta
+          desceu para a caixa vertical; aqui fica só o que responde "como vai
+          ser esta peça" — as propriedades do objeto selecionado ou, sem
+          seleção, as da próxima peça que a ferramenta vai criar. */}
+      {!somenteLeitura && !apresentacao && (
+        <BarraPropriedades
+          etapa={etapa}
+          ferramenta={ferramentaAtiva}
+          padroes={padroes}
+          onPadroes={setPadroes}
+          ajuda={defDaEtapa(etapa).ajuda}
+        >
+          {etapa === "planta" && (
+            <>
+              <span className="toolgroup">
+                <span className="tg-label">Planta</span>
+                {(cena.planta || cena.plantaVetorial) && (
+                  <button className="btn btn--xs" onClick={() => { if (confirm("Remover o arquivo de fundo? O que você desenhou (paredes/portas/pilares) fica.")) { if (cena.plantaVetorial) setPlantaVetorial(null); else setPlanta(null); selecionarEstrutura(null); } }} title="Apagar o arquivo importado, mantendo o desenho">🗋 Tirar fundo</button>
+                )}
+                {cena.estrutura && <button className="btn btn--xs" data-tom="perigo" onClick={() => { if (confirm("Apagar toda a estrutura — paredes, portas, janelas, pilares e tudo que estiver fixado nas paredes (espelhos, TVs, pontos elétricos)?")) limparEstrutura(); }} title="Limpar a estrutura inteira e o que estiver fixado nas paredes">🗑 Limpar</button>}
+              </span>
+              <GrupoEncaixe snapPasso={snapPasso} onSnap={setSnapPasso} />
+            </>
+          )}
 
-            {/* Ferramentas da ETAPA 1 — PLANTA */}
-            {etapa === "planta" && <>
-              <button className="btn btn-blue btn--sm" onClick={() => setEntradaPlanta(true)}>⭱ Planta</button>
-              <button className="btn" disabled={!cena.planta && !cena.plantaVetorial} onClick={() => { limparModos(); setModoParede(true); }} style={modoParede ? { borderColor: "#C97BE0", color: "#C97BE0" } : undefined} title="Alinhar a planta: toque as 2 pontas de uma parede de medida conhecida — a planta é escalada, girada e encaixada">📐 Alinhar</button>
-              <button className="btn" disabled={!cena.planta && !cena.plantaVetorial} onClick={() => { limparModos(); setModoCalibrar(true); }} style={modoCalibrar ? { borderColor: "#5FC8E8", color: "#8fd6f0" } : undefined} title="Ajustar só a escala: toque 2 pontos de medida conhecida">📏 Calibrar</button>
-              <button className="btn" disabled={!cena.planta && !cena.plantaVetorial} onClick={() => { limparModos(); setModoMoverPlanta(true); }} style={modoMoverPlanta ? { borderColor: "#5FBF7A", color: "#5FBF7A" } : undefined} title="Arrastar a planta de fundo">🖐 Mover</button>
-              {cena.plantaVetorial && <button className="btn" onClick={() => { limparModos(); setModoRecorte(true); }} style={modoRecorte ? { borderColor: "#5FBF7A", color: "#5FBF7A" } : undefined}>✂ Recortar</button>}
-              <span style={{ width: 1, height: 22, background: "var(--line-2)", margin: "0 4px" }} />
-              <button className="btn" onClick={() => gerarEstruturaAuto()} disabled={!cena.planta && !cena.plantaVetorial} title="Gerar paredes/pilares a partir da planta importada">✨ Auto</button>
-              {/* Selecionar: modo padrão (nenhuma ferramenta ativa) */}
-              <button className="btn" onClick={() => { limparModos(); }} style={!ferrEstrutura && !modoCalibrar && !modoParede && !modoMoverPlanta && !modoRecorte ? { borderColor: "var(--gold)", color: "var(--gold)" } : undefined} title="Selecionar/mover elementos (toque para selecionar, arraste para mover)">➤ Selecionar</button>
-              {([["parede", "▮ Parede"], ["porta", "🚪 Porta"], ["janela", "🪟 Janela"], ["pilar", "◼ Pilar"], ["apagar", "⌫ Apagar"]] as [FerramentaEstrutura, string][]).map(([f, lbl]) => (
-                <button key={f} className="btn" onClick={() => { const v = ferrEstrutura === f ? null : f; limparModos(); setFerrEstrutura(v); }} style={ferrEstrutura === f ? (f === "apagar" ? { borderColor: "var(--red)", color: "var(--red)" } : { borderColor: "var(--gold)", color: "var(--gold)" }) : undefined}>{lbl}</button>
-              ))}
-              <button className="btn" disabled={!selEstrutura || selEstrutura.tipo === "abertura"} onClick={() => girarEstruturaSel()} title="Girar 90° a parede/pilar selecionado">↻ Girar</button>
-              <span style={{ width: 1, height: 22, background: "var(--line-2)", margin: "0 4px" }} />
-              {(cena.planta || cena.plantaVetorial) && (
-                <button className="btn" onClick={() => { if (confirm("Remover o arquivo de fundo? O que você desenhou (paredes/portas/pilares) fica.")) { if (cena.plantaVetorial) setPlantaVetorial(null); else setPlanta(null); selecionarEstrutura(null); } }} title="Apagar o arquivo importado, mantendo o desenho">🗋 Tirar fundo</button>
-              )}
-              {cena.estrutura && <button className="btn" onClick={() => { if (confirm("Apagar toda a estrutura (paredes/portas/pilares)?")) limparEstrutura(); }} title="Limpar estrutura">🗑</button>}
-            </>}
-
-            {/* Ferramentas da ETAPA 3 — ÁREAS (Fase 02 · layout de área) */}
-            {etapa === "areas" && <>
-              <button className="btn" onClick={() => { limparModos(); }} style={!ferrAcab ? { borderColor: "var(--gold)", color: "var(--gold)" } : undefined} title="Selecionar região">➤ Selecionar</button>
-              <button className="btn" onClick={() => { const v = ferrAcab === "rect" ? null : "rect"; limparModos(); setFerrAcab(v); }}
-                style={ferrAcab === "rect" ? { borderColor: "var(--gold)", color: "var(--gold)" } : undefined}>▭ Região</button>
-              <button className="btn" onClick={() => { const v = ferrAcab === "poligono" ? null : "poligono"; limparModos(); setFerrAcab(v); }}
-                style={ferrAcab === "poligono" ? { borderColor: "var(--gold)", color: "var(--gold)" } : undefined}>⬠ Polígono</button>
-              <span style={{ width: 1, height: 22, background: "var(--line-2)", margin: "0 4px" }} />
-              <span style={{ fontSize: 10.5, color: "var(--muted)", letterSpacing: ".06em" }}>TIPO</span>
+          {etapa === "areas" && (
+            <span className="toolgroup">
+              <span className="tg-label">Próxima região</span>
               {(Object.keys(TIPOS_AREA) as TipoArea[]).map((k) => (
-                <button key={k} className="btn" onClick={() => setTipoArea(k)}
-                  style={{ padding: "6px 10px", fontSize: 11, ...(tipoArea === k ? { borderColor: TIPOS_AREA[k].cor, color: TIPOS_AREA[k].cor } : {}) }}
+                <button key={k} className="btn btn--xs" onClick={() => setTipoArea(k)}
+                  style={tipoArea === k ? { borderColor: TIPOS_AREA[k].cor, color: TIPOS_AREA[k].cor } : undefined}
                   title={TIPOS_AREA[k].descricao}>{TIPOS_AREA[k].label}</button>
               ))}
-            </>}
+            </span>
+          )}
 
-            {/* Ferramentas da ETAPA 2 — ACABAMENTO */}
-            {etapa === "acabamento" && <>
-              <button className="btn" onClick={() => { limparModos(); }} style={!ferrAcab ? { borderColor: "var(--gold)", color: "var(--gold)" } : undefined} title="Selecionar/mover áreas (toque seleciona, arraste move; vértices editáveis)">➤ Selecionar</button>
-              {([["rect", "▭ Área"], ["poligono", "⬠ Polígono"], ["cota", "📏 Cota"], ["espelho", "🪞 Espelho"], ["itemParede", "🔌 Item parede"], ["apagar", "⌫ Apagar"]] as [FerramentaAcab, string][]).map(([f, lbl]) => (
-                <button key={f} className="btn" onClick={() => { const v = ferrAcab === f ? null : f; limparModos(); setFerrAcab(v); }}
-                  style={ferrAcab === f ? (f === "apagar" ? { borderColor: "var(--red)", color: "var(--red)" } : { borderColor: "var(--gold)", color: "var(--gold)" }) : undefined}>{lbl}</button>
-              ))}
-              <span style={{ width: 1, height: 22, background: "var(--line-2)", margin: "0 4px" }} />
-              <span style={{ fontSize: 10.5, color: "var(--muted)", letterSpacing: ".06em" }}>SNAP</span>
-              {[[1, "1"], [5, "5"], [10, "10"], [0, "off"]].map(([v, lbl]) => (
-                <button key={v} className="btn" onClick={() => setSnapPasso(v as number)}
-                  style={{ padding: "8px 9px", fontSize: 11, ...(snapPasso === v ? { borderColor: "#5FC8E8", color: "#8fd6f0" } : {}) }}
-                  title={v === 0 ? "Snap desligado (precisão de 1 mm)" : `Encaixe de ${v} cm (+ imã de parede e vértice)`}>{lbl}</button>
-              ))}
-            </>}
+          {etapa === "acabamento" && (
+            <>
+              {ferrAcab === "itemParede" && (
+                <span className="toolgroup">
+                  <span className="tg-label">Fixar</span>
+                  <span style={{ font: "600 11.5px 'DM Sans'", color: "var(--gold)" }}>
+                    {ELEMENTOS_PAREDE[tipoElemParede].icone} {ELEMENTOS_PAREDE[tipoElemParede].label}
+                  </span>
+                  <span style={{ fontSize: 10.5, color: "var(--text-4)" }}>
+                    {ELEMENTOS_PAREDE[tipoElemParede].largura} × {ELEMENTOS_PAREDE[tipoElemParede].altura} cm
+                  </span>
+                </span>
+              )}
+              <GrupoEncaixe snapPasso={snapPasso} onSnap={setSnapPasso} />
+            </>
+          )}
 
-            {/* Ferramentas da ETAPA — LAYOUT */}
-            {etapa === "layout" && <>
+          {etapa === "layout" && (
+            <>
               <span className="toolgroup">
                 <span className="tg-label">Item</span>
                 <button className="btn btn--sm" disabled={!selItem} onClick={() => girarSelecionado()} title="Girar 90°">↻ 90°</button>
                 <button className="btn btn--sm" disabled={!selItem} onClick={() => selItem && duplicarItem(selItem.id)} title="Duplicar">⧉</button>
                 <button className="btn btn--sm" disabled={!selItem} onClick={removerSelecionado} title="Remover (Delete)">✕</button>
               </span>
-              {/* O encaixe existia só na etapa de Acabamento — justamente a
-                  etapa em que não se move equipamento. Aqui é onde ele importa. */}
-              <span className="toolgroup">
-                <span className="tg-label">Encaixe</span>
-                {([[1, "1"], [5, "5"], [10, "10"], [0, "livre"]] as [number, string][]).map(([v, lbl]) => (
-                  <button key={v} className="btn btn--xs" aria-pressed={snapPasso === v} data-tom="info" onClick={() => setSnapPasso(v)}
-                    title={v === 0 ? "Sem grade: encaixa em parede, borda e centro dos vizinhos" : `Grade de ${v} cm (+ ímã de parede, borda e centro)`}>{lbl}</button>
-                ))}
-              </span>
+              <GrupoEncaixe snapPasso={snapPasso} onSnap={setSnapPasso} />
               <span className="toolgroup">
                 <span className="tg-label">Ver</span>
                 <button className="btn btn--sm" aria-pressed={lamina} data-tom="info" onClick={() => setLamina((v) => !v)}
@@ -554,19 +662,16 @@ export default function EditorScreen() {
                   title="Alternar camadas técnicas: uso + segurança / só uso / nada">
                   👁 {camadas === "tudo" ? "Uso+Seg" : camadas === "uso" ? "Uso" : "Corpo"}
                 </button>
-                <button className="btn btn--sm" aria-pressed={modoVista} onClick={() => { const v = !modoVista; limparModos(); setModoVista(v); }}
-                  title="Vista IA: toque onde fica a câmera e depois para onde ela olha — gera um prompt de imagem">📷 Vista IA</button>
               </span>
-            </>}
-
-          </>
-        )}
-        {lamina && etapa === "layout" && (
-          <span style={{ marginLeft: "auto", fontSize: 11.5, color: "var(--info-soft)" }}>
-            lâmina ativa — exporte o Dossiê para levá-la ao PDF
-          </span>
-        )}
-      </div>
+              {lamina && (
+                <span style={{ fontSize: 11, color: "var(--info-soft)", whiteSpace: "nowrap" }}>
+                  lâmina ativa — exporte o Dossiê para levá-la ao PDF
+                </span>
+              )}
+            </>
+          )}
+        </BarraPropriedades>
+      )}
 
       {somenteLeitura && (
         <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px calc(12px + var(--sar)) 8px calc(12px + var(--sal))", background: "var(--panel-2)", borderBottom: "1px solid var(--line)", flexShrink: 0 }}>
@@ -579,6 +684,19 @@ export default function EditorScreen() {
       )}
 
       <div style={{ flex: 1, display: "flex", minHeight: 0 }}>
+        {/* ── A caixa de ferramentas, colada no canvas ──────────────────────
+            Vertical porque altura é o que falta na planta em paisagem, e
+            porque é onde o polegar esquerdo já está quando a mão direita
+            desenha. Cada ferramenta carrega a variante escolhida no flyout. */}
+        {!somenteLeitura && !apresentacao && !!gruposFerramentas.length && (
+          <CaixaFerramentas
+            grupos={gruposFerramentas}
+            ativa={ferramentaAtiva}
+            variantes={variantesAtivas}
+            onFerramenta={ativarFerramenta}
+            onVariante={escolherVariante}
+          />
+        )}
         {/* Rail esquerdo: biblioteca de equipamentos — só na Etapa 3 (Layout) */}
         {!somenteLeitura && !apresentacao && etapa === "layout" && (() => {
           const q = buscaEquip.trim().toLowerCase();
@@ -706,6 +824,7 @@ export default function EditorScreen() {
             modoRecorte={modoRecorte} onRecorte={(rect) => { recortarVetorial(rect); setModoRecorte(false); }}
             modoParede={modoParede} onParede={onParede} modoMoverPlanta={modoMoverPlanta}
             etapa={etapa} ferrEstrutura={ferrEstrutura}
+            padroes={padroes} ponteiroExternoRef={ponteiroRef}
             stageRef={stageRef} somenteLeitura={somenteLeitura} />
 
           {/* HUD do modo, no topo-centro do canvas — onde o olho já está. */}
@@ -924,6 +1043,10 @@ export default function EditorScreen() {
           ids={idsComProblema("corredor")} onIr={focarItem} />
         {r.nUso > 0 && <ChipProblema warn txt={`${r.nUso} área(s) de uso invadida(s)`}
           ids={idsComProblema("uso")} onIr={focarItem} />}
+        {/* Piso reservado pela folha da porta: só aparece quando há conflito,
+            porque numa sala sem porta desenhada o chip seria ruído. */}
+        {r.nGiro > 0 && <ChipProblema warn txt={`${r.nGiro} no giro de porta`}
+          ids={idsComProblema("giro")} onIr={focarItem} />}
         <button className="chip" onClick={() => setAnaliseAberta((v) => !v)}
           aria-expanded={analiseAberta}
           style={{ borderColor: analise.ocupacaoFuncional.status === "critico" ? "var(--red)" : analise.ocupacaoFuncional.status === "atencao" ? "var(--warn)" : "var(--line-2)",
@@ -943,9 +1066,15 @@ export default function EditorScreen() {
             {CENARIOS[k].label} {BRL(r.cenarios[k])}
           </span>
         ))}
-        {teto > 0 && <span style={{ marginLeft: "auto", fontSize: 12, color: saldo >= 0 ? "var(--green)" : "var(--red)" }}>
-          Teto {BRL(teto)} · Assessoria {BRL(Math.round(teto * taxa))} · Saldo {BRL(saldo)}
-        </span>}
+        {/* A leitura da barra de status: onde está o dedo, em que escala, com
+            que encaixe. Fica encostada à direita para não empurrar os chips, e
+            re-renderiza sozinha por rAF — o resto do editor não sente. */}
+        <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 12 }}>
+          {!somenteLeitura && <PosicaoPonteiro estadoRef={ponteiroRef} snapPasso={snapPasso} />}
+          {teto > 0 && <span style={{ fontSize: 12, color: saldo >= 0 ? "var(--green)" : "var(--red)" }}>
+            Teto {BRL(teto)} · Assessoria {BRL(Math.round(teto * taxa))} · Saldo {BRL(saldo)}
+          </span>}
+        </span>
       </div>}
     </div>
   );
@@ -1077,11 +1206,14 @@ function PlantaEtapaInspector({ temPlanta, temEstrutura }: { temPlanta: boolean;
       )}
       <p style={{ color: "#b6b6b1", fontSize: 12.5, lineHeight: 1.6 }}>
         <b style={{ color: "#e9e9e6" }}>1.</b> Suba o arquivo em <b>⭱ Planta</b> (PDF, DWG, DXF ou imagem).<br />
-        <b style={{ color: "#e9e9e6" }}>2.</b> Ajuste a escala com <b>📐 Calibrar</b> e posicione com <b>🖐 Mover</b>.<br />
+        <b style={{ color: "#e9e9e6" }}>2.</b> Ajuste a escala com <b>📏 Calibrar</b> e posicione com <b>🖐 Mover</b>.<br />
         <b style={{ color: "#e9e9e6" }}>3.</b> Toque <b style={{ color: "var(--gold)" }}>✨ Auto</b> para gerar paredes e pilares já em escala.
       </p>
       <p style={{ color: "#b6b6b1", fontSize: 12.5, lineHeight: 1.6 }}>
-        Depois refine à mão: <b>▮ Parede</b>, <b>🚪 Porta</b>, <b>🪟 Janela</b> e <b>◼ Pilar</b>. Toque um elemento para editar medida/espessura.
+        Depois refine à mão com <b>▮ Parede</b>, <b>🚪 Porta</b>, <b>🪟 Janela</b> e <b>◼ Pilar</b>, na caixa à esquerda.
+        Cada uma tem <b style={{ color: "var(--gold)" }}>opções</b>: toque o cantinho <b>◢</b> do botão (ou segure o botão)
+        para escolher alvenaria ou drywall, porta de correr ou de giro, janela basculante ou de folhas.
+        A escolha vale para a <b>próxima</b> peça e aparece na barra de cima; para mudar uma peça já desenhada, toque nela.
       </p>
       {!temPlanta && <div style={{ fontSize: 11.5, color: "#E09A45" }}>Comece subindo a planta em ⭱ Planta.</div>}
       {temPlanta && !temEstrutura && <div style={{ fontSize: 11.5, color: "var(--gold)" }}>Planta carregada — toque ✨ Auto para gerar a estrutura.</div>}
@@ -1103,14 +1235,38 @@ function EstruturaInspector({ sel }: { sel: { tipo: "parede" | "pilar" | "abertu
   if (sel.tipo === "parede") {
     const p = est.paredes.find((x) => x.id === sel.id); if (!p) return null;
     const len = Math.hypot(p.x2 - p.x1, p.y2 - p.y1);
+    const dp = defParede(p.material);
+    const nAberturas = est.aberturas.filter((a) => a.paredeId === p.id).length;
     return (
       <div style={{ display: "grid", gap: 12 }}>
         <div className="brandface" style={{ fontSize: 16, color: "var(--gold)" }}>PAREDE</div>
         <div style={{ fontSize: 12, color: "var(--muted)" }}>Comprimento<br /><b style={{ color: "#e9e9e6", fontSize: 15 }}>{formatLength(len)}</b></div>
-        <Bloco label="ESPESSURA (cm)">
-          <input className="fld" type="number" min={3} value={p.espessura_cm} onChange={(e) => updateParede(p.id, { espessura_cm: Math.max(3, +e.target.value || 0) })} />
+        {/* Espessura e material moram na barra de propriedades (é lá que se
+            ajusta olhando a planta). Aqui fica o que é longo de ler. */}
+        <div style={{ fontSize: 11.5, color: "#b6b6b1", lineHeight: 1.55, borderLeft: `2px solid ${dp.cor}`, paddingLeft: 9 }}>
+          <b style={{ color: "#e9e9e6" }}>{dp.label}</b> · {p.espessura_cm} cm<br />{dp.descricao}
+        </div>
+        <div style={{ fontSize: 11.5, lineHeight: 1.5, color: dp.fixacao === "livre" ? "var(--green)" : dp.fixacao === "nao_recebe" ? "var(--red)" : p.reforcada ? "var(--green)" : "var(--warn)" }}>
+          {dp.fixacao === "livre"
+            ? "✓ Recebe espelho, TV e espaldar direto no substrato."
+            : dp.fixacao === "nao_recebe"
+              ? "✕ Não recebe nada pendurado — leve o espelho e a TV para outra parede."
+              : p.reforcada
+                ? "✓ Reforço embutido previsto: carga pesada liberada."
+                : "⚠ Exige reforço embutido (montante duplo ou chapa de OSB no miolo) antes do fechamento. Marque “⊕ Reforçada” na barra de cima quando o projeto previr."}
+        </div>
+        <Bloco label="ETIQUETA (opcional)">
+          <input className="fld" value={p.nome ?? ""} placeholder="divisa do vestiário"
+            onChange={(e) => updateParede(p.id, { nome: e.target.value || undefined })} />
         </Bloco>
-        <button className="btn" onClick={() => removerParede(p.id)}>✕ Remover parede</button>
+        <Bloco label="PÉ-DIREITO LOCAL (cm)">
+          <input className="fld" type="number" min={0} value={p.altura_cm ?? ""} placeholder="o da sala"
+            onChange={(e) => updateParede(p.id, { altura_cm: e.target.value ? Math.max(0, +e.target.value) : undefined })} />
+        </Bloco>
+        <button className="btn" onClick={() => removerParede(p.id)}
+          title={nAberturas ? `Leva junto ${nAberturas} abertura(s) e o que estiver fixado nesta parede.` : "Leva junto o que estiver fixado nesta parede."}>
+          ✕ Remover parede{nAberturas ? ` (+${nAberturas} abertura${nAberturas > 1 ? "s" : ""})` : ""}
+        </button>
       </div>
     );
   }
@@ -1128,21 +1284,30 @@ function EstruturaInspector({ sel }: { sel: { tipo: "parede" | "pilar" | "abertu
     );
   }
   const a = est.aberturas.find((x) => x.id === sel.id); if (!a) return null;
+  const f = fichaAbertura(a);
+  const modelo = modeloDaAbertura(a);
   return (
     <div style={{ display: "grid", gap: 12 }}>
       <div className="brandface" style={{ fontSize: 16, color: "var(--gold)" }}>{a.tipo === "porta" ? "PORTA" : "JANELA"}</div>
-      <Bloco label="TIPO">
-        <div style={{ display: "flex", gap: 6 }}>
-          {(["porta", "janela"] as const).map((t) => (
-            <button key={t} className="btn" onClick={() => updateAbertura(a.id, { tipo: t })} style={{ flex: 1, padding: "8px 4px", fontSize: 11, borderColor: a.tipo === t ? "var(--gold)" : "var(--line-2)", color: a.tipo === t ? "var(--gold)" : "var(--muted)" }}>{t === "porta" ? "Porta" : "Janela"}</button>
-          ))}
-        </div>
-      </Bloco>
-      <Bloco label="LARGURA (cm)">
-        <input className="fld" type="number" min={40} value={a.largura_cm} onChange={(e) => updateAbertura(a.id, { largura_cm: Math.max(40, +e.target.value || 0) })} />
-      </Bloco>
+      {/* A ELEVAÇÃO. Em planta o corte é sempre reto — é aqui que a forma do
+          vão, a divisão das folhas e o peitoril aparecem. Sem este desenho,
+          "janela em arco pleno" seria uma palavra guardada num campo. */}
+      <div style={{ display: "flex", justifyContent: "center", padding: "6px 0 2px", color: "var(--info-soft)" }}>
+        <ElevacaoEsquadria esp={{ ...a, modelo }} altura={132} />
+      </div>
+      <div style={{ fontSize: 12.5, color: "#e9e9e6", textAlign: "center", fontWeight: 600 }}>{f.label}</div>
+      <div style={{ fontSize: 11.5, color: "#b6b6b1", lineHeight: 1.55 }}>{f.descricao}</div>
+      <div style={{ fontSize: 11.5, color: "var(--muted)", lineHeight: 1.6 }}>
+        Vão <b style={{ color: "#e9e9e6" }}>{medidaEsquadria(f.largura_cm, f.altura_cm)} m</b>
+        {f.peitoril_cm != null && <> · peitoril <b style={{ color: "#e9e9e6" }}>{f.peitoril_cm} cm</b></>}
+        <br />Medidas, modelo e sentido de abertura se ajustam na barra de cima.
+      </div>
       <Bloco label="POSIÇÃO NA PAREDE (cm)">
         <input className="fld" type="number" min={0} value={Math.round(a.centro_cm)} onChange={(e) => updateAbertura(a.id, { centro_cm: Math.max(0, +e.target.value || 0) })} />
+      </Bloco>
+      <Bloco label="OBSERVAÇÃO (sai no quadro de esquadrias)">
+        <textarea className="fld" rows={2} value={a.nota ?? ""} placeholder="ferragem, vidro, bandeira, tela mosquiteira…"
+          onChange={(e) => updateAbertura(a.id, { nota: e.target.value || undefined })} />
       </Bloco>
       <button className="btn" onClick={() => removerAbertura(a.id)}>✕ Remover</button>
     </div>
@@ -2135,7 +2300,12 @@ function SecoesDossiePanel() {
   const [aberta, setAberta] = useState<SecaoDossie | null>(null);
 
   const ligadas = { ...OPCOES_DOSSIE_PADRAO, ...(cena.dossie ?? {}) };
-  const ordem = cena.dossieOrdem?.length ? cena.dossieOrdem : ORDEM_DOSSIE_PADRAO;
+  // A ordem GRAVADA não conhece seções criadas depois dela. O `pdfExport` já
+  // reanexava as faltantes no fim; este painel não — então uma seção nova
+  // saía impressa no Dossiê e ficava invisível aqui: sem como desligar,
+  // renomear ou mover. Mesmo merge dos dois lados.
+  const ordemSalva = cena.dossieOrdem?.length ? cena.dossieOrdem : ORDEM_DOSSIE_PADRAO;
+  const ordem = [...ordemSalva, ...ORDEM_DOSSIE_PADRAO.filter((id) => !ordemSalva.includes(id))];
   const textos = cena.dossieTextos ?? {};
   const temConteudo = conteudoDaSecao(cena);
 
@@ -2260,6 +2430,7 @@ function SecoesDossiePanel() {
 /** Textos de abertura padrão — os mesmos de `pdfExport.ts`, para o consultor
  *  ver o que vai sair antes de decidir reescrever. */
 const INTRO_PADRAO: Partial<Record<SecaoDossie, string>> = {
+  esquadrias: "Portas e janelas lançadas na planta, agrupadas por tipo. As medidas são de VÃO acabado (largura × altura, em metros); o peitoril é medido do piso acabado.",
   cenarios: "Como o investimento total se distribui: o núcleo indispensável (Essencial), o nível recomendado (Balanceado), os itens de acabamento do projeto (Premium) e os complementos orçados.",
   categorias: "À esquerda, os equipamentos da categoria com o cenário e o valor. À direita, o que aquele conjunto é, o que entrega e como foi dimensionado — mais a observação do consultor sobre este condomínio.",
   marcas: "Fabricantes dos equipamentos especificados neste projeto (fontes: sites das marcas e imprensa especializada).",
@@ -2278,6 +2449,7 @@ function conteudoDaSecao(cena: Cena): (id: SecaoDossie) => boolean {
       case "parecer": return !!cena.parecer?.trim();
       case "cenarios": return temCenarios;
       case "acessorios": return (cena.acessorios?.length ?? 0) > 0;
+      case "esquadrias": return (cena.estrutura?.aberturas?.length ?? 0) > 0;
       case "inventario": return (cena.inventario?.length ?? 0) > 0;
       case "acabamentos": return (cena.acabamentos?.length ?? 0) > 0;
       case "mobiliario": return (cena.elementosParede?.length ?? 0) + (cena.infra?.length ?? 0) > 0;
@@ -2438,6 +2610,21 @@ function AnexosOrcamento() {
         {anexos.length === 0 && <div style={{ fontSize: 11.5, color: "#6e6e73" }}>Nenhum PDF anexado ainda.</div>}
       </div>
     </div>
+  );
+}
+
+/** O controle de encaixe, igual nas três etapas que desenham. Antes ele
+ *  existia em duas com aparências diferentes e faltava na Etapa 1 — que é
+ *  justamente onde a medida precisa fechar redonda. */
+function GrupoEncaixe({ snapPasso, onSnap }: { snapPasso: number; onSnap: (v: number) => void }) {
+  return (
+    <span className="toolgroup">
+      <span className="tg-label">Encaixe</span>
+      {([[1, "1"], [5, "5"], [10, "10"], [0, "livre"]] as [number, string][]).map(([v, lbl]) => (
+        <button key={v} className="btn btn--xs" aria-pressed={snapPasso === v} data-tom="info" onClick={() => onSnap(v)}
+          title={v === 0 ? "Sem grade: encaixa em parede, vértice, borda e centro dos vizinhos" : `Grade de ${v} cm (+ ímã de parede, borda e centro)`}>{lbl}</button>
+      ))}
+    </span>
   );
 }
 

@@ -23,6 +23,31 @@ const bboxDe = (pontos: { x: number; y: number }[]) => {
 
 const CENA_VAZIA: Cena = { sala: { largura_cm: 1000, profundidade_cm: 800 }, planta: null, itens: [] };
 
+/** Elementos de parede que ainda apontam para uma parede viva. */
+const semOrfaos = (els: ElementoParede[] | undefined, paredes: Parede[]): ElementoParede[] => {
+  const vivas = new Set(paredes.map((p) => p.id));
+  return (els ?? []).filter((e) => vivas.has(e.paredeId));
+};
+
+/**
+ * Mantém a abertura DENTRO da parede em que ela mora.
+ *
+ * Sem isto, digitar "400" na posição de uma parede de 400 cm deixava metade do
+ * vão pendurada além da ponta: o símbolo continuava sendo desenhado, o setor de
+ * varredura era pintado no vazio e o alerta acusava equipamento que estava do
+ * lado de fora. Vale para todo caminho de edição, porque mora no store.
+ */
+function encaixarNaParede(a: Abertura, paredes: Parede[]): Abertura {
+  const w = paredes.find((p) => p.id === a.paredeId);
+  if (!w) return a;
+  const len = Math.hypot(w.x2 - w.x1, w.y2 - w.y1);
+  // Vão maior que a parede: centraliza e encolhe até caber.
+  const largura = Math.min(a.largura_cm, len);
+  const meia = largura / 2;
+  const centro = Math.min(Math.max(a.centro_cm, meia), Math.max(meia, len - meia));
+  return largura === a.largura_cm && centro === a.centro_cm ? a : { ...a, largura_cm: largura, centro_cm: centro };
+}
+
 // Normaliza uma cena vinda do banco: garante arrays e campos válidos por item
 // (dados antigos podem não ter cenario/zona → antes derrubavam o editor com tela preta).
 function normalizarCena(bruta: Cena | null | undefined): Cena {
@@ -405,7 +430,11 @@ export const useProjeto = create<ProjetoState>((set, get) => ({
 
   moverSecaoDossie(secao, delta) {
     set((s) => {
-      const ordem = [...(s.cena.dossieOrdem ?? ORDEM_DOSSIE_PADRAO)];
+      // A ordem gravada não contém as seções criadas DEPOIS dela — e o painel
+      // e o PDF as reanexam no fim. Sem o mesmo merge aqui, `indexOf` devolvia
+      // −1 para a seção nova e o botão ↑ simplesmente não fazia nada.
+      const salva = s.cena.dossieOrdem?.length ? s.cena.dossieOrdem : ORDEM_DOSSIE_PADRAO;
+      const ordem = [...salva, ...ORDEM_DOSSIE_PADRAO.filter((id) => !salva.includes(id))];
       const i = ordem.indexOf(secao);
       const j = i + delta;
       if (i < 0 || j < 0 || j >= ordem.length) return {};
@@ -571,12 +600,21 @@ export const useProjeto = create<ProjetoState>((set, get) => ({
     set({ ...SEM_SELECAO, selEstrutura: sel });
   },
 
+  // Trocar ou zerar a estrutura mata TODOS os ids de parede: `gerarEstrutura`
+  // cria paredes novas com uuid novo, e `estruturaVazia` não deixa nenhuma. Os
+  // espelhos e TVs presos às paredes antigas viravam órfãos — invisíveis no
+  // canvas (o desenho desiste em `if (!w) return null`) e ainda assim contados
+  // no orçamento e no memorial. Este helper é a mesma cascata de
+  // `removerParede`, aplicada aos três caminhos que apagam parede.
   gerarEstruturaAuto() {
-    set((s) => ({ past: empilhar(s.past, s.cena), future: [], cena: { ...s.cena, estrutura: gerarEstrutura(s.cena) }, selEstrutura: null, dirty: true }));
+    set((s) => {
+      const estrutura = gerarEstrutura(s.cena);
+      return { past: empilhar(s.past, s.cena), future: [], cena: { ...s.cena, estrutura, elementosParede: semOrfaos(s.cena.elementosParede, estrutura.paredes) }, selEstrutura: null, selElemParedeId: null, dirty: true };
+    });
   },
 
   limparEstrutura() {
-    set((s) => ({ past: empilhar(s.past, s.cena), future: [], cena: { ...s.cena, estrutura: estruturaVazia() }, selEstrutura: null, dirty: true }));
+    set((s) => ({ past: empilhar(s.past, s.cena), future: [], cena: { ...s.cena, estrutura: estruturaVazia(), elementosParede: [] }, selEstrutura: null, selElemParedeId: null, dirty: true }));
   },
 
   addParede(p) {
@@ -595,7 +633,24 @@ export const useProjeto = create<ProjetoState>((set, get) => ({
   removerParede(id) {
     set((s) => {
       const est = s.cena.estrutura ?? estruturaVazia();
-      return { past: empilhar(s.past, s.cena), future: [], cena: { ...s.cena, estrutura: { ...est, paredes: est.paredes.filter((p) => p.id !== id), aberturas: est.aberturas.filter((a) => a.paredeId !== id) } }, selEstrutura: null, dirty: true };
+      // Cascata COMPLETA. As aberturas já caíam junto; os elementos de parede
+      // (espelho, TV, espaldar) não, porque moram em `cena.elementosParede`,
+      // fora de `cena.estrutura` — e ficavam apontando para uma parede morta:
+      // invisíveis no canvas (o desenho desiste em `if (!w) return null`),
+      // presentes no orçamento e no memorial. Um espelho de 200 cm cobrado sem
+      // parede onde pendurar.
+      const elementosParede = (s.cena.elementosParede ?? []).filter((e) => e.paredeId !== id);
+      return {
+        past: empilhar(s.past, s.cena), future: [],
+        cena: {
+          ...s.cena,
+          elementosParede,
+          estrutura: { ...est, paredes: est.paredes.filter((p) => p.id !== id), aberturas: est.aberturas.filter((a) => a.paredeId !== id) },
+        },
+        selEstrutura: null,
+        selElemParedeId: (s.cena.elementosParede ?? []).some((e) => e.id === s.selElemParedeId && e.paredeId === id) ? null : s.selElemParedeId,
+        dirty: true,
+      };
     });
   },
 
@@ -655,13 +710,14 @@ export const useProjeto = create<ProjetoState>((set, get) => ({
   addAbertura(a) {
     set((s) => {
       const est = s.cena.estrutura ?? estruturaVazia();
-      return { past: empilhar(s.past, s.cena), future: [], cena: { ...s.cena, estrutura: { ...est, aberturas: [...est.aberturas, a] } }, selEstrutura: { tipo: "abertura", id: a.id }, selectedId: null, selectedAcabId: null, dirty: true };
+      const nova = encaixarNaParede(a, est.paredes);
+      return { past: empilhar(s.past, s.cena), future: [], cena: { ...s.cena, estrutura: { ...est, aberturas: [...est.aberturas, nova] } }, selEstrutura: { tipo: "abertura", id: a.id }, selectedId: null, selectedAcabId: null, dirty: true };
     });
   },
   updateAbertura(id, patch, commit = true) {
     set((s) => {
       const est = s.cena.estrutura ?? estruturaVazia();
-      const aberturas = est.aberturas.map((a) => (a.id === id ? { ...a, ...patch } : a));
+      const aberturas = est.aberturas.map((a) => (a.id === id ? encaixarNaParede({ ...a, ...patch }, est.paredes) : a));
       return { past: commit ? empilhar(s.past, s.cena) : s.past, future: commit ? [] : s.future, cena: { ...s.cena, estrutura: { ...est, aberturas } }, dirty: true };
     });
   },

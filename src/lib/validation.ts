@@ -1,6 +1,6 @@
 import type { Cena, ItemPosicionado, Cenario } from "./types";
 import { CENARIOS } from "./types";
-import { analisarEspaco } from "./analiseEspaco";
+import { analisarEspaco, type AnaliseEspaco } from "./analiseEspaco";
 
 interface RectCm { x_cm: number; y_cm: number; w_cm: number; h_cm: number }
 const overlapR = (a: RectCm, b: RectCm) =>
@@ -23,9 +23,30 @@ const usoRect = (a: ItemPosicionado): RectCm => {
   return { x_cm: bb.x_cm - uL, y_cm: bb.y_cm - uF, w_cm: bb.w_cm + 2 * uL, h_cm: bb.h_cm + 2 * uF };
 };
 
-export type Problema = "colisao" | "corredor" | "uso" | null;
+/**
+ * O problema de UM equipamento, em ordem de gravidade.
+ *
+ *  · `colisao`  — o corpo do aparelho invade parede, pilar, móvel ou outro
+ *                 aparelho. Não pode ficar aí, ponto.
+ *  · `giro`     — está dentro da varredura da folha de uma porta: cabe no
+ *                 piso, mas trava a porta. Some ao trocar para porta de correr.
+ *  · `corredor` — atravessa o corredor de circulação do projeto legado.
+ *  · `uso`      — divide área de operação com o vizinho.
+ *
+ * Importe SEMPRE deste arquivo. A união já esteve escrita à mão em três
+ * lugares, e as cópias falhavam de formas opostas: uma quebrava o typecheck
+ * (barulhenta, útil) e a outra aceitava em silêncio um membro que nunca
+ * chegava à tela.
+ */
+export type Problema = "colisao" | "giro" | "corredor" | "uso" | null;
 
-export function problemasDaCena(cena: Cena): Record<string, Problema> {
+/**
+ * `espaco` é injetável de propósito: `analisarEspaco` é a conta mais cara do
+ * editor e já roda no canvas e no rodapé. Quem tem a análise em mãos passa a
+ * sua; quem não tem paga uma vez. Sem isso, ler a varredura das portas aqui
+ * dobraria o custo justamente durante o arraste.
+ */
+export function problemasDaCena(cena: Cena, espaco: AnaliseEspaco = analisarEspaco(cena)): Record<string, Problema> {
   const sala = cena.sala;
   const itens = cena.itens ?? [];
   const p = sala.config?.pilar;
@@ -44,6 +65,11 @@ export function problemasDaCena(cena: Cena): Record<string, Problema> {
     });
   const infraRects: RectCm[] = (cena.infra ?? []).map((i) => ({ x_cm: i.x_cm, y_cm: i.y_cm, w_cm: i.w_cm, h_cm: i.h_cm }));
   const corredor = sala.config?.corredor;
+  // Varredura das folhas de porta. Vem de `analisarEspaco`, que já resolveu o
+  // "para dentro" pelo centro das paredes e já descartou os modelos que não
+  // varrem — refazer a conta aqui seria a quinta cópia de geometria de parede
+  // do projeto, e a primeira a divergir das outras quatro.
+  const noGiro = new Set(espaco.aberturas.flatMap((ab) => ab.ids));
   const res: Record<string, Problema> = {};
   for (const a of itens) {
     const bb = aabbItem(a);
@@ -55,7 +81,9 @@ export function problemasDaCena(cena: Cena): Record<string, Problema> {
     const corr = corredor ? a.x_cm < corredor.x + corredor.w && a.x_cm + a.w_cm > corredor.x : false;
     // Área de uso invadida por OUTRO equipamento (aviso amarelo, não bloqueio).
     const uso = !fora && !pil && !outro && itens.some((b) => b.id !== a.id && overlapR(usoRect(a), usoRect(b)));
-    res[a.id] = fora || pil || parede || mob || outro ? "colisao" : corr ? "corredor" : uso ? "uso" : null;
+    res[a.id] = fora || pil || parede || mob || outro ? "colisao"
+      : noGiro.has(a.id) ? "giro"
+      : corr ? "corredor" : uso ? "uso" : null;
   }
   return res;
 }
@@ -78,21 +106,22 @@ export function matrizDaCena(cena: Cena): (ItemPosicionado & { prio: number })[]
     .sort((a, b) => b.prio - a.prio);
 }
 
-export function resumo(cena: Cena) {
+export function resumo(cena: Cena, espaco: AnaliseEspaco = analisarEspaco(cena)) {
   const sala = cena.sala;
   const itens = cena.itens ?? [];
-  const problemas = problemasDaCena(cena);
+  const problemas = problemasDaCena(cena, espaco);
   const nCol = Object.values(problemas).filter((v) => v === "colisao").length;
   const nCor = Object.values(problemas).filter((v) => v === "corredor").length;
   const nUso = Object.values(problemas).filter((v) => v === "uso").length;
+  const nGiro = Object.values(problemas).filter((v) => v === "giro").length;
   // Ocupação vem de `analiseEspaco`, a mesma conta que alimenta o painel e o
   // Dossiê. Antes eram três fórmulas diferentes com o mesmo nome: aqui era
   // Σ(w×h) sobre o retângulo da sala — que conta sobreposição duas vezes e
   // ignora pilar e mobiliário —, e o PDF refazia à mão de outro jeito.
-  const ocup = analisarEspaco(cena).ocupacaoFuncional.valor;
+  const ocup = espaco.ocupacaoFuncional.valor;
   const subtotal = itens.reduce((s, i) => s + (i.preco || 0), 0);
   return {
-    problemas, nCol, nCor, nUso,
+    problemas, nCol, nCor, nUso, nGiro,
     ocupacao: Math.round(ocup),
     subtotal,
     cenarios: {

@@ -1,7 +1,11 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import type Konva from "konva";
 import EditorCanvas, { type Etapa, type FerramentaEstrutura, type FerramentaAcab } from "../editor/EditorCanvas";
+import { TrilhaEtapas, ModoHUD, type ModoAtivo } from "../editor/TrilhaEtapas";
+import { defDaEtapa } from "../editor/etapas";
+import { usePresenca } from "../ui/anim";
+import EntradaPDF, { ACEITA_PDF, ACEITA_PLANTA } from "../ui/EntradaPDF";
 import { useProjeto } from "../store/projetoStore";
 import { useLibrary } from "../store/libraryStore";
 import { obterProjeto, criarProjeto } from "../lib/supabase";
@@ -12,9 +16,12 @@ import { exportarPdf } from "../lib/export/pdfExport";
 import { resumo } from "../lib/validation";
 import { snapCm } from "../lib/canvas";
 import { BRL, formatLength, parseLength } from "../lib/units";
-import { ZONAS, CENARIOS, DESTINOS_INVENTARIO, OPCOES_DOSSIE_PADRAO, ROTULO_SECAO_DOSSIE, TIPOS_AREA, taxaDe, MATERIAIS_PISO, ELEMENTOS_PAREDE, MOBILIARIO_CATALOGO, ACESSORIOS_CATALOGO, LADOS_PADRAO, type AcessorioProjeto, type LadoRect, type AreaFuncional, type TipoArea, type DestinoInventario, type ItemInventario, type OpcoesDossie, type MaterialPiso, type TipoElementoParede, type Zona, type Cenario, type ItemPosicionado, type Equipamento, type AreaAcabamento, type ElementoParede, type ItemInfraestrutura } from "../lib/types";
+import { ZONAS, CENARIOS, DESTINOS_INVENTARIO, OPCOES_DOSSIE_PADRAO, ROTULO_SECAO_DOSSIE, ORDEM_DOSSIE_PADRAO, SECAO_EXIGE_DADO, CIRCULACAO_PADRAO, TIPOS_AREA, taxaDe, MATERIAIS_PISO, ELEMENTOS_PAREDE, MOBILIARIO_CATALOGO, ACESSORIOS_CATALOGO, LADOS_PADRAO, type AcessorioProjeto, type LadoRect, type AreaFuncional, type TipoArea, type DestinoInventario, type ItemInventario, type OpcoesDossie, type SecaoDossie, type Cena, type MaterialPiso, type TipoElementoParede, type Zona, type Cenario, type ItemPosicionado, type Equipamento, type AreaAcabamento, type ElementoParede, type ItemInfraestrutura } from "../lib/types";
 import { areaPoligonoM2, perimetroCm, bboxPoligono, ehRetangulo, retanguloParaPontos, transladar, m2 } from "../lib/geometria";
-import { CENARIO_DEF, ESPEC_ZONA, cenarioSugerido, composicaoZonas, detalheCenarios, explicarItem, normalizarExercicios } from "../lib/curadoria";
+import { CAMPOS_ESPEC, CENARIO_DEF, ESPEC_ZONA, analisarCobertura, cenarioSugerido, composicaoZonas, detalheCenarios, explicarItem, normalizarExercicios } from "../lib/curadoria";
+import { MUSCULOS, PADROES, REGIOES, type RegiaoCorpo } from "../lib/musculatura";
+import { marcasDaCena, presencaDaMarca, refDaMarca } from "../lib/marcas";
+import { analisarEspaco } from "../lib/analiseEspaco";
 import { gerarPromptVista } from "../lib/promptVista";
 import { uploadOrcamento, urlOrcamento, removerOrcamentoArquivo, listarCotacoes, online } from "../lib/supabase";
 
@@ -32,6 +39,7 @@ export default function EditorScreen() {
   const { selAreaFuncId, selecionarAreaFunc, addAreaFuncional, updateAreaFuncional, removerAreaFuncional } = useProjeto();
   const equipamentos = useLibrary((s) => s.equipamentos);
   const acabamentos = useLibrary((s) => s.acabamentos);
+  const marcasBiblioteca = useLibrary((s) => s.marcas);
   const recarregarBiblioteca = useLibrary((s) => s.recarregar);
   const config = useLibrary((s) => s.config);
   const taxa = taxaDe(config);
@@ -80,21 +88,65 @@ export default function EditorScreen() {
     else if (s.selInfraId) removerInfra(s.selInfraId);
   }
 
-  // Tecla Delete/Backspace apaga o selecionado (fora de campos de texto).
+  // ── Atalhos de teclado ────────────────────────────────────────────────
+  // Com teclado acoplado ao iPad (ou no desktop), o editor deixa de exigir
+  // uma viagem à toolbar para desfazer, salvar, sair de um modo ou empurrar
+  // um equipamento um centímetro.
   useEffect(() => {
     if (somenteLeitura) return;
+    const emCampo = (alvo: EventTarget | null) => {
+      const el = alvo as HTMLElement | null;
+      return !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable);
+    };
     const onKey = (ev: KeyboardEvent) => {
-      if (ev.key !== "Delete" && ev.key !== "Backspace") return;
-      const alvo = ev.target as HTMLElement | null;
-      if (alvo && (alvo.tagName === "INPUT" || alvo.tagName === "TEXTAREA" || alvo.tagName === "SELECT" || alvo.isContentEditable)) return;
-      ev.preventDefault();
-      apagarSelecionado();
+      const mod = ev.metaKey || ev.ctrlKey;
+
+      // Esc cancela o modo/ferramenta ativo — funciona até dentro de campo,
+      // porque é a saída de emergência de quem entrou numa ferramenta sem querer.
+      if (ev.key === "Escape") {
+        if (promptVista) { setPromptVista(null); return; }
+        ev.preventDefault();
+        limparModos();
+        (document.activeElement as HTMLElement | null)?.blur?.();
+        return;
+      }
+      if (emCampo(ev.target)) return;
+
+      if (mod && ev.key.toLowerCase() === "z") {
+        ev.preventDefault();
+        if (ev.shiftKey) redo(); else undo();
+        return;
+      }
+      if (mod && ev.key.toLowerCase() === "s") { ev.preventDefault(); void salvar(); return; }
+      if (ev.key === "Delete" || ev.key === "Backspace") { ev.preventDefault(); apagarSelecionado(); return; }
+
+      // Setas empurram o item selecionado pelo passo de nudge (Shift = 10×).
+      const setas: Record<string, [number, number]> = {
+        ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1],
+      };
+      const dir = setas[ev.key];
+      if (dir) {
+        const sel = useProjeto.getState().selectedId;
+        if (!sel) return;
+        ev.preventDefault();
+        const passo = (nudgePasso || 1) * (ev.shiftKey ? 10 : 1);
+        const it = useProjeto.getState().cena.itens.find((i) => i.id === sel);
+        if (it) updateItem(sel, { x_cm: it.x_cm + dir[0] * passo, y_cm: it.y_cm + dir[1] * passo });
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [somenteLeitura]);
-  const fileRef = useRef<HTMLInputElement>(null);
+  }, [somenteLeitura, nudgePasso, promptVista]);
+
+  // Fechar a aba com alteração não salva pede confirmação ao navegador.
+  useEffect(() => {
+    if (!dirty || somenteLeitura) return;
+    const aviso = (ev: BeforeUnloadEvent) => { ev.preventDefault(); ev.returnValue = ""; };
+    window.addEventListener("beforeunload", aviso);
+    return () => window.removeEventListener("beforeunload", aviso);
+  }, [dirty, somenteLeitura]);
+  const [entradaPlanta, setEntradaPlanta] = useState(false);
   const stageRef = useRef<Konva.Stage>(null);
 
   useEffect(() => {
@@ -121,6 +173,56 @@ export default function EditorScreen() {
   }, [projeto, somenteLeitura, equipamentos, sincronizarAuto]);
 
   const r = resumo(cena);
+  const podeDesfazer = useProjeto((s) => s.past.length > 0);
+  const podeRefazer = useProjeto((s) => s.future.length > 0);
+
+  /**
+   * O modo/ferramenta ativo, descrito para o HUD sobre o canvas.
+   * Antes eram treze `<span>` soltos no canto superior direito da toolbar —
+   * longe do centro da planta, que é para onde o consultor está olhando
+   * enquanto desenha. Um só objeto também garante que dois modos nunca
+   * apareçam ao mesmo tempo dizendo coisas diferentes.
+   */
+  const modoAtivo: ModoAtivo | null = (() => {
+    const G = "var(--gold)", I = "var(--info-soft)", V = "#C97BE0", OK = "var(--green)", X = "var(--red)";
+    if (modoCalibrar) return { nome: "Calibrar escala", cor: I, instrucao: "toque 2 pontos de medida conhecida", passo: "1 de 2" };
+    if (modoParede) return { nome: "Alinhar planta", cor: V, instrucao: "toque as 2 pontas de uma parede de medida conhecida", passo: "1 de 2" };
+    if (modoMoverPlanta) return { nome: "Mover planta", cor: OK, instrucao: "arraste a planta de fundo para posicionar" };
+    if (modoRecorte) return { nome: "Recortar", cor: OK, instrucao: "toque 2 cantos: fica só o que estiver dentro" };
+    if (modoVista) return { nome: "Vista IA", cor: V, instrucao: "toque onde fica a câmera, depois para onde ela olha", passo: "1 de 2" };
+    if (ferrEstrutura === "parede") return { nome: "Parede", cor: G, instrucao: "toque as 2 pontas da parede", passo: "1 de 2" };
+    if (ferrEstrutura === "pilar") return { nome: "Pilar", cor: G, instrucao: "toque 2 cantos do pilar", passo: "1 de 2" };
+    if (ferrEstrutura === "porta") return { nome: "Porta", cor: G, instrucao: "toque sobre a parede onde fica a porta" };
+    if (ferrEstrutura === "janela") return { nome: "Janela", cor: G, instrucao: "toque sobre a parede onde fica a janela" };
+    if (ferrEstrutura === "apagar") return { nome: "Apagar", cor: X, instrucao: "toque no elemento para apagar" };
+    if (ferrAcab === "rect") return { nome: etapa === "areas" ? "Região" : "Área", cor: G, instrucao: "toque 2 cantos", passo: "1 de 2" };
+    if (ferrAcab === "poligono") return { nome: "Polígono", cor: G, instrucao: "toque os cantos; toque o 1º ponto (verde) para fechar" };
+    if (ferrAcab === "cota") return { nome: "Cota", cor: I, instrucao: "toque 2 pontos para fixar a medida", passo: "1 de 2" };
+    if (ferrAcab === "espelho") return { nome: "Espelho", cor: I, instrucao: "toque na parede onde fica o espelho" };
+    if (ferrAcab === "itemParede") return { nome: ELEMENTOS_PAREDE[tipoElemParede].label, cor: G, instrucao: "toque na parede onde o item fica fixado" };
+    if (ferrAcab === "apagar") return { nome: "Apagar", cor: X, instrucao: "toque no elemento para apagar" };
+    return null;
+  })();
+
+  // Mantém o aviso montado durante a animação de saída (sem AnimatePresence).
+  const avisoPresenca = usePresenca(!!aviso);
+
+  // Análise funcional de espaço: uma fonte só, consumida pelo rodapé, pela
+  // gaveta e pelo Dossiê. Recalcula a cada mudança da cena — é O(n) sobre
+  // dezenas de itens, custo irrelevante perto de um redraw do canvas.
+  const analise = useMemo(() => analisarEspaco(cena), [cena]);
+  const [analiseAberta, setAnaliseAberta] = useState(false);
+
+  /** Ids dos equipamentos com um dado problema — alimenta os chips clicáveis. */
+  const idsComProblema = (tipo: "colisao" | "corredor" | "uso") =>
+    Object.entries(r.problemas).filter(([, v]) => v === tipo).map(([id]) => id);
+
+  /** Seleciona o item e vai para a etapa em que ele é editável. O consultor
+   *  toca no número do problema e o editor o leva até a peça. */
+  const focarItem = (itemId: string) => {
+    if (etapa !== "layout" && etapa !== "fichas") irParaEtapa("layout");
+    selecionar(itemId);
+  };
   const selItem = cena.itens.find((i) => i.id === selectedId) || null;
   const selAcab = (cena.acabamentos ?? []).find((a) => a.id === selectedAcabId) || null;
   const selElemParede = (cena.elementosParede ?? []).find((e) => e.id === selElemParedeId) || null;
@@ -319,7 +421,7 @@ export default function EditorScreen() {
           if (acess.length) cenaPdf = { ...cena, acessorios: acess };
         } catch { /* sem rede: o Dossiê sai com o que a cena tiver */ }
       }
-      await exportarPdf({ ...projeto, cena: cenaPdf }, png, equipamentos, config);
+      await exportarPdf({ ...projeto, cena: cenaPdf }, png, equipamentos, config, marcasBiblioteca, acabamentos);
     } catch (e) { setAviso(`Falha ao gerar o PDF: ${(e as Error).message}`); } finally { setBusy(null); }
   }
 
@@ -328,38 +430,54 @@ export default function EditorScreen() {
 
   return (
     <div style={{ position: "fixed", inset: 0, display: "flex", flexDirection: "column", background: "var(--bg)" }}>
-      {/* Toolbar */}
-      <div style={{ display: "flex", alignItems: "center", gap: 8, rowGap: 6, flexWrap: "wrap", padding: "calc(8px + var(--sat)) calc(12px + var(--sar)) 8px calc(12px + var(--sal))", borderBottom: "1px solid var(--line)", flexShrink: 0 }}>
-        <button className="btn" onClick={() => nav("/")}>←</button>
+      {/* ── Faixa 1: onde estou e o que faço com o projeto inteiro ──────── */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", padding: "calc(7px + var(--sat)) calc(12px + var(--sar)) 7px calc(12px + var(--sal))", flexShrink: 0 }}>
+        <button className="btn btn--sm" onClick={() => nav("/")} title="Voltar ao início">←</button>
         <span className="brandface" style={{ fontSize: 18, color: "var(--gold)" }}>{projeto.nome}</span>
+        {somenteLeitura
+          ? <span className="chip" style={{ padding: "3px 10px", fontSize: 10.5, borderColor: "var(--muted)", color: "var(--text-3)" }}>Referência · somente visualização</span>
+          : <span className="chip" style={{ padding: "3px 10px", fontSize: 10.5, borderColor: "var(--gold)", color: "var(--gold)" }}>Fase 02 · Projeto Funcional</span>}
         {id && id !== "heritage" && (
-          <button className="btn" onClick={() => nav(`/projeto/${id}/leitura`)} style={{ padding: "8px 11px", fontSize: 11.5 }} title="Revisar a Leitura do Condomínio">
-            ◱ Leitura
-          </button>
+          <button className="btn btn--sm" onClick={() => nav(`/projeto/${id}/leitura`)} title="Revisar a Leitura do Condomínio">◱ Leitura</button>
         )}
         {id && !somenteLeitura && (
-          <button className="btn" onClick={() => nav(`/projeto/${id}/curadoria`)} style={{ padding: "8px 11px", fontSize: 11.5 }} title="Curadoria & Investimento">
-            ⚖ Curadoria
-          </button>
+          <button className="btn btn--sm" onClick={() => nav(`/projeto/${id}/curadoria`)} title="Orçamentos e cotações dos fornecedores">⚖ Orçamentos</button>
         )}
-        {somenteLeitura
-          ? <span className="chip" style={{ padding: "3px 10px", fontSize: 10.5, borderColor: "#8A8A8F", color: "#b6b6b1" }}>Referência · somente visualização</span>
-          : <span className="chip" style={{ padding: "3px 10px", fontSize: 10.5, borderColor: "var(--gold)", color: "var(--gold)" }}>Fase 02 · Projeto Funcional</span>}
+        <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
+          {busy && <span style={{ fontSize: 12, color: "var(--gold)" }}>{busy}</span>}
+          {!somenteLeitura && (
+            <button className="btn btn--sm" aria-pressed={apresentacao}
+              onClick={() => { limparModos(); selecionar(null); setApresentacao((v) => !v); }}
+              title="Modo apresentação: esconde grade, medidas e painéis">🎦 Apresentar</button>
+          )}
+          {somenteLeitura
+            ? <button className="btn btn-gold btn--sm" onClick={() => nav("/novo")}>＋ Começar meu Heritage</button>
+            : <button className="btn btn-gold btn--sm" disabled={salvando} onClick={() => void salvar()}>{salvando ? "Salvando…" : dirty ? "💾 Salvar" : "✓ Salvo"}</button>}
+          <button className="btn btn-blue btn--sm" onClick={exportar}>⤓ Dossiê</button>
+        </div>
+      </div>
+
+      {/* ── Faixa 2: a trilha das etapas, com o que cada uma já entregou ── */}
+      {!somenteLeitura && !apresentacao && (
+        <div style={{ display: "flex", alignItems: "flex-end", gap: 10, padding: "0 calc(12px + var(--sar)) 0 calc(12px + var(--sal))", borderBottom: "1px solid var(--line)", flexShrink: 0, overflowX: "auto" }}>
+          <TrilhaEtapas etapa={etapa} cena={cena} nColisoes={r.nCol} onIr={irParaEtapa} />
+          <div style={{ marginLeft: "auto", display: "flex", gap: 6, alignItems: "center", paddingBottom: 6 }}>
+            <button className="btn btn--sm" onClick={undo} disabled={!podeDesfazer} title="Desfazer (⌘Z)">⤺</button>
+            <button className="btn btn--sm" onClick={redo} disabled={!podeRefazer} title="Refazer (⇧⌘Z)">⤻</button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Faixa 3: só as ferramentas da etapa ativa ───────────────────── */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, rowGap: 6, flexWrap: "wrap", padding: "7px calc(12px + var(--sar)) 7px calc(12px + var(--sal))", borderBottom: "1px solid var(--line)", flexShrink: 0, minHeight: 46 }}>
         {!somenteLeitura && !apresentacao && (
           <>
-            <span style={{ width: 1, height: 22, background: "var(--line-2)", margin: "0 4px" }} />
-            {/* Abas das etapas */}
-            {([["planta", "1 · Planta"], ["acabamento", "2 · Acabamento"], ["areas", "3 · Áreas"], ["layout", "4 · Layout"], ["fichas", "5 · Fichas"], ["curadoria", "6 · Curadoria"], ["acessorios", "7 · Acessórios"]] as [Etapa, string][]).map(([e, lbl]) => (
-              <button key={e} className="btn" onClick={() => irParaEtapa(e)} style={etapa === e
-                ? { borderColor: "var(--gold)", color: "var(--gold)", background: "var(--gold-soft)" }
-                : undefined}>{lbl}</button>
-            ))}
-            <span style={{ width: 1, height: 22, background: "var(--line-2)", margin: "0 4px" }} />
+            <span style={{ fontSize: 11, color: "var(--text-4)", maxWidth: 260, lineHeight: 1.35 }}>{defDaEtapa(etapa).ajuda}</span>
+            <span style={{ width: 1, height: 22, background: "var(--line-2)", margin: "0 2px" }} />
 
             {/* Ferramentas da ETAPA 1 — PLANTA */}
             {etapa === "planta" && <>
-              <input ref={fileRef} type="file" style={{ display: "none" }} onChange={(e) => importarPlanta(e.target.files?.[0])} />
-              <button className="btn btn-blue" onClick={() => fileRef.current?.click()}>⭱ Planta</button>
+              <button className="btn btn-blue btn--sm" onClick={() => setEntradaPlanta(true)}>⭱ Planta</button>
               <button className="btn" disabled={!cena.planta && !cena.plantaVetorial} onClick={() => { limparModos(); setModoParede(true); }} style={modoParede ? { borderColor: "#C97BE0", color: "#C97BE0" } : undefined} title="Alinhar a planta: toque as 2 pontas de uma parede de medida conhecida — a planta é escalada, girada e encaixada">📐 Alinhar</button>
               <button className="btn" disabled={!cena.planta && !cena.plantaVetorial} onClick={() => { limparModos(); setModoCalibrar(true); }} style={modoCalibrar ? { borderColor: "#5FC8E8", color: "#8fd6f0" } : undefined} title="Ajustar só a escala: toque 2 pontos de medida conhecida">📏 Calibrar</button>
               <button className="btn" disabled={!cena.planta && !cena.plantaVetorial} onClick={() => { limparModos(); setModoMoverPlanta(true); }} style={modoMoverPlanta ? { borderColor: "#5FBF7A", color: "#5FBF7A" } : undefined} title="Arrastar a planta de fundo">🖐 Mover</button>
@@ -411,60 +529,44 @@ export default function EditorScreen() {
               ))}
             </>}
 
-            {/* Ferramentas da ETAPA 3 — LAYOUT */}
+            {/* Ferramentas da ETAPA — LAYOUT */}
             {etapa === "layout" && <>
-              <button className="btn" disabled={!selItem} onClick={() => girarSelecionado()}>↻ Girar 90°</button>
-              <button className="btn" disabled={!selItem} onClick={removerSelecionado}>✕ Remover</button>
-              <button className="btn" onClick={() => setLamina((v) => !v)}
-                style={lamina ? { borderColor: "#8FD6F0", color: "#8FD6F0" } : undefined}
-                title="Lâmina do Arquiteto: medidas dos equipamentos e distâncias entre eles e as paredes — entra no Dossiê PDF">📐 Lâmina</button>
-              <button className="btn" onClick={() => { const v = !modoVista; limparModos(); setModoVista(v); }}
-                style={modoVista ? { borderColor: "#C97BE0", color: "#C97BE0" } : undefined}
-                title="Vista IA: toque onde fica a câmera e depois para onde ela olha — gera um prompt de imagem">📷 Vista IA</button>
-              <button className="btn" onClick={() => setCamadas(camadas === "tudo" ? "uso" : camadas === "uso" ? "nada" : "tudo")}
-                title="Alternar camadas técnicas: uso + segurança / só uso / nada">
-                👁 {camadas === "tudo" ? "Uso+Seg" : camadas === "uso" ? "Uso" : "Corpo"}
-              </button>
+              <span className="toolgroup">
+                <span className="tg-label">Item</span>
+                <button className="btn btn--sm" disabled={!selItem} onClick={() => girarSelecionado()} title="Girar 90°">↻ 90°</button>
+                <button className="btn btn--sm" disabled={!selItem} onClick={() => selItem && duplicarItem(selItem.id)} title="Duplicar">⧉</button>
+                <button className="btn btn--sm" disabled={!selItem} onClick={removerSelecionado} title="Remover (Delete)">✕</button>
+              </span>
+              {/* O encaixe existia só na etapa de Acabamento — justamente a
+                  etapa em que não se move equipamento. Aqui é onde ele importa. */}
+              <span className="toolgroup">
+                <span className="tg-label">Encaixe</span>
+                {([[1, "1"], [5, "5"], [10, "10"], [0, "livre"]] as [number, string][]).map(([v, lbl]) => (
+                  <button key={v} className="btn btn--xs" aria-pressed={snapPasso === v} data-tom="info" onClick={() => setSnapPasso(v)}
+                    title={v === 0 ? "Sem grade: encaixa em parede, borda e centro dos vizinhos" : `Grade de ${v} cm (+ ímã de parede, borda e centro)`}>{lbl}</button>
+                ))}
+              </span>
+              <span className="toolgroup">
+                <span className="tg-label">Ver</span>
+                <button className="btn btn--sm" aria-pressed={lamina} data-tom="info" onClick={() => setLamina((v) => !v)}
+                  title="Lâmina do Arquiteto: medidas dos equipamentos e distâncias entre eles e as paredes — entra no Dossiê PDF">📐 Lâmina</button>
+                <button className="btn btn--sm" onClick={() => setCamadas(camadas === "tudo" ? "uso" : camadas === "uso" ? "nada" : "tudo")}
+                  title="Alternar camadas técnicas: uso + segurança / só uso / nada">
+                  👁 {camadas === "tudo" ? "Uso+Seg" : camadas === "uso" ? "Uso" : "Corpo"}
+                </button>
+                <button className="btn btn--sm" aria-pressed={modoVista} onClick={() => { const v = !modoVista; limparModos(); setModoVista(v); }}
+                  title="Vista IA: toque onde fica a câmera e depois para onde ela olha — gera um prompt de imagem">📷 Vista IA</button>
+              </span>
             </>}
 
-            <span style={{ width: 1, height: 22, background: "var(--line-2)", margin: "0 4px" }} />
-            <button className="btn" onClick={undo}>⤺</button>
-            <button className="btn" onClick={redo}>⤻</button>
           </>
         )}
-        <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
-          {busy && <span style={{ fontSize: 12, color: "var(--gold)" }}>{busy}</span>}
-          {modoCalibrar && <span style={{ fontSize: 12, color: "#8fd6f0" }}>toque 2 pontos de medida conhecida</span>}
-          {modoParede && <span style={{ fontSize: 12, color: "#C97BE0" }}>toque as 2 pontas de uma parede de medida conhecida</span>}
-          {modoMoverPlanta && <span style={{ fontSize: 12, color: "#5FBF7A" }}>arraste a planta para posicionar</span>}
-          {ferrAcab === "rect" && <span style={{ fontSize: 12, color: "var(--gold)" }}>toque 2 cantos da área a revestir</span>}
-          {ferrAcab === "poligono" && <span style={{ fontSize: 12, color: "var(--gold)" }}>toque os cantos; toque o 1º ponto (verde) para fechar</span>}
-          {ferrAcab === "cota" && <span style={{ fontSize: 12, color: "#8fd6f0" }}>toque 2 pontos para fixar a medida</span>}
-          {ferrAcab === "espelho" && <span style={{ fontSize: 12, color: "#8fd6f0" }}>toque na parede onde fica o espelho</span>}
-          {ferrAcab === "itemParede" && <span style={{ fontSize: 12, color: "var(--gold)" }}>escolha o item no painel esquerdo e toque na parede</span>}
-          {ferrAcab === "apagar" && etapa === "acabamento" && <span style={{ fontSize: 12, color: "var(--red)" }}>toque no elemento para apagar</span>}
-          {ferrEstrutura === "parede" && <span style={{ fontSize: 12, color: "var(--gold)" }}>toque as 2 pontas da parede</span>}
-          {ferrEstrutura === "pilar" && <span style={{ fontSize: 12, color: "var(--gold)" }}>toque 2 cantos do pilar</span>}
-          {(ferrEstrutura === "porta" || ferrEstrutura === "janela") && <span style={{ fontSize: 12, color: "var(--gold)" }}>toque sobre a parede onde fica {ferrEstrutura === "porta" ? "a porta" : "a janela"}</span>}
-          {ferrEstrutura === "apagar" && <span style={{ fontSize: 12, color: "var(--red)" }}>toque no elemento para apagar</span>}
-          {modoVista && <span style={{ fontSize: 12, color: "#C97BE0" }}>toque onde fica a câmera, depois para onde ela olha</span>}
-          {lamina && etapa === "layout" && <span style={{ fontSize: 12, color: "#8FD6F0" }}>lâmina ativa — exporte o Dossiê para levá-la ao PDF</span>}
-          {!somenteLeitura && <button className="btn" onClick={() => { limparModos(); selecionar(null); setApresentacao((v) => !v); }}
-            style={apresentacao ? { borderColor: "var(--gold)", color: "var(--gold)" } : undefined} title="Modo apresentação: esconde grade, medidas e painéis">🎦</button>}
-          {somenteLeitura
-            ? <button className="btn btn-gold" onClick={() => nav("/novo")}>＋ Começar meu Heritage</button>
-            : <button className="btn btn-gold" disabled={salvando} onClick={() => void salvar()}>{salvando ? "Salvando…" : dirty ? "💾 Salvar" : "✓ Salvo"}</button>}
-          <button className="btn btn-blue" onClick={exportar}>⤓ Dossiê</button>
-        </div>
+        {lamina && etapa === "layout" && (
+          <span style={{ marginLeft: "auto", fontSize: 11.5, color: "var(--info-soft)" }}>
+            lâmina ativa — exporte o Dossiê para levá-la ao PDF
+          </span>
+        )}
       </div>
-
-      {aviso && (
-        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px calc(12px + var(--sar)) 9px calc(12px + var(--sal))", background: "rgba(224,154,69,.12)", borderBottom: "1px solid var(--line)", flexShrink: 0 }}>
-          <span style={{ fontSize: 15 }}>⚠️</span>
-          <span style={{ fontSize: 12.5, color: "#E09A45", lineHeight: 1.5, flex: 1 }}>{aviso}</span>
-          <button className="btn" onClick={() => setAviso(null)} style={{ padding: "5px 10px", fontSize: 11.5 }}>Dispensar</button>
-        </div>
-      )}
 
       {somenteLeitura && (
         <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px calc(12px + var(--sar)) 8px calc(12px + var(--sal))", background: "var(--panel-2)", borderBottom: "1px solid var(--line)", flexShrink: 0 }}>
@@ -605,6 +707,38 @@ export default function EditorScreen() {
             modoParede={modoParede} onParede={onParede} modoMoverPlanta={modoMoverPlanta}
             etapa={etapa} ferrEstrutura={ferrEstrutura}
             stageRef={stageRef} somenteLeitura={somenteLeitura} />
+
+          {/* HUD do modo, no topo-centro do canvas — onde o olho já está. */}
+          {modoAtivo && !apresentacao && <ModoHUD modo={modoAtivo} onCancelar={limparModos} />}
+
+          {/* Entrada da planta baixa: uma porta só, com validação, prévia da
+              primeira página e progresso — em vez do <input type=file> mudo
+              que existia aqui e nos outros dois pontos de upload do app. */}
+          {entradaPlanta && (
+            <div style={{ position: "fixed", inset: 0, zIndex: 60, background: "rgba(0,0,0,.62)", display: "grid", placeItems: "center", padding: 16 }}
+              onClick={() => setEntradaPlanta(false)}>
+              <div className="mo-pop" style={{ width: "min(560px, 94vw)" }} onClick={(e) => e.stopPropagation()}>
+                <EntradaPDF
+                  aceita={ACEITA_PLANTA} maxMB={40}
+                  titulo="Planta baixa do espaço"
+                  ajuda="PDF vetorial é o melhor: o app extrai as paredes. DWG e DXF também. Foto ou print entra como fundo para você calibrar a escala."
+                  rotuloConfirmar="Usar esta planta"
+                  ocupado={busy}
+                  onDocumento={async (doc) => { await importarPlanta(doc.arquivo); setEntradaPlanta(false); }} />
+              </div>
+            </div>
+          )}
+
+          {/* Aviso como camada FLUTUANTE. Antes era uma faixa no flex-column:
+              ao aparecer, empurrava o canvas para baixo e a planta pulava sob
+              o dedo no meio de um arraste. */}
+          {avisoPresenca.render && (
+            <div className={"toast-canvas " + (avisoPresenca.estado === "saindo" ? "mo-saindo" : "mo-pop")} role="alert">
+              <span style={{ fontSize: 15 }}>⚠️</span>
+              <span style={{ fontSize: 12.5, color: "var(--warn)", lineHeight: 1.5, flex: 1 }}>{aviso}</span>
+              <button className="btn btn--xs" onClick={() => setAviso(null)}>Dispensar</button>
+            </div>
+          )}
         </div>
 
         {/* Inspetor direito */}
@@ -776,13 +910,31 @@ export default function EditorScreen() {
         </div>
       )}
 
+      {/* Painel de análise funcional de espaço — gaveta do rodapé. */}
+      {!apresentacao && analiseAberta && <AnaliseEspacoPanel cena={cena} onFechar={() => setAnaliseAberta(false)} />}
+
       {/* Rodapé: validação */}
       {!apresentacao && <div style={{ display: "flex", gap: 8, alignItems: "center", padding: "7px calc(12px + var(--sar)) calc(7px + var(--sab)) calc(12px + var(--sal))", borderTop: "1px solid var(--line)", flexWrap: "wrap", flexShrink: 0 }}>
-        <Chip ok={r.nCol === 0} txt={r.nCol === 0 ? "Sem colisões" : `${r.nCol} colisão(ões)`} />
-        <Chip ok={r.nCor === 0} warn txt={r.nCor === 0 ? "Corredor livre" : `${r.nCor} no corredor`} />
-        {r.nUso > 0 && <Chip warn ok={false} txt={`${r.nUso} área(s) de uso invadida(s)`} />}
+        {/* Chips CLICÁVEIS: tocar num problema leva ao equipamento culpado.
+            Antes "3 colisão(ões)" era um número morto e o consultor caçava o
+            contorno vermelho no olho, numa planta com quarenta peças. */}
+        <ChipProblema ok={r.nCol === 0} txt={r.nCol === 0 ? "Sem colisões" : `${r.nCol} colisão(ões)`}
+          ids={idsComProblema("colisao")} onIr={focarItem} />
+        <ChipProblema ok={r.nCor === 0} warn txt={r.nCor === 0 ? "Corredor livre" : `${r.nCor} no corredor`}
+          ids={idsComProblema("corredor")} onIr={focarItem} />
+        {r.nUso > 0 && <ChipProblema warn txt={`${r.nUso} área(s) de uso invadida(s)`}
+          ids={idsComProblema("uso")} onIr={focarItem} />}
+        <button className="chip" onClick={() => setAnaliseAberta((v) => !v)}
+          aria-expanded={analiseAberta}
+          style={{ borderColor: analise.ocupacaoFuncional.status === "critico" ? "var(--red)" : analise.ocupacaoFuncional.status === "atencao" ? "var(--warn)" : "var(--line-2)",
+                   color: analise.ocupacaoFuncional.status === "critico" ? "var(--red)" : analise.ocupacaoFuncional.status === "atencao" ? "var(--warn)" : "var(--text-3)",
+                   cursor: "pointer", background: "transparent" }}
+          title="Abrir a análise funcional de espaço">
+          📊 Ocupação {Math.round(analise.ocupacaoFuncional.valor)}%
+          {analise.folgas.menorVaoCm != null && <> · vão {Math.round(analise.folgas.menorVaoCm)} cm</>}
+          {analiseAberta ? " ▾" : " ▸"}
+        </button>
         {(cena.acessorios?.length ?? 0) > 0 && <Chip gold txt={`Acessórios ${BRL(Math.round((cena.acessorios ?? []).reduce((t, a) => t + a.qtd * a.preco_un, 0)))}`} />}
-        <Chip neutro txt={`Ocupação ${r.ocupacao}%`} />
         <Chip neutro txt={`Equipamentos ${cena.itens.length}`} />
         <Chip gold txt={BRL(r.subtotal)} />
         <span style={{ width: 1, height: 18, background: "var(--line-2)" }} />
@@ -1012,6 +1164,7 @@ function CampoCm({ valor, min, onSet }: { valor: number; min?: number; onSet: (v
 
 function AcabamentoInspector({ area }: { area: AreaAcabamento }) {
   const acabamentos = useLibrary((s) => s.acabamentos);
+  const marcasBiblioteca = useLibrary((s) => s.marcas);
   const cena = useProjeto((s) => s.cena);
   const updateArea = useProjeto((s) => s.updateArea);
   const removerArea = useProjeto((s) => s.removerArea);
@@ -1423,24 +1576,40 @@ function CuradoriaPanel() {
               ))}
             </div>
 
-            {/* Especificação da categoria (o texto que vai ao Dossiê) */}
+            {/* Especificação da categoria — TODOS os campos que saem no Dossiê
+                são editáveis. Vazio = usa o texto padrão (mostrado como
+                placeholder), preenchido = o do consultor vence. */}
             <div style={{ background: "var(--panel-2)", border: "1px solid var(--line)", borderRadius: 8, padding: "10px 12px" }}>
               <button className="btn" style={{ padding: "3px 8px", fontSize: 10.5, float: "right" }}
-                onClick={() => setAbertas((a) => ({ ...a, [c.zona]: !aberta }))}>{aberta ? "− Ocultar" : "+ Especificação"}</button>
-              <div style={{ fontSize: 11.5, color: "#b6b6b1", lineHeight: 1.55 }}>{esp.oque}</div>
+                onClick={() => setAbertas((a) => ({ ...a, [c.zona]: !aberta }))}>
+                {aberta ? "− Ocultar" : "✎ Editar especificação"}
+              </button>
+              <div style={{ fontSize: 11.5, color: "#b6b6b1", lineHeight: 1.55 }}>
+                {cena.especificacoes?.[c.zona]?.oque?.trim() || esp.oque}
+              </div>
               {aberta && (
-                <div style={{ display: "grid", gap: 7, marginTop: 9, fontSize: 11.5, color: "#a8a8a4", lineHeight: 1.55 }}>
-                  <div><b style={{ color: "var(--gold)" }}>O QUE ENTREGA · </b>{esp.entrega}</div>
-                  <div><b style={{ color: "var(--gold)" }}>DIMENSIONAMENTO · </b>{esp.criterio}</div>
-                  <div><b style={{ color: "var(--gold)" }}>OBRA &amp; OPERAÇÃO · </b>{esp.operacao}</div>
+                <div style={{ display: "grid", gap: 10, marginTop: 12 }}>
+                  {CAMPOS_ESPEC.map(({ chave, rotulo }) => {
+                    const padrao = chave === "nota" ? "" : esp[chave];
+                    const proprio = cena.especificacoes?.[c.zona]?.[chave] ?? "";
+                    return (
+                      <div key={chave}>
+                        <span className="microlabel">
+                          {rotulo.toUpperCase()}
+                          {proprio ? <b style={{ color: "var(--gold)", marginLeft: 6 }}>· reescrito</b>
+                            : chave !== "nota" && <span style={{ marginLeft: 6, opacity: .7 }}>· texto padrão</span>}
+                        </span>
+                        <CampoTexto valor={proprio} linhas={chave === "nota" ? 2 : 3}
+                          placeholder={padrao || "Ex.: 4 esteiras atendem o pico das 19h; zona junto à vidraça pela luz natural."}
+                          onSet={(v) => setEspecificacao(c.zona, { [chave]: v })} />
+                      </div>
+                    );
+                  })}
+                  <div style={{ fontSize: 10.5, color: "var(--muted)", lineHeight: 1.5 }}>
+                    Campo em branco publica o texto padrão que aparece em cinza. O que você escrever substitui esse texto no Dossiê.
+                  </div>
                 </div>
               )}
-              <div style={{ marginTop: 10 }}>
-                <span className="microlabel">NESTA ACADEMIA (opcional — entra no Dossiê logo abaixo da especificação)</span>
-                <CampoTexto valor={cena.especificacoes?.[c.zona] ?? ""} linhas={2}
-                  placeholder="Ex.: zona posicionada junto à vidraça para aproveitar a luz natural; 4 esteiras atendem o pico das 19h."
-                  onSet={(v) => setEspecificacao(c.zona, v)} />
-              </div>
             </div>
 
             {/* Equipamentos da categoria */}
@@ -1479,13 +1648,277 @@ function CuradoriaPanel() {
       })}
 
       {cena.itens.length === 0 && (
-        <div style={{ color: "var(--muted)", fontSize: 12.5, marginTop: 16 }}>Nenhum equipamento posicionado — adicione na Etapa 3 (Layout).</div>
+        <div style={{ color: "var(--muted)", fontSize: 12.5, marginTop: 16 }}>Nenhum equipamento posicionado — adicione na etapa Layout.</div>
       )}
 
+      <CoberturaPanel />
+      <MarcasPanel />
       <ParecerPanel />
       <InventarioPanel />
       <SecoesDossiePanel />
     </div>
+  );
+}
+
+/**
+ * COBERTURA MUSCULAR & MOVIMENTO.
+ *
+ * Responde a pergunta que o síndico faz depois de olhar a planta — "esta
+ * academia treina o corpo inteiro ou sobrou buraco?" — e, o que vende a
+ * assessoria, diz o que comprar para fechar cada buraco e quanto de cobertura
+ * se PERDE ao cortar um cenário. Até aqui o app sabia listar exercícios por
+ * aparelho, mas nunca somava: ninguém conseguia dizer o que faltava.
+ */
+function CoberturaPanel() {
+  const cena = useProjeto((s) => s.cena);
+  const catalogo = useLibrary((s) => s.equipamentos);
+  const [verPadroes, setVerPadroes] = useState(false);
+  const cob = useMemo(() => analisarCobertura(cena, catalogo), [cena, catalogo]);
+
+  if (!cena.itens.length) return null;
+  const { resumo: rc } = cob;
+
+  const COR: Record<string, string> = { coberto: "var(--green)", fraco: "var(--warn)", descoberto: "var(--red)" };
+  const porRegiao = new Map<RegiaoCorpo, typeof cob.musculos>();
+  for (const l of cob.musculos) {
+    const reg = MUSCULOS[l.musculo].regiao;
+    (porRegiao.get(reg) ?? porRegiao.set(reg, []).get(reg)!).push(l);
+  }
+
+  return (
+    <section className="card" style={{ padding: 14, marginTop: 12, display: "grid", gap: 12 }}>
+      <div style={{ display: "flex", alignItems: "flex-end", gap: 12, flexWrap: "wrap" }}>
+        <div style={{ flex: 1, minWidth: 260 }}>
+          <span className="brandface" style={{ fontSize: 16, color: "var(--gold)" }}>COBERTURA MUSCULAR & MOVIMENTO</span>
+          <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 2, lineHeight: 1.5 }}>
+            O que esta academia treina e o que ficou de fora — somando os {rc.itensAvaliados} equipamentos reconhecidos pela base técnica.
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 6 }}>
+          <Chip txt={`${rc.cobertos} cobertos`} ok />
+          {rc.fracos > 0 && <Chip txt={`${rc.fracos} fracos`} warn />}
+          {rc.descobertos > 0 && <Chip txt={`${rc.descobertos} descobertos`} />}
+          <Chip txt={`${rc.padroesCobertos}/${rc.padroesTotal} movimentos`} neutro />
+        </div>
+      </div>
+
+      {/* Mapa corporal: uma caixa por grupo, agrupada por região. */}
+      <div style={{ display: "grid", gap: 9 }}>
+        {[...porRegiao.entries()].map(([reg, linhas]) => (
+          <div key={reg}>
+            <span className="microlabel">{REGIOES[reg].toUpperCase()}</span>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginTop: 4 }}>
+              {linhas.map((l) => (
+                <span key={l.musculo} title={[
+                  MUSCULOS[l.musculo].inclui,
+                  l.primarios.length ? "Principal: " + l.primarios.join(", ") : "",
+                  l.secundarios.length ? "Auxiliar: " + l.secundarios.join(", ") : "",
+                  !l.primarios.length && !l.secundarios.length ? "Nenhum equipamento do projeto atende este grupo." : "",
+                ].filter(Boolean).join(" · ")} style={{
+                  display: "inline-flex", alignItems: "center", gap: 6,
+                  border: `1px solid ${COR[l.status]}`, borderRadius: 8, padding: "5px 10px",
+                  background: l.status === "coberto" ? "rgba(95,191,122,.10)" : l.status === "fraco" ? "rgba(224,154,69,.10)" : "transparent",
+                  font: "600 11.5px 'DM Sans'", color: COR[l.status],
+                }}>
+                  {l.status === "coberto" ? "●" : l.status === "fraco" ? "◐" : "○"}
+                  {MUSCULOS[l.musculo].label}
+                  {l.primarios.length > 0 && <b style={{ opacity: .7, fontWeight: 600 }}>{l.primarios.length}</b>}
+                </span>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* O que comprar para fechar o buraco — a parte que vira proposta. */}
+      {cob.sugestoes.length > 0 && (
+        <div style={{ background: "var(--panel-2)", border: "1px solid var(--line)", borderRadius: 8, padding: "10px 12px", display: "grid", gap: 7 }}>
+          <span className="microlabel">PARA FECHAR AS LACUNAS</span>
+          {cob.sugestoes.map((s) => (
+            <div key={s.equipamento} style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap", fontSize: 11.5 }}>
+              <span style={{ fontWeight: 700, color: "var(--text-2)" }}>{s.equipamento}</span>
+              <span className="chip" style={{ padding: "1px 8px", fontSize: 10, borderColor: CENARIOS[s.cenario].cor, color: CENARIOS[s.cenario].cor }}>
+                {CENARIOS[s.cenario].label}
+              </span>
+              <span style={{ color: "var(--muted)", lineHeight: 1.45 }}>{s.porque}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Cortar orçamento tem consequência de TREINO, não só de preço. */}
+      <div style={{ display: "grid", gap: 5 }}>
+        <span className="microlabel">O QUE CADA CENÁRIO ENTREGA DE COBERTURA</span>
+        {cob.porCenario.map((c) => (
+          <div key={c.cenario} style={{ display: "flex", alignItems: "baseline", gap: 9, flexWrap: "wrap", fontSize: 11.5 }}>
+            <span style={{ width: 84, fontWeight: 700, color: CENARIOS[c.cenario].cor }}>{c.label}</span>
+            <span style={{ color: "var(--green)" }}>{c.cobertos.length} cobertos</span>
+            {c.descobertos.length > 0 && (
+              <span style={{ color: "var(--muted)" }}>
+                fora: {c.descobertos.map((m) => MUSCULOS[m].label).join(", ")}
+              </span>
+            )}
+            {c.ganha.length > 0 && (
+              <span style={{ color: "var(--gold)" }}>+ {c.ganha.map((m) => MUSCULOS[m].label).join(", ")}</span>
+            )}
+          </div>
+        ))}
+      </div>
+
+      <div>
+        <button className="btn btn--sm" aria-pressed={verPadroes} onClick={() => setVerPadroes((v) => !v)}>
+          {verPadroes ? "− Ocultar" : "+ Ver"} padrões de movimento
+        </button>
+        {verPadroes && (
+          <div className="mo-in-up" style={{ display: "flex", flexWrap: "wrap", gap: 5, marginTop: 8 }}>
+            {cob.padroes.map((l) => (
+              <span key={l.padrao} title={l.equipamentos.join(", ") || "Nenhum equipamento executa este padrão."} style={{
+                border: `1px solid ${l.coberto ? "var(--green)" : "var(--line-2)"}`,
+                borderRadius: 8, padding: "4px 9px", font: "600 11px 'DM Sans'",
+                color: l.coberto ? "var(--green)" : "var(--text-4)",
+              }}>{PADROES[l.padrao].label}</span>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Análise que esconde o que ignorou não vale nada. */}
+      {cob.naoReconhecidos.length > 0 && (
+        <div style={{ fontSize: 10.5, color: "var(--warn)", lineHeight: 1.5 }}>
+          Fora da conta ({cob.naoReconhecidos.length}): {cob.naoReconhecidos.join(", ")} — a base técnica não reconhece estes nomes.
+          Renomeie no catálogo para eles entrarem na cobertura.
+        </div>
+      )}
+    </section>
+  );
+}
+
+/**
+ * ÁREA DE APRESENTAÇÃO DAS MARCAS.
+ *
+ * As marcas eram detectadas em silêncio e só apareciam no PDF pronto. Aqui o
+ * consultor vê quem foi detectado, de onde (equipamento, acessório, acabamento,
+ * mobiliário ou inventário do condomínio), reescreve o texto de apresentação,
+ * escolhe a marca âncora e tira da vitrine o que não quer mostrar.
+ */
+function MarcasPanel() {
+  const cena = useProjeto((s) => s.cena);
+  const setMarcaProjeto = useProjeto((s) => s.setMarcaProjeto);
+  const setMarcasIntro = useProjeto((s) => s.setMarcasIntro);
+  const catalogo = useLibrary((s) => s.equipamentos);
+  const biblioteca = useLibrary((s) => s.marcas);
+  const acabCatalogo = useLibrary((s) => s.acabamentos);
+  const [aberta, setAberta] = useState<string | null>(null);
+
+  const marcas = useMemo(
+    () => marcasDaCena(cena, catalogo, biblioteca, acabCatalogo),
+    [cena, catalogo, biblioteca, acabCatalogo],
+  );
+  const overrides = new Map((cena.marcas ?? []).map((m) => [m.ref, m]));
+  // Marcas OCULTAS somem de `marcasDaCena` — sem esta lista, ocultar seria
+  // porta de mão única: a linha desapareceria do painel junto com o botão
+  // de trazê-la de volta.
+  const ocultas = (cena.marcas ?? []).filter(
+    (m) => m.ocultar && !marcas.some((d) => refDaMarca(d.nome) === m.ref),
+  );
+  if (!marcas.length && !ocultas.length) return null;
+
+  return (
+    <section className="card" style={{ padding: 14, marginTop: 12, display: "grid", gap: 11 }}>
+      <div>
+        <span className="brandface" style={{ fontSize: 16, color: "var(--gold)" }}>MARCAS DO PROJETO</span>
+        <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 2, lineHeight: 1.5 }}>
+          {marcas.length} {marcas.length === 1 ? "marca detectada" : "marcas detectadas"} nos equipamentos, acessórios, acabamentos e mobiliário deste projeto.
+          O texto vem da biblioteca; o que você escrever aqui vale só para este Dossiê.
+        </div>
+      </div>
+
+      <div>
+        <span className="microlabel">ABERTURA DA SEÇÃO NO DOSSIÊ</span>
+        <CampoTexto valor={cena.marcasIntro ?? ""} linhas={2}
+          placeholder="Fabricantes dos equipamentos especificados neste projeto (fontes: sites das marcas e imprensa especializada)."
+          onSet={setMarcasIntro} />
+      </div>
+
+      <div style={{ display: "grid", gap: 5 }}>
+        {marcas.map((m) => {
+          const ref = refDaMarca(m.nome);
+          const ov = overrides.get(ref);
+          const oculta = !!ov?.ocultar;
+          const editando = aberta === ref;
+          return (
+            <div key={ref} style={{
+              background: "var(--panel-2)", border: `1px solid ${editando ? "var(--gold)" : "var(--line)"}`,
+              borderRadius: 8, padding: "8px 10px", opacity: oculta ? 0.5 : 1,
+              transition: "opacity var(--mo-fast), border-color var(--mo-fast)",
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 9, flexWrap: "wrap" }}>
+                {m.logo
+                  ? <img src={m.logo} alt="" style={{ height: 22, maxWidth: 74, objectFit: "contain", background: "#fff", borderRadius: 4, padding: 2 }} />
+                  : <span style={{ width: 10, height: 10, borderRadius: 3, background: m.cor || "var(--line-2)" }} />}
+                <span style={{ font: "700 13px 'DM Sans'", color: "var(--text-2)" }}>{m.nome}</span>
+                {m.destaque || ov?.destaque ? <span style={{ color: "var(--gold)" }} title="Marca âncora — sai primeiro no Dossiê">★</span> : null}
+                {m.grupo && <span style={{ fontSize: 10.5, color: "var(--text-4)" }}>{m.grupo}</span>}
+                <span style={{ fontSize: 10.5, color: "var(--muted)" }}>{presencaDaMarca(m)}</span>
+                {!m.conhecida && (
+                  <span style={{ fontSize: 10, color: "var(--warn)" }} title="Sem ficha na biblioteca: sai só com o nome">
+                    sem apresentação
+                  </span>
+                )}
+                {m.soInventario && (
+                  <span style={{ fontSize: 10, color: "var(--text-4)" }} title="Só aparece no inventário — já é do condomínio, não é compra">
+                    já no condomínio
+                  </span>
+                )}
+                <span style={{ flex: 1 }} />
+                <button className="btn btn--xs" aria-pressed={!!ov?.destaque}
+                  onClick={() => setMarcaProjeto(ref, { destaque: !ov?.destaque })} title="Marca âncora">★</button>
+                <button className="btn btn--xs" aria-pressed={!oculta}
+                  onClick={() => setMarcaProjeto(ref, { ocultar: !oculta, nome: m.nome })} title={oculta ? "Mostrar no Dossiê" : "Ocultar do Dossiê"}>
+                  {oculta ? "○" : "✓"}
+                </button>
+                <button className="btn btn--xs" aria-pressed={editando} onClick={() => setAberta(editando ? null : ref)} title="Editar texto">✎</button>
+              </div>
+              {editando && (
+                <div className="mo-in-up" style={{ display: "grid", gap: 8, marginTop: 9, paddingTop: 9, borderTop: "1px solid var(--line)" }}>
+                  <div>
+                    <span className="microlabel">
+                      APRESENTAÇÃO NO DOSSIÊ
+                      {ov?.resumo?.trim() && <b style={{ color: "var(--gold)", marginLeft: 6 }}>· reescrita</b>}
+                    </span>
+                    <CampoTexto valor={ov?.resumo ?? ""} linhas={4}
+                      placeholder={m.resumo || "Sem texto na biblioteca — escreva aqui, ou cadastre a marca em Marcas para reaproveitar nos próximos projetos."}
+                      onSet={(v) => setMarcaProjeto(ref, { resumo: v || null })} />
+                  </div>
+                  <div>
+                    <span className="microlabel">OBSERVAÇÃO DESTE PROJETO</span>
+                    <CampoTexto valor={ov?.nota ?? ""} linhas={2}
+                      placeholder="Ex.: representante local, entrega em 20 dias, assistência técnica na cidade."
+                      onSet={(v) => setMarcaProjeto(ref, { nota: v || null })} />
+                  </div>
+                  {m.fonte && <div style={{ fontSize: 10, color: "var(--text-4)" }}>Fonte do texto da biblioteca: {m.fonte}</div>}
+                </div>
+              )}
+            </div>
+          );
+        })}
+        {ocultas.map((m) => (
+          <div key={m.ref} style={{
+            display: "flex", alignItems: "center", gap: 9,
+            background: "var(--panel-2)", border: "1px dashed var(--line)", borderRadius: 8,
+            padding: "7px 10px", opacity: 0.55,
+          }}>
+            <span style={{ font: "600 12.5px 'DM Sans'", color: "var(--text-4)", textDecoration: "line-through" }}>
+              {m.nome || m.ref}
+            </span>
+            <span style={{ fontSize: 10.5, color: "var(--text-4)" }}>fora do Dossiê</span>
+            <span style={{ flex: 1 }} />
+            <button className="btn btn--xs" onClick={() => setMarcaProjeto(m.ref, { ocultar: false })}
+              title="Voltar a mostrar no Dossiê">↩ Mostrar</button>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -1649,6 +2082,19 @@ function InventarioPanel() {
                 <input className="fld" style={{ flex: 1, minWidth: 190, padding: "5px 8px", fontSize: 11.5 }}
                   value={i.observacao ?? ""} placeholder="Por que fica / por que sai"
                   onChange={(e) => updateInventario(i.id, { observacao: e.target.value || null })} />
+                {/* Valor de mercado: o Dossiê já imprimia a caixa "VALOR DE
+                    MERCADO DO QUE FOI REAPROVEITADO", mas nenhuma tela
+                    escrevia o campo — a soma era sempre zero e a caixa nunca
+                    aparecia. É o argumento comercial mais forte do inventário:
+                    o que o condomínio deixa de gastar por reaproveitar. */}
+                <input className="fld" style={{ width: 118, padding: "5px 8px", fontSize: 11.5, textAlign: "right" }}
+                  value={i.valor_estimado != null ? String(i.valor_estimado) : ""}
+                  placeholder="R$ mercado" inputMode="numeric"
+                  title="Valor de mercado estimado por unidade — soma no Dossiê como economia do reaproveitamento"
+                  onChange={(e) => {
+                    const n = Number(e.target.value.replace(/[^\d]/g, ""));
+                    updateInventario(i.id, { valor_estimado: n > 0 ? n : null });
+                  }} />
                 <div style={{ display: "flex", gap: 4 }}>
                   {(Object.keys(DESTINOS_INVENTARIO) as DestinoInventario[]).map((d) => (
                     <button key={d} className="btn" onClick={() => updateInventario(i.id, { destino: d })}
@@ -1670,34 +2116,180 @@ function InventarioPanel() {
 }
 
 // O que entra no PDF: o consultor decide seção a seção.
+/**
+ * CENTRAL DO DOSSIÊ — todas as áreas do documento, editáveis num lugar só.
+ *
+ * Antes o consultor controlava o PDF por oito interruptores escondidos no
+ * último bloco da última seção de uma aba, e nove das dezessete seções não
+ * tinham nem interruptor: título, texto de abertura e ordem eram literais no
+ * código. Aqui cada seção aparece na ordem real de saída, com o número que
+ * vai sair impresso, e pode ser ligada, renomeada, reescrita e reordenada.
+ */
 function SecoesDossiePanel() {
-  const dossie = useProjeto((s) => s.cena.dossie);
+  const cena = useProjeto((s) => s.cena);
   const setOpcaoDossie = useProjeto((s) => s.setOpcaoDossie);
-  const atual = { ...OPCOES_DOSSIE_PADRAO, ...(dossie ?? {}) };
-  const chaves = Object.keys(ROTULO_SECAO_DOSSIE) as (keyof OpcoesDossie)[];
+  const setDossieTexto = useProjeto((s) => s.setDossieTexto);
+  const moverSecaoDossie = useProjeto((s) => s.moverSecaoDossie);
+  const resetOrdemDossie = useProjeto((s) => s.resetOrdemDossie);
+  const setDossieEmissao = useProjeto((s) => s.setDossieEmissao);
+  const [aberta, setAberta] = useState<SecaoDossie | null>(null);
+
+  const ligadas = { ...OPCOES_DOSSIE_PADRAO, ...(cena.dossie ?? {}) };
+  const ordem = cena.dossieOrdem?.length ? cena.dossieOrdem : ORDEM_DOSSIE_PADRAO;
+  const textos = cena.dossieTextos ?? {};
+  const temConteudo = conteudoDaSecao(cena);
+
+  // O número impresso é a posição entre as LIGADAS — o mesmo cálculo do PDF.
+  let n = 0;
+  const numeros = new Map<SecaoDossie, string>();
+  for (const id of ordem) {
+    if (ligadas[id] === false || !temConteudo(id)) continue;
+    numeros.set(id, String(++n).padStart(2, "0"));
+  }
+
   return (
-    <section className="card" style={{ padding: 14, marginTop: 12, display: "grid", gap: 10 }}>
-      <div>
-        <span className="brandface" style={{ fontSize: 16, color: "var(--gold)" }}>O QUE ENTRA NO DOSSIÊ</span>
-        <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 2 }}>
-          Diagnóstico, planta, resumo financeiro, categorias e memorial saem sempre. O resto é opcional.
+    <section className="card" style={{ padding: 14, marginTop: 12, display: "grid", gap: 12 }}>
+      <div style={{ display: "flex", alignItems: "flex-end", gap: 12, flexWrap: "wrap" }}>
+        <div style={{ flex: 1, minWidth: 240 }}>
+          <span className="brandface" style={{ fontSize: 16, color: "var(--gold)" }}>CENTRAL DO DOSSIÊ</span>
+          <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 2, lineHeight: 1.5 }}>
+            As {ordem.length} seções na ordem em que saem no papel. Ligue, desligue, renomeie, reescreva a abertura e reordene.
+            Campo em branco publica o texto padrão.
+          </div>
+        </div>
+        <label style={{ display: "grid", gap: 3 }}>
+          <span className="microlabel">DATA DE EMISSÃO</span>
+          <input className="fld" type="date" style={{ padding: "7px 10px", fontSize: 12, width: 170 }}
+            value={(cena.dossieEmissao ?? "").slice(0, 10)}
+            onChange={(e) => setDossieEmissao(e.target.value || null)} />
+        </label>
+        {cena.dossieOrdem?.length ? (
+          <button className="btn btn--sm" onClick={resetOrdemDossie} title="Voltar à ordem padrão">↺ Ordem padrão</button>
+        ) : null}
+      </div>
+
+      {/* Capa: os dois textos que não pertencem a nenhuma seção. */}
+      <div style={{ background: "var(--panel-2)", border: "1px solid var(--line)", borderRadius: 8, padding: "10px 12px", display: "grid", gap: 9 }}>
+        <span className="microlabel">CAPA</span>
+        <div>
+          <span className="microlabel" style={{ opacity: .75 }}>LINHA DE ABERTURA</span>
+          <CampoTexto valor={textos["capa:kicker"] ?? ""} linhas={1}
+            placeholder="ASSESSORIA TÉCNICA · IMPLANTAÇÃO DE ACADEMIA"
+            onSet={(v) => setDossieTexto("capa:kicker", v)} />
+        </div>
+        <div>
+          <span className="microlabel" style={{ opacity: .75 }}>FRASE DO RODAPÉ DA CAPA</span>
+          <CampoTexto valor={textos["capa:tagline"] ?? ""} linhas={2}
+            placeholder="A academia mais funcional e bonita que o orçamento do condomínio pode ter."
+            onSet={(v) => setDossieTexto("capa:tagline", v)} />
         </div>
       </div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
-        {chaves.map((k) => {
-          const ligado = atual[k] !== false;
+
+      <div style={{ display: "grid", gap: 5 }}>
+        {ordem.map((id, i) => {
+          const ligada = ligadas[id] !== false;
+          const numero = numeros.get(id);
+          const vazia = !temConteudo(id);
+          const editando = aberta === id;
+          const tituloProprio = textos[`titulo:${id}`];
+          const introPropria = textos[`intro:${id}`];
           return (
-            <button key={k} className="btn" onClick={() => setOpcaoDossie(k, !ligado)}
-              style={{
-                padding: "7px 12px", fontSize: 11.5,
-                borderColor: ligado ? "var(--gold)" : "var(--line-2)",
-                color: ligado ? "var(--gold)" : "#6e6e73",
-              }}>{ligado ? "✓ " : "○ "}{ROTULO_SECAO_DOSSIE[k]}</button>
+            <div key={id} style={{
+              background: "var(--panel-2)",
+              border: `1px solid ${editando ? "var(--gold)" : "var(--line)"}`,
+              borderRadius: 8, padding: "7px 9px",
+              opacity: ligada ? 1 : 0.55,
+              transition: "border-color var(--mo-fast), opacity var(--mo-fast)",
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+                <button className="btn btn--xs" aria-pressed={ligada} onClick={() => setOpcaoDossie(id, !ligada)}
+                  title={ligada ? "Tirar do Dossiê" : "Incluir no Dossiê"} style={{ minWidth: 34, justifyContent: "center" }}>
+                  {ligada ? "✓" : "○"}
+                </button>
+                <span style={{ font: "700 11px 'DM Sans'", color: numero ? "var(--gold)" : "var(--text-4)", width: 22 }}>
+                  {numero ?? "—"}
+                </span>
+                <span style={{ flex: 1, fontSize: 12.5, fontWeight: 600, color: "var(--text-2)" }}>
+                  {tituloProprio?.trim() || ROTULO_SECAO_DOSSIE[id]}
+                  {tituloProprio?.trim() && <b style={{ color: "var(--gold)", fontWeight: 600, marginLeft: 7, fontSize: 10 }}>· renomeada</b>}
+                </span>
+                {/* Ligada mas sem dado: o consultor precisa saber POR QUE a
+                    seção não vai aparecer, em vez de procurar no PDF. */}
+                {ligada && vazia && (
+                  <span style={{ fontSize: 10.5, color: "var(--warn)" }} title={`Falta: ${SECAO_EXIGE_DADO[id]}`}>
+                    aguarda {SECAO_EXIGE_DADO[id]}
+                  </span>
+                )}
+                <button className="btn btn--xs" onClick={() => moverSecaoDossie(id, -1)} disabled={i === 0} title="Subir">↑</button>
+                <button className="btn btn--xs" onClick={() => moverSecaoDossie(id, 1)} disabled={i === ordem.length - 1} title="Descer">↓</button>
+                <button className="btn btn--xs" aria-pressed={editando} onClick={() => setAberta(editando ? null : id)}
+                  title="Editar título e abertura">✎</button>
+              </div>
+              {editando && (
+                <div className="mo-in-up" style={{ display: "grid", gap: 8, marginTop: 9, paddingTop: 9, borderTop: "1px solid var(--line)" }}>
+                  <div>
+                    <span className="microlabel">TÍTULO NO PAPEL</span>
+                    <CampoTexto valor={tituloProprio ?? ""} linhas={1}
+                      placeholder={ROTULO_SECAO_DOSSIE[id]}
+                      onSet={(v) => setDossieTexto(`titulo:${id}`, v)} />
+                  </div>
+                  {INTRO_PADRAO[id] && (
+                    <div>
+                      <span className="microlabel">
+                        TEXTO DE ABERTURA
+                        {introPropria != null && <b style={{ color: "var(--gold)", marginLeft: 6 }}>· reescrito</b>}
+                      </span>
+                      <CampoTexto valor={introPropria ?? ""} linhas={3}
+                        placeholder={INTRO_PADRAO[id]}
+                        onSet={(v) => setDossieTexto(`intro:${id}`, v)} />
+                      <div style={{ fontSize: 10, color: "var(--muted)", marginTop: 3 }}>
+                        Em branco publica o texto acima. Para suprimir a abertura, escreva um espaço.
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           );
         })}
       </div>
     </section>
   );
+}
+
+/** Textos de abertura padrão — os mesmos de `pdfExport.ts`, para o consultor
+ *  ver o que vai sair antes de decidir reescrever. */
+const INTRO_PADRAO: Partial<Record<SecaoDossie, string>> = {
+  cenarios: "Como o investimento total se distribui: o núcleo indispensável (Essencial), o nível recomendado (Balanceado), os itens de acabamento do projeto (Premium) e os complementos orçados.",
+  categorias: "À esquerda, os equipamentos da categoria com o cenário e o valor. À direita, o que aquele conjunto é, o que entrega e como foi dimensionado — mais a observação do consultor sobre este condomínio.",
+  marcas: "Fabricantes dos equipamentos especificados neste projeto (fontes: sites das marcas e imprensa especializada).",
+  memorial: "Um verbete por equipamento, agrupado por categoria: o que é, o que trabalha, por que está neste projeto e o que exige atenção.",
+  exercicios: "Exercícios de musculação executáveis nos equipamentos deste projeto. A lista cobre as máquinas de trajetória definida; bancos, racks e estações de cabo ampliam o repertório com dezenas de variações com pesos livres.",
+  inventario: "Levantamento do que o condomínio já tem. O reaproveitado permanece no projeto e não entra no investimento; o residual sai da sala.",
+  matriz: "Impacto funcional · valor percebido · necessidade (1–5). Maior soma = maior prioridade — o que preservar se o orçamento apertar.",
+};
+
+/** A seção tem dado para sair? Espelha as condições de `pdfExport.ts`. */
+function conteudoDaSecao(cena: Cena): (id: SecaoDossie) => boolean {
+  const itens = cena.itens ?? [];
+  const temCenarios = new Set(itens.map((i) => i.cenario)).size >= 1 && itens.length > 0;
+  return (id) => {
+    switch (id) {
+      case "parecer": return !!cena.parecer?.trim();
+      case "cenarios": return temCenarios;
+      case "acessorios": return (cena.acessorios?.length ?? 0) > 0;
+      case "inventario": return (cena.inventario?.length ?? 0) > 0;
+      case "acabamentos": return (cena.acabamentos?.length ?? 0) > 0;
+      case "mobiliario": return (cena.elementosParede?.length ?? 0) + (cena.infra?.length ?? 0) > 0;
+      case "memorial":
+      case "exercicios":
+      case "cobertura":
+      case "categorias": return itens.length > 0;
+      // Planta depende da captura feita no momento da exportação; diagnóstico,
+      // infraestrutura, financeiro, capacidade, matriz e validação sempre saem.
+      default: return true;
+    }
+  };
 }
 
 // Etapa 6 — orçamento de acessórios do projeto (catálogo-base Heritage).
@@ -1783,18 +2375,21 @@ function AnexosOrcamento() {
   const removerAnexo = useProjeto((s) => s.removerAnexo);
   const [busy, setBusy] = useState<string | null>(null);
   const [erro, setErro] = useState<string | null>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
   const podeSubir = online && !!projeto?.id && projeto.id !== "heritage";
+  // Hashes já anexados: subir duas vezes o mesmo PDF criava duas propostas
+  // idênticas sem nenhum aviso.
+  const hashesAnexos = anexos.map((a) => a.hash).filter((h): h is string => !!h);
 
-  async function subir(file?: File | null) {
-    if (!file || !projeto?.id) return;
-    if (!/\.pdf$/i.test(file.name)) { setErro("Envie um arquivo PDF."); return; }
+  async function subir(file: File, hash: string | null) {
+    if (!projeto?.id) return;
     setBusy("Enviando…"); setErro(null);
     try {
       const path = await uploadOrcamento(projeto.id, file);
-      addAnexo({ id: crypto.randomUUID(), nome: file.name, path, tamanho: file.size, criado_em: new Date().toISOString() });
-    } catch (e) { setErro(`Falha no envio: ${(e as Error).message}`); }
-    finally { setBusy(null); if (fileRef.current) fileRef.current.value = ""; }
+      addAnexo({ id: crypto.randomUUID(), nome: file.name, path, tamanho: file.size, criado_em: new Date().toISOString(), hash });
+    } catch (e) {
+      setErro(`Falha no envio: ${(e as Error).message}`);
+      throw e; // a EntradaPDF mostra o erro no próprio componente
+    } finally { setBusy(null); }
   }
 
   async function abrir(path: string) {
@@ -1813,11 +2408,16 @@ function AnexosOrcamento() {
       <div style={{ fontSize: 11.5, color: "var(--muted)", marginBottom: 10 }}>
         Propostas de fornecedores anexadas a este projeto — os arquivos ficam guardados na nuvem.
       </div>
-      <input ref={fileRef} type="file" accept="application/pdf,.pdf" style={{ display: "none" }} onChange={(e) => void subir(e.target.files?.[0])} />
-      <button className="btn btn-blue" disabled={!podeSubir || !!busy} onClick={() => fileRef.current?.click()}>
-        {busy || "⭱ Subir PDF de orçamento"}
-      </button>
-      {!podeSubir && <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 6 }}>Disponível em projetos salvos no banco (com conexão).</div>}
+      <EntradaPDF
+        aceita={ACEITA_PDF}
+        titulo="Orçamento em PDF"
+        ajuda="Arraste a proposta do fornecedor ou toque para escolher."
+        rotuloConfirmar="Anexar ao projeto"
+        desabilitado={!podeSubir}
+        motivoDesabilitado="Disponível em projetos salvos no banco (com conexão)."
+        ocupado={busy}
+        hashesConhecidos={hashesAnexos}
+        onDocumento={(doc) => subir(doc.arquivo, doc.hash)} />
       {erro && <div style={{ color: "var(--red)", fontSize: 12, marginTop: 8 }}>{erro}</div>}
       <div style={{ display: "grid", gap: 5, marginTop: 12 }}>
         {anexos.map((a) => (
@@ -1869,6 +2469,120 @@ function Nota1a5({ label, valor, onSet }: { label: string; valor?: number; onSet
 const Centro = ({ children }: { children: React.ReactNode }) => (
   <div style={{ position: "fixed", inset: 0, display: "flex", flexDirection: "column", gap: 12, alignItems: "center", justifyContent: "center" }}>{children}</div>
 );
+
+/**
+ * Chip de problema que LEVA ao problema. Cada toque percorre os equipamentos
+ * culpados, um por vez — com quarenta peças na planta, achar o contorno
+ * vermelho no olho é trabalho perdido.
+ */
+function ChipProblema({ txt, ids, onIr, ok, warn }: {
+  txt: string; ids: string[]; onIr: (id: string) => void; ok?: boolean; warn?: boolean;
+}) {
+  const [i, setI] = useState(0);
+  const cor = ok ? "var(--green)" : warn ? "var(--warn)" : "var(--red)";
+  if (!ids.length) return <Chip txt={txt} ok={ok} warn={warn} />;
+  return (
+    <button className="chip" onClick={() => { onIr(ids[i % ids.length]); setI((v) => v + 1); }}
+      style={{ borderColor: cor, color: cor, cursor: "pointer", background: "transparent" }}
+      title={ids.length > 1 ? `Ir ao ${(i % ids.length) + 1}º de ${ids.length} — toque de novo para o próximo` : "Ir ao equipamento"}>
+      {txt} <span aria-hidden>→</span>
+    </button>
+  );
+}
+
+/**
+ * ANÁLISE FUNCIONAL DE ESPAÇO — a gaveta do rodapé.
+ *
+ * Cada número vem com a régua ao lado e o semáforo. Antes o editor mostrava
+ * "Ocupação 43%" e o consultor não tinha como saber se 43% era bom, e o PDF
+ * calculava a mesma coisa de outro jeito — dois números com o mesmo nome.
+ */
+function AnaliseEspacoPanel({ cena, onFechar }: { cena: Cena; onFechar: () => void }) {
+  const a = useMemo(() => analisarEspaco(cena), [cena]);
+  const setCirculacaoMin = useProjeto((s) => s.setCirculacaoMin);
+  const COR: Record<string, string> = {
+    ok: "var(--green)", atencao: "var(--warn)", critico: "var(--red)", neutro: "var(--text-3)",
+  };
+  const fmt = (m: { valor: number; unidade: string }) => {
+    const v = m.unidade === "%" || m.unidade === "un" ? Math.round(m.valor) : Math.round(m.valor * 10) / 10;
+    const txt = String(v).replace(".", ",");
+    return m.unidade === "%" ? `${txt}%` : m.unidade === "m2" ? `${txt} m²` : m.unidade === "m2/un" ? `${txt} m²` : m.unidade === "cm" ? `${txt} cm` : txt;
+  };
+  const metricas: [string, typeof a.areaUtilM2][] = [
+    ["Área útil", a.areaUtilM2],
+    ["Área de uso", a.areaUsoM2],
+    ["Área livre", a.areaLivreM2],
+    ["Ocupação funcional", a.ocupacaoFuncional],
+    ["m² por aparelho", a.m2PorAparelho],
+    ["Usuários simultâneos", a.capacidade.simultaneos],
+    ["Menor vão de circulação", a.folgas.menorVao],
+  ];
+  return (
+    <div className="mo-in-up" style={{
+      borderTop: "1px solid var(--line)", background: "var(--panel)", flexShrink: 0,
+      maxHeight: "42vh", overflow: "auto",
+      padding: "12px calc(14px + var(--sar)) 12px calc(14px + var(--sal))",
+    }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 10 }}>
+        <span className="brandface" style={{ fontSize: 15, color: "var(--gold)" }}>ANÁLISE FUNCIONAL DE ESPAÇO</span>
+        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11 }}>
+          <span className="microlabel">CIRCULAÇÃO MÍNIMA</span>
+          <input className="fld" style={{ width: 74, padding: "4px 7px", fontSize: 11.5, textAlign: "right" }}
+            value={String(a.circulacaoMinCm)} inputMode="numeric"
+            title="A régua deste projeto. 90 cm deixa duas pessoas se cruzarem; rota de saída pede 120."
+            onChange={(e) => setCirculacaoMin(Number(e.target.value.replace(/[^\d]/g, "")) || CIRCULACAO_PADRAO)} />
+          <span style={{ color: "var(--muted)" }}>cm</span>
+        </label>
+        <span style={{ flex: 1 }} />
+        <button className="btn btn--xs" onClick={onFechar}>Fechar ▾</button>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(196px, 1fr))", gap: 8, marginBottom: 12 }}>
+        {metricas.map(([rot, m]) => (
+          <div key={rot} style={{
+            background: "var(--panel-2)", border: `1px solid ${m.status === "neutro" ? "var(--line)" : COR[m.status]}44`,
+            borderRadius: 9, padding: "8px 10px",
+          }}>
+            <span className="microlabel">{rot.toUpperCase()}</span>
+            <div style={{ font: "700 17px 'DM Sans'", color: COR[m.status], margin: "1px 0 2px" }}>{fmt(m)}</div>
+            {/* A régua ao lado do número: é o que responde "43% é bom ou ruim?". */}
+            <div style={{ fontSize: 10, color: "var(--text-4)", lineHeight: 1.4 }}>{m.referencia}</div>
+          </div>
+        ))}
+      </div>
+
+      {a.porArea.length > 0 && (
+        <div style={{ marginBottom: 12 }}>
+          <span className="microlabel">POR REGIÃO FUNCIONAL</span>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 5 }}>
+            {a.porArea.map((z) => (
+              <span key={z.id} className="chip" style={{ borderColor: z.cor, color: z.cor }}
+                title={`${z.nItens} equipamento(s) · ocupação ${Math.round(z.ocupacaoPct)}%`}>
+                {z.nome} · {z.m2.toFixed(1).replace(".", ",")} m² · {z.nItens} itens
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {a.alertas.length > 0 ? (
+        <div style={{ display: "grid", gap: 4 }}>
+          <span className="microlabel">O QUE RESOLVER</span>
+          {a.alertas.map((al, i) => (
+            <div key={i} style={{ display: "flex", gap: 7, alignItems: "baseline", fontSize: 11.5, lineHeight: 1.5 }}>
+              <span style={{ color: al.nivel === "critico" ? "var(--red)" : al.nivel === "atencao" ? "var(--warn)" : "var(--info)" }}>
+                {al.nivel === "critico" ? "●" : al.nivel === "atencao" ? "◐" : "○"}
+              </span>
+              <span style={{ color: "var(--text-3)" }}>{al.texto}</span>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div style={{ fontSize: 11.5, color: "var(--green)" }}>Nada a corrigir: circulação, folgas e ocupação dentro da régua do projeto.</div>
+      )}
+    </div>
+  );
+}
 
 function Chip({ txt, ok, warn, gold, neutro }: { txt: string; ok?: boolean; warn?: boolean; gold?: boolean; neutro?: boolean }) {
   const cor = neutro ? "#8A8A8F" : gold ? "#C9A227" : ok ? "#5FBF7A" : warn ? "#E09A45" : "#E04545";

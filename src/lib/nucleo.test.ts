@@ -191,10 +191,20 @@ describe("curadoria — especificação e explicação", () => {
 
   it("a nota do projeto acompanha a especificação padrão, sem substituí-la", () => {
     const c = heritageProjeto().cena!;
-    c.especificacoes = { ergo: "4 esteiras atendem o pico das 19h." };
+    c.especificacoes = { ergo: { nota: "4 esteiras atendem o pico das 19h." } };
     const esp = especificacaoDaZona("ergo", c);
     expect(esp.nota).toBe("4 esteiras atendem o pico das 19h.");
     expect(esp.oque).toContain("esforço contínuo");
+  });
+
+  it("o texto reescrito pelo consultor SUBSTITUI o padrão, campo a campo", () => {
+    const c = heritageProjeto().cena!;
+    c.especificacoes = { ergo: { oque: "Só as esteiras, por decisão do conselho." } };
+    const esp = especificacaoDaZona("ergo", c);
+    expect(esp.oque).toBe("Só as esteiras, por decisão do conselho.");
+    // os demais campos continuam vindo do padrão
+    expect(esp.criterio).toContain("12 a 15");
+    expect(esp.nota).toBeUndefined();
   });
 
   it("explica pelo padrão e deixa o texto do consultor vencer", () => {
@@ -227,11 +237,15 @@ describe("curadoria — exercícios de musculação por equipamento", () => {
   it("lista exercícios só onde a lista é fechada (máquina de trajetória fixa)", () => {
     expect(exerciciosDoItem(itemDe("Leg Press 45°")).length).toBeGreaterThan(2);
     expect(exerciciosDoItem(itemDe("Puxada + Remada")).join(" ")).toContain("Puxada frontal");
-    // Banco e estação multiuso NÃO listam exercício por exercício — seria
-    // impossível ser completo. A descrição diz "múltiplos exercícios".
+    // Banco e rack NÃO listam exercício por exercício — o repertório é aberto
+    // (depende do que o morador traz para cima do banco) e lista incompleta
+    // passa informação errada.
     expect(exerciciosDoItem(itemDe("Banco 0-90°"))).toEqual([]);
     expect(explicarItem(itemDe("Banco 0-90°")).indicacao).toContain("múltiplos exercícios");
-    expect(exerciciosDoItem(itemDe("Cross + Smith"))).toEqual([]);
+    // Já a estação combinada (Smith + polias) TEM lista: a trajetória de cada
+    // exercício é definida pela própria estrutura, então a lista é fechada e
+    // verificável, mesmo sendo longa.
+    expect(exerciciosDoItem(itemDe("Cross + Smith")).length).toBeGreaterThan(10);
   });
 
   it("não inventa exercício onde não se faz musculação", () => {
@@ -266,7 +280,7 @@ describe("curadoria — exercícios de musculação por equipamento", () => {
   });
 
   it("a explicação do item carrega a lista para o memorial", () => {
-    expect(explicarItem(itemDe("Squat Machine")).exercicios).toContain("Agachamento guiado");
+    expect(explicarItem(itemDe("Squat Machine")).exercicios).toContain("Agachamento guiado completo");
     expect(explicarItem(itemDe("Esteira")).exercicios).toEqual([]);
   });
 });

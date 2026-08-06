@@ -12,7 +12,34 @@
   --green: #5fbf7a;
   --red: #e04545;
   --purple: #8b78bc;
+  --text-2: #c9c9c4;
+  --text-3: #b6b6b1;
+  --text-4: #6e6e73;
+  --warn: #e09a45;
+  --info: #5fc8e8;
+  --info-soft: #8fd6f0;
   --radius: 14px;
+
+  /* ── Movimento ────────────────────────────────────────────────────────
+     Presets de spring do motion-dev-animations-skill convertidos em
+     duração + cubic-bezier. A biblioteca `motion` NÃO é usada: ela não
+     anima nós Konva, que é onde a edição de layout acontece, e o app é uma
+     PWA offline-first que paga o peso da dependência no precache de todo
+     deploy. Os quatro casos de DOM que ela resolveria cabem aqui embaixo.
+     O preset "Bouncy" fica de fora de propósito: 37% de overshoot numa
+     ferramenta de MEDIÇÃO sugere que a peça passou do ponto real. */
+  --mo-press: 90ms;
+  --mo-fast: 140ms;
+  --mo-base: 260ms;
+  --mo-panel: 400ms;
+  --mo-modal: 480ms;
+  --mo-exit: 180ms;
+  --mo-stagger: 28ms;
+  --mo-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --mo-standard: cubic-bezier(0.4, 0, 0.2, 1);
+  --mo-spring: cubic-bezier(0.34, 1.26, 0.64, 1);       /* ≈ Gentle 300/20/1 */
+  --mo-spring-snap: cubic-bezier(0.22, 1.2, 0.36, 1);   /* ≈ Snappy 500/25/0.8 */
+  --mo-in: cubic-bezier(0.4, 0, 1, 1);
   /* insets da status bar / home indicator do iPad (viewport-fit=cover) */
   --sat: env(safe-area-inset-top);
   --sar: env(safe-area-inset-right);
@@ -42,13 +69,43 @@ a { color: inherit; text-decoration: none; }
   background: transparent; border: 1px solid var(--line-2); border-radius: 11px;
   color: #d7d7d2; font: 600 13px "DM Sans"; padding: 10px 16px; letter-spacing: 0.02em;
   display: inline-flex; align-items: center; gap: 8px;
-  transition: border-color 0.14s, color 0.14s, background 0.14s;
+  -webkit-tap-highlight-color: transparent;
+  transition: border-color var(--mo-fast), color var(--mo-fast),
+              background var(--mo-fast), transform var(--mo-press) var(--mo-standard);
 }
-.btn:hover { border-color: var(--line-2); background: rgba(255,255,255,0.03); color: var(--text); }
-.btn:disabled { opacity: 0.4; }
+/* `:hover` só onde existe ponteiro de verdade. No iPadOS o hover GRUDA depois
+   do toque, e o botão fica aceso como se estivesse selecionado. */
+@media (hover: hover) and (pointer: fine) {
+  .btn:hover { border-color: var(--line-2); background: rgba(255,255,255,0.06); color: var(--text); }
+  .btn-gold:hover { border-color: var(--gold); background: var(--gold-soft); color: var(--gold); }
+}
+.btn:active { transform: scale(0.97); }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn:disabled:active { transform: none; }
+.btn:focus-visible { outline: none; border-color: var(--gold); box-shadow: 0 0 0 3px var(--gold-soft); }
 .btn-gold { border-color: var(--gold); color: var(--gold); }
-.btn-gold:hover { border-color: var(--gold); background: var(--gold-soft); color: var(--gold); }
 .btn-blue { border-color: var(--blue); color: #8fc3e8; }
+
+/* Estado LIGADO de uma ferramenta/aba. Antes cada botão do editor carregava
+   um objeto de estilo inline; agora é um atributo e o CSS resolve — inclusive
+   o "acender", que passa a ser animável. */
+.btn[aria-pressed="true"] {
+  border-color: var(--gold); color: var(--gold); background: var(--gold-soft); font-weight: 700;
+}
+.btn[aria-pressed="true"][data-tom="perigo"] { border-color: var(--red); color: var(--red); background: rgba(224,69,69,0.12); }
+.btn[aria-pressed="true"][data-tom="info"]   { border-color: var(--info); color: var(--info-soft); background: rgba(95,200,232,0.12); }
+
+/* Alvo de toque confortável no iPad (Apple recomenda 44pt). Botões densos da
+   toolbar declaram `.btn--sm` e ficam de fora, mas nunca abaixo de 32px. */
+.btn { min-height: 44px; }
+.btn--sm { padding: 6px 10px; font-size: 11.5px; min-height: 32px; border-radius: 9px; }
+.btn--xs { padding: 4px 8px; font-size: 10.5px; min-height: 28px; border-radius: 8px; }
+
+/* Agrupamento nomeado de ferramentas — substitui o separador solto `|`. */
+.toolgroup { display: inline-flex; align-items: center; gap: 4px; padding: 3px 7px 3px 8px;
+  border: 1px solid var(--line); border-radius: 12px; background: rgba(255,255,255,0.015); }
+.toolgroup > .tg-label { font-size: 9.5px; letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--text-4); margin-right: 2px; }
 /* Ação principal: cobre sólido, usar UMA por tela */
 .btn-primary {
   background: var(--gold); border-color: var(--gold); color: #17110c; font-weight: 700;
@@ -79,7 +136,9 @@ select.fld { appearance: none; -webkit-appearance: none; }
   color: #b9b9be; font: 600 13.5px "DM Sans"; letter-spacing: 0.01em;
   transition: color 0.12s, background 0.12s;
 }
-.nav-link:hover { color: var(--text); background: rgba(255,255,255,0.04); }
+@media (hover: hover) and (pointer: fine) {
+  .nav-link:hover { color: var(--text); background: rgba(255,255,255,0.04); }
+}
 .nav-link.active { color: var(--gold); }
 .nav-link.active::after {
   content: ""; position: absolute; left: 13px; right: 13px; bottom: 3px;
@@ -91,8 +150,11 @@ select.fld { appearance: none; -webkit-appearance: none; }
   background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
   transition: border-color 0.14s, transform 0.14s;
 }
-.card-btn { cursor: pointer; text-align: left; }
-.card-btn:hover { border-color: var(--line-2); transform: translateY(-1px); }
+.card-btn { cursor: pointer; text-align: left; -webkit-tap-highlight-color: transparent; }
+@media (hover: hover) and (pointer: fine) {
+  .card-btn:hover { border-color: var(--line-2); transform: translateY(-2px); }
+}
+.card-btn:active { transform: scale(0.985); }
 .card-gold { border-color: var(--gold); }
 
 /* Micro-rótulo em caixa alta com tracking */
@@ -109,6 +171,68 @@ select.fld { appearance: none; -webkit-appearance: none; }
 
 /* Fio de cobre fino, para réguas/separadores */
 .hairline { height: 1px; background: linear-gradient(90deg, var(--gold), transparent); border: 0; opacity: 0.7; }
+
+/* ── Entradas e saídas ──────────────────────────────────────────────────
+   Só `transform` e `opacity`: são as duas propriedades que o compositor
+   resolve sem relayout nem repaint. Nunca animar width/height/top/left. */
+@keyframes mo-in-up    { from { opacity: 0; transform: translate3d(0, 8px, 0) } to { opacity: 1; transform: none } }
+@keyframes mo-in-right { from { opacity: 0; transform: translate3d(10px, 0, 0) } to { opacity: 1; transform: none } }
+@keyframes mo-in-left  { from { opacity: 0; transform: translate3d(-10px, 0, 0) } to { opacity: 1; transform: none } }
+@keyframes mo-pop      { from { opacity: 0; transform: scale(0.96) translate3d(0, 8px, 0) } to { opacity: 1; transform: none } }
+@keyframes mo-fade     { from { opacity: 0 } to { opacity: 1 } }
+
+.mo-in-up    { animation: mo-in-up    var(--mo-base) var(--mo-out) both; }
+.mo-in-right { animation: mo-in-right var(--mo-base) var(--mo-out) both; }
+.mo-in-left  { animation: mo-in-left  var(--mo-base) var(--mo-out) both; }
+.mo-pop      { animation: mo-pop      var(--mo-base) var(--mo-spring-snap) both; }
+.mo-fade     { animation: mo-fade     var(--mo-fast) linear both; }
+/* Saída: sempre mais rápida que a entrada, e acelerando. */
+.mo-saindo   { opacity: 0; transform: translate3d(0, 6px, 0);
+               transition: opacity var(--mo-exit) var(--mo-in), transform var(--mo-exit) var(--mo-in); }
+
+/* Aviso flutuante sobre o canvas. Antes vivia no flex-column e EMPURRAVA o
+   canvas ao aparecer — o layout inteiro pulava no meio de um arraste. */
+.toast-canvas {
+  position: absolute; right: 16px; bottom: 16px; z-index: 30; max-width: 440px;
+  display: flex; align-items: flex-start; gap: 10px; padding: 11px 13px;
+  background: rgba(26,18,10,0.94); border: 1px solid var(--warn); border-radius: 12px;
+  backdrop-filter: blur(10px); box-shadow: 0 10px 30px rgba(0,0,0,0.45);
+}
+
+/* HUD do modo ativo: topo-centro do canvas, onde o olho já está — e não no
+   canto superior direito, a meio metro do dedo que desenha. */
+.modo-hud {
+  position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 25;
+  display: flex; align-items: center; gap: 10px; padding: 8px 8px 8px 14px;
+  background: rgba(12,12,14,0.92); border: 1px solid var(--line-2); border-radius: 999px;
+  backdrop-filter: blur(10px); box-shadow: 0 6px 22px rgba(0,0,0,0.4);
+  font: 600 12.5px "DM Sans"; white-space: nowrap;
+  animation: mo-hud-in var(--mo-base) var(--mo-spring-snap) both;
+}
+@keyframes mo-hud-in { from { opacity: 0; transform: translateX(-50%) translateY(-10px) } to { opacity: 1; transform: translateX(-50%) } }
+.modo-hud .passo { font-size: 10.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-4); }
+
+/* Indicador deslizante da trilha de etapas (o `layoutId` do skill, em CSS). */
+.trilha { position: relative; display: flex; align-items: stretch; gap: 2px; }
+.trilha-marca {
+  position: absolute; bottom: 0; left: 0; height: 2px; border-radius: 2px; background: var(--gold);
+  transform-origin: left center; will-change: transform;
+  transition: transform var(--mo-base) var(--mo-spring-snap);
+}
+
+/* Reduzir movimento: o usuário pediu, o app obedece — nas DUAS trilhas.
+   O lado Konva é atendido por `reduzMovimento()` em src/ui/tokens.ts. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --mo-press: 1ms; --mo-fast: 1ms; --mo-base: 1ms; --mo-panel: 1ms;
+    --mo-modal: 1ms; --mo-exit: 1ms; --mo-stagger: 0ms;
+  }
+  *, *::before, *::after {
+    animation-duration: 1ms !important; animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important; scroll-behavior: auto !important;
+  }
+  .btn:active, .card-btn:active, .card-btn:hover { transform: none; }
+}
 
 /* Canvas do editor: o traço do Apple Pencil / dedo vai para o desenho,
    nunca para a rolagem da página (Safari/iPad). */

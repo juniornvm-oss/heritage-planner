@@ -4,12 +4,18 @@ import type Konva from "konva";
 import { useProjeto } from "../store/projetoStore";
 import { ZONAS, type ItemPosicionado, type Parede, type PilarPlanta, type Abertura } from "../lib/types";
 import { problemasDaCena } from "../lib/validation";
-import { snapCm, GRID_CM } from "../lib/canvas";
+import { GRID_CM } from "../lib/canvas";
+import { folgaAte, resolverSnapItem, tolCmPorZoom, type AlvoSnap, type CtxSnap, type FolgaViva } from "../lib/snap";
 import { formatLength } from "../lib/units";
 import { arred } from "../lib/estrutura";
-import { areaPoligonoM2, perimetroCm, projetarNoSegmento, m2, type Ponto } from "../lib/geometria";
+import { areaPoligonoM2, projetarNoSegmento, m2, type Ponto } from "../lib/geometria";
+import { analisarEspaco } from "../lib/analiseEspaco";
 import { gerarCotasAutomaticas } from "../lib/lamina";
 import { MATERIAIS_PISO, ELEMENTOS_PAREDE, PAPEL_LADO, LADOS_PADRAO, TIPOS_AREA, type TipoElementoParede, type LadoRect } from "../lib/types";
+import { CANVAS, TOKENS } from "../ui/tokens";
+import { CIRCULACAO_PADRAO } from "../lib/types";
+import PreviewFX, { type PreviewProps } from "./PreviewFX";
+import { halo } from "./konvaMotion";
 
 export type Etapa = "planta" | "acabamento" | "areas" | "layout" | "fichas" | "curadoria" | "acessorios";
 export type FerramentaEstrutura = "parede" | "porta" | "janela" | "pilar" | "apagar" | null;
@@ -77,6 +83,7 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoE
   const removerAbertura = useProjeto((s) => s.removerAbertura);
   const updateItem = useProjeto((s) => s.updateItem);
   const updateArea = useProjeto((s) => s.updateArea);
+  const updateAreaFuncional = useProjeto((s) => s.updateAreaFuncional);
   const moverArea = useProjeto((s) => s.moverArea);
   const removerArea = useProjeto((s) => s.removerArea);
   const addCota = useProjeto((s) => s.addCota);
@@ -106,6 +113,14 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoE
   const [polyPts, setPolyPts] = useState<Ponto[]>([]); // polígono de piso em desenho
   const [cotaPts, setCotaPts] = useState<Ponto[]>([]); // cota em desenho
   const [vistaPts, setVistaPts] = useState<Ponto[]>([]); // câmera da Vista IA
+  /** Ponteiro em coordenadas de mundo, já encaixado — alimenta o `PreviewFX`. */
+  const ponteiroRef = useRef<Ponto | null>(null);
+  // Estado VIVO do arraste. Em refs, não em estado do React: são lidos por
+  // requestAnimationFrame dentro do `ArrasteFX`, que é o único componente que
+  // re-renderiza durante o movimento do dedo.
+  const origemArraste = useRef<{ x: number; y: number; w: number; h: number } | null>(null);
+  const guiasRef = useRef<AlvoSnap[]>([]);
+  const folgasRef = useRef<FolgaViva[]>([]);
 
   const plantaImg = useHtmlImage(cena.planta?.dataUrl);
 
@@ -165,6 +180,38 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoE
   };
 
   const problemas = useMemo(() => problemasDaCena(cena), [cena]);
+
+  // Pulso de seleção: um anel que nasce, cresce e some sobre a peça escolhida.
+  // Sem ele, num canvas com quarenta retângulos, a única pista da seleção é a
+  // espessura da borda — que passa despercebida no toque.
+  const layerRef = useRef<Konva.Layer>(null);
+  useEffect(() => {
+    const camada = layerRef.current;
+    const it = cena.itens.find((i) => i.id === selectedId);
+    if (!camada || !it) return;
+    halo(camada, { x: it.x_cm, y: it.y_cm, w: it.w_cm, h: it.h_cm }, CANVAS.selecao);
+    // Só quando MUDA a seleção — não a cada arraste do mesmo item.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedId]);
+  // Área, itens contidos e ocupação de cada região funcional — a mesma conta
+  // do painel de análise, para o canvas e o relatório nunca discordarem.
+  const resumoDaArea = useMemo(
+    () => new Map(analisarEspaco(cena).porArea.map((z) => [z.id, z])),
+    [cena],
+  );
+
+  /**
+   * Contexto de encaixe para o arraste de objeto.
+   * Tolerância mais apertada que a das ferramentas de desenho (8 px de tela
+   * contra 14): aqui há uma dúzia de candidatos disputando — bordas, centros,
+   * paredes e grade — e um ímã largo faria o item pular entre alinhamentos.
+   */
+  const ctxSnap = (ignorarId: string): CtxSnap => ({
+    cena,
+    passoGrade: snapPasso ?? 0,
+    tolCm: tolCmPorZoom(8, cam.zoom),
+    ignorarId,
+  });
   const cotasAuto = useMemo(() => (lamina ? gerarCotasAutomaticas(cena) : []), [lamina, cena]);
 
   function onWheel(e: Konva.KonvaEventObject<WheelEvent>) {
@@ -180,7 +227,12 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoE
     if (!stage) return;
     const p = stage.getPointerPosition();
     if (!p) return;
-    const emVazio = e.target === stage || e.target.name() === "bg";
+    // `hasName` e não `name() === "bg"`: o fundo da sala é `name="bg bg-externo"`
+    // (o segundo nome é o que a exportação procura). Comparar a string inteira
+    // deixava o retângulo de fundo engolir todo o toque — sem pan, sem
+    // desseleção e com as ferramentas de dois toques mortas em qualquer projeto
+    // sem `sala.config` (ou seja, todos, menos o modelo Heritage).
+    const emVazio = e.target === stage || e.target.hasName("bg");
     if (modoCalibrar && emVazio) {
       const w = toWorld(p.x, p.y);
       const pts = [...calPts, w];
@@ -328,6 +380,13 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoE
   function stageMove(e: Konva.KonvaEventObject<MouseEvent | TouchEvent>) {
     const stage = e.target.getStage();
     if (!stage) return;
+
+    // Posição do ponteiro em coordenadas de mundo, para a pré-visualização
+    // elástica. Vai num REF, não em estado: em estado, cada movimento do dedo
+    // re-renderizaria a cena inteira (inclusive os traços da planta vetorial).
+    const pp = stage.getPointerPosition();
+    ponteiroRef.current = pp ? snapPonto(toWorld(pp.x, pp.y)) : null;
+
     const touches = (e.evt as TouchEvent).touches;
     // Captura os refs em locais ANTES do setCam: o updater roda depois e o
     // stageUp pode zerar pinch/pan nesse meio-tempo (crash "current.x" no iPad).
@@ -388,11 +447,34 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoE
   // Trocar de ferramenta cancela desenhos parciais.
   useEffect(() => { setAreaPts([]); setPolyPts([]); setCotaPts([]); setVistaPts([]); }, [ferrAcab, etapaAtual, modoVista]);
 
+  /**
+   * Qual pré-visualização mostrar, a partir da ferramenta ativa e dos pontos
+   * já tocados. Uma tabela só, para nunca haver duas prévias na tela ao mesmo
+   * tempo dizendo coisas diferentes.
+   */
+  const previewAtual: Omit<PreviewProps, "ponteiroRef" | "zoom"> = (() => {
+    if (polyPts.length) return { forma: "poligono", ancoras: polyPts, raioFechar: 20 / cam.zoom };
+    if (areaPts.length) return { forma: "retangulo", ancoras: areaPts };
+    if (recPts.length) return { forma: "retangulo", ancoras: recPts, cor: CANVAS.ok };
+    if (cotaPts.length) return { forma: "linha", ancoras: cotaPts, cor: CANVAS.guia, ortogonaliza: true };
+    if (calPts.length) return { forma: "linha", ancoras: calPts, cor: CANVAS.guia };
+    if (pardPts.length) return { forma: "linha", ancoras: pardPts, cor: "#C97BE0" };
+    if (vistaPts.length) return { forma: "linha", ancoras: vistaPts, cor: "#C97BE0" };
+    if (estPts.length) {
+      return ferrEstrutura === "pilar"
+        ? { forma: "retangulo", ancoras: estPts }
+        // A ferramenta de parede endireita o traço quase-reto; o preview
+        // mostra isso ANTES, para o consultor não ser surpreendido no solte.
+        : { forma: "linha", ancoras: estPts, ortogonaliza: true };
+    }
+    return { forma: null, ancoras: [] };
+  })();
+
   return (
     <div ref={wrapRef} style={{
       position: "absolute", inset: 0,
       cursor: apagando || apagandoAcab ? "not-allowed" : drawing ? "crosshair" : modoMoverPlanta ? "grab" : pan.current ? "grabbing" : "default",
-      background: "#0C0C0E",
+      background: TOKENS.canvas,
       // Apple Pencil / toque no iPad: sem isso o Safari trata o traço como
       // rolagem/gesto da página e o canvas nunca recebe o evento.
       touchAction: "none", WebkitUserSelect: "none", userSelect: "none",
@@ -400,11 +482,11 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoE
       <Stage ref={stageRef} width={size.w} height={size.h} onWheel={onWheel}
         onMouseDown={stageDown} onMouseMove={stageMove} onMouseUp={stageUp}
         onTouchStart={stageDown} onTouchMove={stageMove} onTouchEnd={stageUp}>
-        <Layer x={cam.x} y={cam.y} scaleX={cam.zoom} scaleY={cam.zoom}>
+        <Layer ref={layerRef} x={cam.x} y={cam.y} scaleX={cam.zoom} scaleY={cam.zoom}>
           {/* fundo/hit-area da sala */}
           {/* Fundo da área de trabalho. O nome extra `bg-externo` é o que a
               exportação do Dossiê procura para pintar de branco no papel. */}
-          <Rect name="bg bg-externo" x={-2000} y={-2000} width={sala.largura_cm + 4000} height={sala.profundidade_cm + 4000} fill="#0C0C0E" />
+          <Rect name="bg bg-externo" x={-2000} y={-2000} width={sala.largura_cm + 4000} height={sala.profundidade_cm + 4000} fill={TOKENS.canvas} />
 
           {/* faixas de piso */}
           {(cfg.pisos || []).map((f) => (
@@ -426,11 +508,11 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoE
               onDragEnd={(e) => updatePlantaVetorial({ x_cm: e.target.x(), y_cm: e.target.y() })}>
               {pv.tracos.map((tr, i) => (
                 camVis.get(tr.camada ?? "0") === false ? null :
-                <Line key={i} points={tr.pts} closed={tr.fechado} stroke={tr.cor || "#9FB4C7"} strokeWidth={1 / (cam.zoom * (pv.escala || 1))} />
+                <Line key={i} points={tr.pts} closed={tr.fechado} stroke={tr.cor || CANVAS.planta} strokeWidth={1 / (cam.zoom * (pv.escala || 1))} />
               ))}
               {pv.mostrarTexto && pv.rotulos.map((r, i) => (
                 camVis.get(r.camada ?? "0") === false ? null :
-                <Text key={`t${i}`} x={r.x_cm} y={r.y_cm} text={r.texto} fontSize={Math.max(1, r.altura)} rotation={r.rotacao} fill="#C9A227" />
+                <Text key={`t${i}`} x={r.x_cm} y={r.y_cm} text={r.texto} fontSize={Math.max(1, r.altura)} rotation={r.rotacao} fill={CANVAS.selecao} />
               ))}
             </Group>
           )}
@@ -439,7 +521,7 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoE
           {!apresentacao && gridLines.map((l, i) => <Line key={i} points={l} stroke="#ffffff" strokeWidth={0.6 / cam.zoom} opacity={0.05} listening={false} />)}
 
           {/* corredor */}
-          {cfg.corredor && <Rect name="bg" x={cfg.corredor.x} y={0} width={cfg.corredor.w} height={sala.profundidade_cm} fill="#C9A227" opacity={0.06} listening={false} />}
+          {cfg.corredor && <Rect name="bg" x={cfg.corredor.x} y={0} width={cfg.corredor.w} height={sala.profundidade_cm} fill={CANVAS.selecao} opacity={0.06} listening={false} />}
 
           {/* contorno da sala — só uma GUIA de referência (dimensões do projeto);
               some quando existem paredes reais desenhadas na Etapa 1 */}
@@ -469,7 +551,7 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoE
                   const sel = selEstrutura?.tipo === "pilar" && selEstrutura.id === p.id;
                   return (
                     <Rect key={p.id} x={p.x_cm} y={p.y_cm} width={p.w_cm} height={p.h_cm} fill="#2B2B2E"
-                      stroke={sel ? "#C9A227" : "#8A8A8F"} strokeWidth={(sel ? 4 : 2) / cam.zoom}
+                      stroke={sel ? CANVAS.selecao : "#8A8A8F"} strokeWidth={(sel ? 4 : 2) / cam.zoom}
                       listening={estAtiva} draggable={estAtiva && !apagando}
                       onMouseDown={() => tocarEstrutura("pilar", p.id)} onTap={() => tocarEstrutura("pilar", p.id)}
                       onDragMove={(e) => updatePilar(p.id, { x_cm: e.target.x(), y_cm: e.target.y() }, false)}
@@ -482,15 +564,15 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoE
                   const len = Math.hypot(w.x2 - w.x1, w.y2 - w.y1);
                   return (
                     <Group key={w.id}>
-                      <Line points={[w.x1, w.y1, w.x2, w.y2]} stroke={sel ? "#C9A227" : "#C9C9C4"} strokeWidth={Math.max(w.espessura_cm, 4)}
+                      <Line points={[w.x1, w.y1, w.x2, w.y2]} stroke={sel ? CANVAS.selecao : "#C9C9C4"} strokeWidth={Math.max(w.espessura_cm, 4)}
                         lineCap="round" hitStrokeWidth={Math.max(w.espessura_cm, 34 / cam.zoom)} listening={estAtiva}
                         onMouseDown={() => tocarEstrutura("parede", w.id)} onTap={() => tocarEstrutura("parede", w.id)} />
                       {sel && (
                         <Text x={(w.x1 + w.x2) / 2} y={(w.y1 + w.y2) / 2 - 22 / cam.zoom} text={formatLength(len)}
-                          fontSize={15 / cam.zoom} fill="#C9A227" listening={false} />
+                          fontSize={15 / cam.zoom} fill={CANVAS.selecao} listening={false} />
                       )}
                       {sel && estAtiva && [{ k: "a", x: w.x1, y: w.y1 }, { k: "b", x: w.x2, y: w.y2 }].map((h) => (
-                        <Circle key={h.k} x={h.x} y={h.y} radius={9 / cam.zoom} fill="#0C0C0E" stroke="#C9A227" strokeWidth={2 / cam.zoom} draggable
+                        <Circle key={h.k} x={h.x} y={h.y} radius={9 / cam.zoom} fill={TOKENS.canvas} stroke={CANVAS.selecao} strokeWidth={2 / cam.zoom} draggable
                           onDragMove={(e) => updateParede(w.id, h.k === "a" ? { x1: e.target.x(), y1: e.target.y() } : { x2: e.target.x(), y2: e.target.y() }, false)}
                           onDragEnd={(e) => updateParede(w.id, h.k === "a" ? { x1: arred(e.target.x()), y1: arred(e.target.y()) } : { x2: arred(e.target.x()), y2: arred(e.target.y()) })} />
                       ))}
@@ -505,27 +587,27 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoE
                   const cx = w.x1 + ux * ab.centro_cm, cy = w.y1 + uy * ab.centro_cm, half = ab.largura_cm / 2;
                   const ax = cx - ux * half, ay = cy - uy * half, bx = cx + ux * half, by = cy + uy * half;
                   const sel = selEstrutura?.tipo === "abertura" && selEstrutura.id === ab.id;
-                  const cor = ab.tipo === "porta" ? "#5FBF7A" : "#5FC8E8";
+                  const cor = ab.tipo === "porta" ? CANVAS.ok : CANVAS.guia;
                   const px = -uy, py = ux; // perpendicular (batente da porta)
                   return (
                     <Group key={ab.id} listening={estAtiva}
                       onMouseDown={() => tocarEstrutura("abertura", ab.id)} onTap={() => tocarEstrutura("abertura", ab.id)}>
                       {/* "corta" a parede no vão */}
-                      <Line points={[ax, ay, bx, by]} stroke="#0C0C0E" strokeWidth={w.espessura_cm + 3} lineCap="butt" listening={false} />
+                      <Line points={[ax, ay, bx, by]} stroke={TOKENS.canvas} strokeWidth={w.espessura_cm + 3} lineCap="butt" listening={false} />
                       {ab.tipo === "janela"
-                        ? <Line points={[ax, ay, bx, by]} stroke={sel ? "#C9A227" : cor} strokeWidth={4 / cam.zoom} listening={false} />
+                        ? <Line points={[ax, ay, bx, by]} stroke={sel ? CANVAS.selecao : cor} strokeWidth={4 / cam.zoom} listening={false} />
                         : <>
-                            <Line points={[ax, ay, ax + px * ab.largura_cm, ay + py * ab.largura_cm]} stroke={sel ? "#C9A227" : cor} strokeWidth={3 / cam.zoom} listening={false} />
-                            <Line points={[ax, ay, bx, by]} stroke={sel ? "#C9A227" : cor} strokeWidth={2 / cam.zoom} dash={[6 / cam.zoom, 6 / cam.zoom]} listening={false} />
+                            <Line points={[ax, ay, ax + px * ab.largura_cm, ay + py * ab.largura_cm]} stroke={sel ? CANVAS.selecao : cor} strokeWidth={3 / cam.zoom} listening={false} />
+                            <Line points={[ax, ay, bx, by]} stroke={sel ? CANVAS.selecao : cor} strokeWidth={2 / cam.zoom} dash={[6 / cam.zoom, 6 / cam.zoom]} listening={false} />
                           </>}
                       {/* alça de clique */}
-                      <Circle x={cx} y={cy} radius={(sel ? 8 : 6) / cam.zoom} fill={sel ? "#C9A227" : cor} listening={estAtiva} />
+                      <Circle x={cx} y={cy} radius={(sel ? 8 : 6) / cam.zoom} fill={sel ? CANVAS.selecao : cor} listening={estAtiva} />
                     </Group>
                   );
                 })}
                 {/* marcadores da ferramenta em uso */}
-                {estPts.map((pp, i) => <Circle key={`e${i}`} x={pp.x} y={pp.y} radius={7 / cam.zoom} fill="#C9A227" listening={false} />)}
-                {estPts.length === 1 && <Text x={estPts[0].x} y={estPts[0].y} text={ferrEstrutura === "pilar" ? " canto oposto do pilar" : " outra ponta da parede"} fontSize={16 / cam.zoom} fill="#C9A227" listening={false} />}
+                {estPts.map((pp, i) => <Circle key={`e${i}`} x={pp.x} y={pp.y} radius={7 / cam.zoom} fill={CANVAS.selecao} listening={false} />)}
+                {estPts.length === 1 && <Text x={estPts[0].x} y={estPts[0].y} text={ferrEstrutura === "pilar" ? " canto oposto do pilar" : " outra ponta da parede"} fontSize={16 / cam.zoom} fill={CANVAS.selecao} listening={false} />}
               </Group>
             );
           })()}
@@ -563,7 +645,7 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoE
                     if (dx || dy) moverArea(a.id, sn(dx), sn(dy));
                   }}>
                   <Line points={flat} closed fill={cor} opacity={a.tipo === "parede" ? 0.3 : 0.45}
-                    stroke={sel ? "#C9A227" : cor} strokeWidth={(sel ? 6 : 2) / cam.zoom}
+                    stroke={sel ? CANVAS.selecao : cor} strokeWidth={(sel ? 6 : 2) / cam.zoom}
                     dash={a.tipo === "parede" ? [14 / cam.zoom, 8 / cam.zoom] : undefined} />
                   {/* sentido do piso */}
                   <Group listening={false} clipFunc={(ctx) => { ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y); for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y); ctx.closePath(); }}>
@@ -575,7 +657,7 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoE
                 </Group>
                 {/* vértices editáveis */}
                 {sel && podeMexer && pts.map((pt, i) => (
-                  <Circle key={i} x={pt.x} y={pt.y} radius={8 / cam.zoom} fill="#0C0C0E" stroke="#C9A227" strokeWidth={2 / cam.zoom} draggable
+                  <Circle key={i} x={pt.x} y={pt.y} radius={8 / cam.zoom} fill={TOKENS.canvas} stroke={CANVAS.selecao} strokeWidth={2 / cam.zoom} draggable
                     onDragMove={(e) => {
                       const novo = [...pts]; novo[i] = { x: e.target.x(), y: e.target.y() };
                       updateArea(a.id, { pontos: novo }, false);
@@ -591,22 +673,63 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoE
             );
           })}
 
-          {/* ── Fase 02: LAYOUT DE ÁREA — regiões funcionais da sala ── */}
+          {/* ── Fase 02: LAYOUT DE ÁREA — regiões funcionais da sala ──
+              A peça central da análise de espaço e, até aqui, a MENOS editável
+              do canvas: não arrastava, não tinha vértice e não mostrava área.
+              Ganha o mesmo tratamento das áreas de acabamento, mais o m² e a
+              contagem de equipamentos contidos — que é o que transforma a
+              região desenhada em análise. */}
           {(cena.areas ?? []).map((a) => {
             const def = TIPOS_AREA[a.tipo] ?? TIPOS_AREA.apoio;
             const sel = selAreaFuncId === a.id;
             const naEtapa = etapaAtual === "areas";
-            const pts = a.pontos.flatMap((p) => [p.x, p.y]);
+            const podeMexer = naEtapa && !drawing && !somenteLeitura;
+            const pts = a.pontos;
+            const flat = pts.flatMap((p) => [p.x, p.y]);
+            const info = naEtapa ? resumoDaArea.get(a.id) : undefined;
             return (
-              <Group key={a.id} listening={naEtapa && !drawing && !somenteLeitura}
+              <Group key={a.id} listening={podeMexer}
                 onMouseDown={() => selecionarAreaFunc(a.id)} onTap={() => selecionarAreaFunc(a.id)}>
-                <Line points={pts} closed fill={def.cor}
-                  opacity={naEtapa ? (sel ? 0.3 : 0.18) : 0.1}
-                  stroke={def.cor} strokeWidth={(sel ? 3 : 1.5) / cam.zoom}
-                  dash={a.tipo === "circulacao" ? [14 / cam.zoom, 9 / cam.zoom] : undefined} />
-                <Text x={a.x_cm + 8} y={a.y_cm + 8} text={(a.nome || def.label).toUpperCase()}
-                  fontSize={15 / cam.zoom} fontStyle="700" fill={def.cor}
-                  opacity={naEtapa ? 1 : 0.55} listening={false} />
+                <Group draggable={podeMexer}
+                  onDragEnd={(e) => {
+                    const dx = e.target.x(), dy = e.target.y();
+                    e.target.position({ x: 0, y: 0 });
+                    if (dx || dy) {
+                      const passo = snapPasso ?? 0;
+                      const sn = (v: number) => (passo > 0 ? Math.round(v / passo) * passo : Math.round(v * 10) / 10);
+                      updateAreaFuncional(a.id, { pontos: pts.map((p) => ({ x: p.x + sn(dx), y: p.y + sn(dy) })) });
+                    }
+                  }}>
+                  <Line points={flat} closed fill={def.cor}
+                    opacity={naEtapa ? (sel ? 0.3 : 0.18) : 0.1}
+                    stroke={def.cor} strokeWidth={(sel ? 3 : 1.5) / cam.zoom}
+                    dash={a.tipo === "circulacao" ? [14 / cam.zoom, 9 / cam.zoom] : undefined} />
+                  <Text x={a.x_cm + 8} y={a.y_cm + 8} text={(a.nome || def.label).toUpperCase()}
+                    fontSize={15 / cam.zoom} fontStyle="700" fill={def.cor}
+                    opacity={naEtapa ? 1 : 0.55} listening={false} />
+                  {/* Área, itens contidos e ocupação: a região deixa de ser um
+                      contorno decorativo e passa a informar. */}
+                  {info && (
+                    <Text x={a.x_cm + 8} y={a.y_cm + 8 + 17 / cam.zoom}
+                      text={`${m2(info.m2)}  ·  ${info.nItens} ${info.nItens === 1 ? "item" : "itens"}${info.nItens ? `  ·  ${Math.round(info.ocupacaoPct)}%` : ""}`}
+                      fontSize={12 / cam.zoom} fill={def.cor} opacity={0.8} listening={false} />
+                  )}
+                </Group>
+                {/* Vértices editáveis, como nas áreas de acabamento. */}
+                {sel && podeMexer && pts.map((pt, i) => (
+                  <Circle key={i} x={pt.x} y={pt.y} radius={8 / cam.zoom} fill={TOKENS.canvas}
+                    stroke={def.cor} strokeWidth={2 / cam.zoom} draggable
+                    onDragMove={(e) => {
+                      const novo = [...pts]; novo[i] = { x: e.target.x(), y: e.target.y() };
+                      updateAreaFuncional(a.id, { pontos: novo }, false);
+                    }}
+                    onDragEnd={(e) => {
+                      const w = snapPonto({ x: e.target.x(), y: e.target.y() });
+                      e.target.position(w);
+                      const novo = [...pts]; novo[i] = w;
+                      updateAreaFuncional(a.id, { pontos: novo });
+                    }} />
+                ))}
               </Group>
             );
           })}
@@ -622,9 +745,9 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoE
               <Group key={c.id} listening={escutando}
                 onMouseDown={() => { if (apagandoAcab) removerCota(c.id); }}
                 onTap={() => { if (apagandoAcab) removerCota(c.id); }}>
-                <Line points={[c.x1, c.y1, c.x2, c.y2]} stroke="#5FC8E8" strokeWidth={1.4 / cam.zoom} hitStrokeWidth={26 / cam.zoom} />
-                <Line points={[c.x1 - px * t, c.y1 - py * t, c.x1 + px * t, c.y1 + py * t]} stroke="#5FC8E8" strokeWidth={1.4 / cam.zoom} listening={false} />
-                <Line points={[c.x2 - px * t, c.y2 - py * t, c.x2 + px * t, c.y2 + py * t]} stroke="#5FC8E8" strokeWidth={1.4 / cam.zoom} listening={false} />
+                <Line points={[c.x1, c.y1, c.x2, c.y2]} stroke={CANVAS.guia} strokeWidth={1.4 / cam.zoom} hitStrokeWidth={26 / cam.zoom} />
+                <Line points={[c.x1 - px * t, c.y1 - py * t, c.x1 + px * t, c.y1 + py * t]} stroke={CANVAS.guia} strokeWidth={1.4 / cam.zoom} listening={false} />
+                <Line points={[c.x2 - px * t, c.y2 - py * t, c.x2 + px * t, c.y2 + py * t]} stroke={CANVAS.guia} strokeWidth={1.4 / cam.zoom} listening={false} />
                 <Text x={mx + px * (14 / cam.zoom)} y={my + py * (14 / cam.zoom) - 8 / cam.zoom} text={formatLength(len)}
                   fontSize={14 / cam.zoom} fill="#8fd6f0" listening={false} />
               </Group>
@@ -648,7 +771,7 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoE
                   updateInfra(it.id, { x_cm: sn(e.target.x() - it.w_cm / 2), y_cm: sn(e.target.y() - it.h_cm / 2) });
                 }}>
                 <Rect width={it.w_cm} height={it.h_cm} cornerRadius={3} fill="#1A2126"
-                  stroke={sel ? "#C9A227" : "#6FA8C4"} strokeWidth={(sel ? 5 : 2.5) / cam.zoom} />
+                  stroke={sel ? CANVAS.selecao : "#6FA8C4"} strokeWidth={(sel ? 5 : 2.5) / cam.zoom} />
                 <Text x={0} y={it.h_cm / 2 - 8} width={it.w_cm} align="center" text={`${it.nome}${it.bloqueado ? " 🔒" : ""}`}
                   fontSize={Math.min(13, Math.max(8, it.w_cm / 8))} fill="#CDE3EE" fontStyle="600" listening={false} />
               </Group>
@@ -667,7 +790,7 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoE
               const half = el.largura_cm / 2;
               const sel = selElemParedeId === el.id;
               const def = ELEMENTOS_PAREDE[el.tipo];
-              const cor = sel ? "#C9A227" : def.cor;
+              const cor = sel ? CANVAS.selecao : def.cor;
               const escuta = areasEscutam;
               const podeMexer = areasAtivas && !el.bloqueado;
               const off = (w.espessura_cm / 2 + 6); // desloca para a face da parede
@@ -727,58 +850,171 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoE
           {cena.itens.map((it, idx) => (
             <ItemView key={it.id} it={it} numero={etapaAtual === "fichas" ? idx + 1 : undefined} zoom={cam.zoom} selected={!apresentacao && selectedId === it.id} problema={apresentacao ? null : problemas[it.id]} listening={itensAtivos && !apresentacao} camadas={apresentacao || lamina ? "nada" : (camadas ?? "tudo")} lamina={lamina}
               onSelect={() => selecionar(it.id)}
-              onDrag={(x, y, commit) => updateItem(it.id, { x_cm: snapCm(x), y_cm: snapCm(y) }, commit)} />
+              onDragStart={() => { origemArraste.current = { x: it.x_cm, y: it.y_cm, w: it.w_cm, h: it.h_cm }; }}
+              /**
+               * Encaixe do equipamento durante o arraste. Passa pelo MESMO
+               * resolvedor das ferramentas de desenho — antes o item usava
+               * `snapCm` fixo em 5 cm, ignorando o controle de encaixe da
+               * toolbar e sem enxergar parede, borda ou centro de vizinho.
+               */
+              onDragBound={(x, y) => {
+                const ctx = ctxSnap(it.id);
+                // O snap compara AABBs: com o item girado, o retângulo cru
+                // (w×h sem rotação) alinharia uma borda que o consultor não vê.
+                const th = ((it.rotacao || 0) * Math.PI) / 180;
+                const co = Math.abs(Math.cos(th)), se = Math.abs(Math.sin(th));
+                const wA = it.w_cm * co + it.h_cm * se, hA = it.w_cm * se + it.h_cm * co;
+                const cx = x + it.w_cm / 2, cy = y + it.h_cm / 2;
+                const bbox = { x_cm: cx - wA / 2, y_cm: cy - hA / 2, w_cm: wA, h_cm: hA };
+                const { dx, dy, alvos } = resolverSnapItem(bbox, ctx);
+                const final = { ...bbox, x_cm: bbox.x_cm + dx, y_cm: bbox.y_cm + dy };
+                guiasRef.current = alvos;
+                folgasRef.current = folgaAte(final, ctx);
+                return { x: x + dx, y: y + dy };
+              }}
+              onDrag={(x, y, commit) => {
+                // Durante o arraste o Konva já move o nó: gravar na store a
+                // cada frame re-renderizaria a cena inteira (e recalcularia a
+                // validação, que é O(n²)) 120 vezes por segundo no iPad.
+                if (!commit) return;
+                guiasRef.current = [];
+                folgasRef.current = [];
+                origemArraste.current = null;
+                updateItem(it.id, { x_cm: x, y_cm: y }, true);
+              }} />
           ))}
 
+          {/* ── Feedback vivo do arraste: fantasma, guias e folga em cm ──── */}
+          <ArrasteFX origemRef={origemArraste} guiasRef={guiasRef} folgasRef={folgasRef} zoom={cam.zoom}
+            circulacaoMin={cena.circulacaoMin ?? CIRCULACAO_PADRAO} />
+
           {/* marcadores de calibração */}
-          {calPts.map((p, i) => <Circle key={i} x={p.x} y={p.y} radius={7 / cam.zoom} fill="#5FC8E8" />)}
-          {calPts.length === 1 && <Text x={calPts[0].x} y={calPts[0].y} text=" toque o 2º ponto" fontSize={16 / cam.zoom} fill="#5FC8E8" />}
+          {calPts.map((p, i) => <Circle key={i} x={p.x} y={p.y} radius={7 / cam.zoom} fill={CANVAS.guia} />)}
 
           {/* marcadores de área de acabamento (retângulo) */}
-          {areaPts.map((p, i) => <Circle key={i} x={p.x} y={p.y} radius={7 / cam.zoom} fill="#C9A227" />)}
-          {areaPts.length === 1 && <Text x={areaPts[0].x} y={areaPts[0].y} text=" toque o canto oposto" fontSize={16 / cam.zoom} fill="#C9A227" />}
+          {areaPts.map((p, i) => <Circle key={i} x={p.x} y={p.y} radius={7 / cam.zoom} fill={CANVAS.selecao} />)}
 
-          {/* polígono em desenho */}
-          {polyPts.length > 0 && (
-            <Group listening={false}>
-              <Line points={polyPts.flatMap((p) => [p.x, p.y])} stroke="#C9A227" strokeWidth={2 / cam.zoom} dash={[8 / cam.zoom, 6 / cam.zoom]} />
-              {polyPts.map((p, i) => (
-                <Circle key={i} x={p.x} y={p.y} radius={(i === 0 && polyPts.length >= 3 ? 11 : 7) / cam.zoom}
-                  fill={i === 0 && polyPts.length >= 3 ? "#5FBF7A" : "#C9A227"} />
-              ))}
-              <Text x={polyPts[polyPts.length - 1].x} y={polyPts[polyPts.length - 1].y}
-                text={polyPts.length >= 3 ? " toque o ponto verde para fechar" : " toque os próximos cantos"}
-                fontSize={16 / cam.zoom} fill="#C9A227" />
-            </Group>
-          )}
+          {/* Vértices já confirmados do polígono. A aresta que acompanha o
+              dedo, a área parcial e o realce do fechamento ficam por conta do
+              PreviewFX, logo abaixo — aqui só os pontos fixados. */}
+          {polyPts.map((p, i) => (
+            <Circle key={`poly${i}`} x={p.x} y={p.y} radius={(i === 0 && polyPts.length >= 3 ? 11 : 7) / cam.zoom}
+              fill={i === 0 && polyPts.length >= 3 ? CANVAS.ok : CANVAS.selecao} listening={false} />
+          ))}
 
           {/* cota em desenho */}
-          {cotaPts.map((p, i) => <Circle key={`c${i}`} x={p.x} y={p.y} radius={7 / cam.zoom} fill="#5FC8E8" listening={false} />)}
-          {cotaPts.length === 1 && <Text x={cotaPts[0].x} y={cotaPts[0].y} text=" toque o 2º ponto da medida" fontSize={16 / cam.zoom} fill="#5FC8E8" listening={false} />}
+          {cotaPts.map((p, i) => <Circle key={`c${i}`} x={p.x} y={p.y} radius={7 / cam.zoom} fill={CANVAS.guia} listening={false} />)}
 
           {/* marcadores de recorte */}
-          {recPts.map((p, i) => <Circle key={`r${i}`} x={p.x} y={p.y} radius={7 / cam.zoom} fill="#5FBF7A" />)}
-          {recPts.length === 1 && <Text x={recPts[0].x} y={recPts[0].y} text=" toque o canto oposto (recorte)" fontSize={16 / cam.zoom} fill="#5FBF7A" />}
+          {recPts.map((p, i) => <Circle key={`r${i}`} x={p.x} y={p.y} radius={7 / cam.zoom} fill={CANVAS.ok} />)}
 
           {/* marcadores da Vista IA (câmera + direção) */}
           {vistaPts.map((pp, i) => <Circle key={`v${i}`} x={pp.x} y={pp.y} radius={9 / cam.zoom} fill="#C97BE0" listening={false} />)}
-          {vistaPts.length === 1 && <Text x={vistaPts[0].x + 14 / cam.zoom} y={vistaPts[0].y - 8 / cam.zoom} text="📷 toque para onde a câmera olha" fontSize={15 / cam.zoom} fill="#C97BE0" listening={false} />}
 
           {/* marcadores da parede de referência */}
           {pardPts.map((p, i) => <Circle key={`p${i}`} x={p.x} y={p.y} radius={7 / cam.zoom} fill="#C97BE0" />)}
-          {pardPts.length === 1 && <Text x={pardPts[0].x} y={pardPts[0].y} text=" toque a outra ponta da parede" fontSize={16 / cam.zoom} fill="#C97BE0" />}
+
+          {/* ── Pré-visualização elástica ────────────────────────────────
+              O que a ferramenta VAI criar, acompanhando o dedo: retângulo com
+              medidas e m², linha com comprimento e ângulo (já endireitada se
+              a ferramenta for endireitar), polígono com o ponto de fechamento
+              destacado. Antes daqui, o segundo toque era às cegas. */}
+          <PreviewFX {...previewAtual} ponteiroRef={ponteiroRef} zoom={cam.zoom} />
         </Layer>
       </Stage>
     </div>
   );
 }
 
-function ItemView({ it, zoom, selected, problema, listening, camadas, lamina, numero, onSelect, onDrag }: {
+/**
+ * Feedback vivo do arraste: fantasma na posição de origem, guias de
+ * alinhamento e a folga em centímetros até cada vizinho.
+ *
+ * As guias respondem ao objetivo "efeitos intuitivos"; as cotas de folga
+ * respondem ao de "análise funcional de espaço" — o consultor vê a circulação
+ * em centímetros enquanto posiciona, e não só depois, no relatório.
+ *
+ * Lê tudo de refs por rAF: só este componente re-renderiza durante o arraste.
+ */
+function ArrasteFX({ origemRef, guiasRef, folgasRef, zoom, circulacaoMin }: {
+  origemRef: React.MutableRefObject<{ x: number; y: number; w: number; h: number } | null>;
+  guiasRef: React.MutableRefObject<AlvoSnap[]>;
+  folgasRef: React.MutableRefObject<FolgaViva[]>;
+  zoom: number;
+  /** Régua DO PROJETO (cena.circulacaoMin) — a cota viva tem de acender com o
+   *  mesmo limite que o painel de análise e o Dossiê usam. */
+  circulacaoMin: number;
+}) {
+  const [, forcar] = useState(0);
+  const ativo = !!origemRef.current;
+  useEffect(() => {
+    let vivo = true;
+    let anterior = "";
+    const tick = () => {
+      if (!vivo) return;
+      // Assinatura barata do que está desenhado: evita re-render por frame
+      // quando nada mudou (dedo parado em cima de um alinhamento).
+      const assin = (origemRef.current ? "1" : "0")
+        + guiasRef.current.map((g) => `${g.tipo}${g.valor ?? ""}`).join(",")
+        + "|" + folgasRef.current.map((f) => `${f.dir}${Math.round(f.cm)}`).join(",");
+      if (assin !== anterior) { anterior = assin; forcar((n) => n + 1); }
+      requestAnimationFrame(tick);
+    };
+    const h = requestAnimationFrame(tick);
+    return () => { vivo = false; cancelAnimationFrame(h); };
+  }, [origemRef, guiasRef, folgasRef]);
+
+  if (!ativo) return null;
+  const o = origemRef.current!;
+  const guias = guiasRef.current;
+  const folgas = folgasRef.current;
+
+  return (
+    <Group listening={false}>
+      {/* Fantasma: de onde a peça saiu. Sem ele, um arraste acidental não tem
+          referência visual do quanto andou. */}
+      <Rect x={o.x} y={o.y} width={o.w} height={o.h} cornerRadius={4}
+        stroke={CANVAS.ghost} strokeWidth={1.5 / zoom} dash={[10 / zoom, 7 / zoom]} />
+
+      {/* Guias de alinhamento — no máximo uma por eixo, para não poluir. */}
+      {guias.filter((g) => g.linha).map((g, i) => (
+        <Group key={`g${i}`}>
+          <Line points={[g.linha![0].x, g.linha![0].y, g.linha![1].x, g.linha![1].y]}
+            stroke={CANVAS.guia} strokeWidth={1 / zoom} dash={[6 / zoom, 6 / zoom]} />
+          {g.contraRotulo && (
+            <Text x={g.linha![1].x + 6 / zoom} y={g.linha![1].y - 7 / zoom}
+              text={g.contraRotulo} fontSize={11 / zoom} fill={CANVAS.guia} opacity={0.85} />
+          )}
+        </Group>
+      ))}
+
+      {/* Cota viva: a folga real até o vizinho, em cm, enquanto arrasta.
+          Vermelho abaixo da circulação mínima do projeto. */}
+      {folgas.map((f) => {
+        const [a, b] = f.linha;
+        const apertado = f.cm < circulacaoMin;
+        const cor = apertado ? CANVAS.aviso : CANVAS.guia;
+        return (
+          <Group key={f.dir}>
+            <Line points={[a.x, a.y, b.x, b.y]} stroke={cor} strokeWidth={1.2 / zoom} />
+            <Text x={(a.x + b.x) / 2 + 5 / zoom} y={(a.y + b.y) / 2 - 8 / zoom}
+              text={`${Math.round(f.cm)}`} fontSize={12 / zoom} fontStyle="700" fill={cor} />
+          </Group>
+        );
+      })}
+    </Group>
+  );
+}
+
+function ItemView({ it, zoom, selected, problema, listening, camadas, lamina, numero, onSelect, onDrag, onDragStart, onDragBound }: {
   it: ItemPosicionado; zoom: number; selected: boolean; problema: "colisao" | "corredor" | "uso" | null; listening?: boolean;
   camadas?: "tudo" | "uso" | "nada"; lamina?: boolean; numero?: number;
   onSelect: () => void; onDrag: (x: number, y: number, commit: boolean) => void;
+  onDragStart?: () => void;
+  /** Posição corrigida pelo encaixe — recebe e devolve o canto superior-esquerdo. */
+  onDragBound?: (x: number, y: number) => { x: number; y: number };
 }) {
-  const cor = problema === "colisao" ? "#E04545" : problema === "corredor" || problema === "uso" ? "#E09A45" : (ZONAS[it.zona]?.cor || "#888");
+  const cor = problema === "colisao" ? CANVAS.colisao : problema === "corredor" || problema === "uso" ? CANVAS.aviso : (ZONAS[it.zona]?.cor || "#888");
   // Footprint técnico: área de uso (margens frontal/lateral) e de segurança (margem extra).
   const usoF = it.uso_frontal_cm || 0, usoL = it.uso_lateral_cm || 0, seg = it.seguranca_cm || 0;
   const temUso = usoF > 0 || usoL > 0, temSeg = seg > 0;
@@ -801,15 +1037,34 @@ function ItemView({ it, zoom, selected, problema, listening, camadas, lamina, nu
     <Group x={cx} y={cy} offsetX={it.w_cm / 2} offsetY={it.h_cm / 2} rotation={it.rotacao || 0}
       draggable={listening !== false && !it.bloqueado} listening={listening}
       onMouseDown={onSelect} onTouchStart={onSelect} onClick={onSelect} onTap={onSelect}
-      onDragMove={(e) => onDrag(e.target.x() - it.w_cm / 2, e.target.y() - it.h_cm / 2, false)}
+      onDragStart={onDragStart}
+      // O encaixe acontece aqui, e não no `onDragMove`: `dragBoundFunc` corrige
+      // a posição ANTES de o Konva desenhar, então o item nunca aparece fora do
+      // alinhamento por um frame — e a store não é tocada durante o movimento.
+      // ATENÇÃO ao espaço de coordenadas: o Konva entrega e espera aqui a
+      // posição ABSOLUTA do nó, em pixels do stage — e a Layer tem pan e zoom
+      // aplicados, então px absoluto NÃO é cm de mundo. É preciso inverter a
+      // transformada da Layer para entrar no resolvedor de snap (que é puro em
+      // cm) e aplicá-la de volta na saída. `function`, não arrow: o Konva
+      // chama com `this` = nó. E `pos` é o CENTRO do item (offsetX/offsetY).
+      dragBoundFunc={onDragBound
+        ? function (this: Konva.Node, pos: Konva.Vector2d) {
+            const layer = this.getLayer();
+            if (!layer) return pos;
+            const paraMundo = layer.getAbsoluteTransform().copy().invert();
+            const centro = paraMundo.point(pos);
+            const r = onDragBound(centro.x - it.w_cm / 2, centro.y - it.h_cm / 2);
+            return layer.getAbsoluteTransform().point({ x: r.x + it.w_cm / 2, y: r.y + it.h_cm / 2 });
+          }
+        : undefined}
       onDragEnd={(e) => onDrag(e.target.x() - it.w_cm / 2, e.target.y() - it.h_cm / 2, true)}>
       {mostraSeg && (
         <Rect x={-usoL - seg} y={-usoF - seg} width={it.w_cm + 2 * (usoL + seg)} height={it.h_cm + 2 * (usoF + seg)}
-          cornerRadius={6} fill="#E04545" opacity={0.05} stroke="#E04545" strokeWidth={1 / zoom} dash={[5 / zoom, 7 / zoom]} listening={false} />
+          cornerRadius={6} fill={CANVAS.colisao} opacity={0.05} stroke={CANVAS.colisao} strokeWidth={1 / zoom} dash={[5 / zoom, 7 / zoom]} listening={false} />
       )}
       {mostraUso && (
         <Rect x={-usoL} y={-usoF} width={it.w_cm + 2 * usoL} height={it.h_cm + 2 * usoF}
-          cornerRadius={5} fill="#E09A45" opacity={0.08} stroke="#E09A45" strokeWidth={1 / zoom} dash={[8 / zoom, 6 / zoom]} listening={false} />
+          cornerRadius={5} fill={CANVAS.aviso} opacity={0.08} stroke={CANVAS.aviso} strokeWidth={1 / zoom} dash={[8 / zoom, 6 / zoom]} listening={false} />
       )}
       {/* corpo: SEM preenchimento (o piso aparece por baixo). Com desenho próprio,
           o retângulo só aparece selecionado ou com problema; sem desenho, fica o contorno fino. */}
@@ -822,9 +1077,9 @@ function ItemView({ it, zoom, selected, problema, listening, camadas, lamina, nu
       {/* numeração da ficha (Etapa 4) */}
       {numero != null && (
         <>
-          <Circle x={0} y={0} radius={14 / zoom} fill="#C9A227" listening={false} />
+          <Circle x={0} y={0} radius={14 / zoom} fill={CANVAS.selecao} listening={false} />
           <Text x={-14 / zoom} y={-7 / zoom} width={28 / zoom} align="center" text={String(numero)}
-            fontSize={13 / zoom} fontStyle="700" fill="#0C0C0E" listening={false} />
+            fontSize={13 / zoom} fontStyle="700" fill={TOKENS.canvas} listening={false} />
         </>
       )}
       {/* faixas de orientação: banda suave em cada lado (entrada/frente/costas/
@@ -863,12 +1118,12 @@ function ItemView({ it, zoom, selected, problema, listening, camadas, lamina, nu
         const acx = g.lx + g.nx * (distE / 2), acy = g.ly + g.ny * (distE / 2);
         return (
           <Group key={`e${k}`} listening={false}>
-            <Rect x={x} y={yv} width={wv} height={hv} stroke="#5FBF7A" strokeWidth={1.2 / zoom}
-              dash={[7 / zoom, 5 / zoom]} fill="#5FBF7A" opacity={0.35} fillEnabled={false} />
+            <Rect x={x} y={yv} width={wv} height={hv} stroke={CANVAS.ok} strokeWidth={1.2 / zoom}
+              dash={[7 / zoom, 5 / zoom]} fill={CANVAS.ok} opacity={0.35} fillEnabled={false} />
             <Line points={[g.lx, g.ly, g.lx + g.nx * distE, g.ly + g.ny * distE]}
-              stroke="#5FBF7A" strokeWidth={1.4 / zoom} dash={[4 / zoom, 4 / zoom]} />
+              stroke={CANVAS.ok} strokeWidth={1.4 / zoom} dash={[4 / zoom, 4 / zoom]} />
             <Text x={acx - 20 / zoom} y={acy - 7 / zoom} text={`↦ ${Math.round(distE)}`}
-              fontSize={11 / zoom} fill="#5FBF7A" rotation={horiz ? 90 : 0} />
+              fontSize={11 / zoom} fill={CANVAS.ok} rotation={horiz ? 90 : 0} />
           </Group>
         );
       })}

@@ -45,6 +45,15 @@ export interface OrcamentoLido {
   paginas: number;
   /** false = PDF sem camada de texto (escaneado/foto) — não dá para ler. */
   temTexto: boolean;
+  /**
+   * Toda linha do PDF que NÃO virou item, com o motivo.
+   *
+   * É a diferença entre "o app leu tudo" e "o app leu o que quis": sem esta
+   * lista, uma linha derrubada por heurística some calada e o consultor só
+   * descobre conferindo o PDF impresso ao lado da tela. Vale a invariante
+   * `linhas.length + descartadas.length === número de linhas do texto`.
+   */
+  descartadas: { linha: string; motivo: string }[];
 }
 
 // ── Utilidades ──────────────────────────────────────────────────────────────
@@ -52,34 +61,90 @@ export interface OrcamentoLido {
 const norm = (s: string) =>
   String(s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 
-/** Valor monetário: duas casas decimais E delimitado — sem os limites,
- *  "21.213.298/0001-98" (CNPJ) virava o "preço" 21,21. */
-const RE_MOEDA = /(?:R\$\s*)?(?<![\d.,])(\d{1,3}(?:\.\d{3})+,\d{2}|\d+,\d{2}|\d{1,3}(?:,\d{3})+\.\d{2}|\d+\.\d{2})(?![\d.,])/g;
+/**
+ * Valor monetário. Duas gramáticas, e o que separa uma da outra é o "R$":
+ *
+ * - COM cifrão o documento já declarou que aquilo é dinheiro, então o inteiro
+ *   sem centavos vale ("R$ 1.890" é preço redondo, não código de produto).
+ *   Sem esta metade, o fornecedor que não digita ",00" perdia a linha inteira.
+ * - SEM cifrão exige as duas casas decimais E delimitação — sem os limites,
+ *   "21.213.298/0001-98" (CNPJ) virava o "preço" 21,21.
+ *
+ * Nas duas metades as formas decimais vêm ANTES da inteira: em "R$ 1.890" a
+ * alternativa `\d+` casaria só o "1" se chegasse primeiro.
+ */
+const RE_MOEDA = new RegExp(
+  [
+    String.raw`R\$\s*(\d{1,3}(?:\.\d{3})+,\d{2}|\d+,\d{2}|\d{1,3}(?:,\d{3})+\.\d{2}|\d+\.\d{2}|\d{1,3}(?:\.\d{3})+|\d+)(?![\d.,])`,
+    String.raw`(?<![\d.,])(\d{1,3}(?:\.\d{3})+,\d{2}|\d+,\d{2}|\d{1,3}(?:,\d{3})+\.\d{2}|\d+\.\d{2})(?![\d.,])`,
+  ].join("|"),
+  "gi",
+);
 
-/** Linhas que são cabeçalho, rodapé ou totalizador — nunca viram item. */
-const RUIDO = [
+/**
+ * Rodapé FINANCEIRO: a linha carrega valor de propósito (é a soma, o imposto,
+ * o frete) e mesmo assim nunca é item. Só estes prefixos dispensam o teste do
+ * dinheiro em `motivoRuido`.
+ */
+const RUIDO_TOTALIZADOR = [
   "total", "subtotal", "valor total", "total geral", "desconto", "acrescimo", "frete",
-  "ipi", "icms", "st ", "cnpj", "cpf", "inscricao", "endereco", "telefone", "e-mail", "email",
-  "banco", "agencia", "conta", "pix", "boleto", "validade", "prazo", "garantia",
+  "ipi", "icms", "st ", "soma das", "valor da", "parc ",
+  "nº de itens", "n° de itens", "no de itens",
+];
+
+/**
+ * Cabeçalho, dado cadastral e rótulo de coluna — ruído SÓ quando a linha não
+ * tem preço, ou quando o prefixo vem seguido de dois-pontos.
+ *
+ * A lista antiga era um veredito: qualquer linha começada por um destes
+ * prefixos morria. "Banco Regulável 0-90°  R$ 1.890,00" sumia por causa de
+ * "banco", e "Paralela para calistenia  R$ 1.250,00" por causa de "para" —
+ * em silêncio, sem aparecer em lugar nenhum da tela de conferência. Por isso
+ * "banco" e "para" saíram de vez: são palavras de produto antes de serem
+ * palavras de rodapé.
+ */
+const RUIDO_ROTULO = [
+  "cnpj", "cpf", "inscricao", "endereco", "telefone", "e-mail", "email",
+  "agencia", "conta", "pix", "boleto", "validade", "prazo", "garantia",
   "pagamento", "condicoes", "observac", "assinatura", "pagina", "orcamento n", "proposta n",
   "razao social", "vendedor", "cliente", "obrigado", "atenciosamente", "www.", "http",
   "qtd", "quantidade", "descricao", "valor unit", "vl unit", "unitario", "produto",
   // Blocos de dados e rodapés vistos nos orçamentos reais (Movement, CORE, G2).
   "nome:", "num:", "cep", "uf:", "complemento", "log.", "ins.", "site", "razao",
-  "tipo doc", "tipo frete", "parc ", "valor da", "nº de itens", "n° de itens", "no de itens",
-  "soma das", "itens da proposta", "lista de produtos", "para", "responsavel",
+  "tipo doc", "tipo frete", "itens da proposta", "lista de produtos", "responsavel",
 ];
 
 /** Linha de CONDIÇÃO DE PAGAMENTO — tem vários valores, mas não é item.
  *  ("Entrada de R$70.000,00 + saldo em 2x sem Juros de R$35.000,00") */
 const RE_PAGAMENTO_LINHA = /\b(entrada|parcel|saldo|juros|[àa]\s*vista|sinal|desconto|\d+\s*x\b|\d{2}\/\d{2}dd)\b/i;
 
-function ehRuido(linha: string): boolean {
+/**
+ * Por que a linha não pode virar item — `null` quando ela pode.
+ *
+ * Devolve o MOTIVO em vez de um booleano porque é ele que alimenta
+ * `descartadas`: descarte sem motivo registrado é dado perdido em silêncio.
+ */
+function motivoRuido(linha: string): string | null {
   const n = norm(linha).trim();
-  if (n.length < 3) return true;
-  // Só é ruído se a palavra aparecer no COMEÇO da linha — "Esteira com garantia
-  // estendida" é item, "Garantia: 12 meses" não é.
-  return RUIDO.some((r) => n.startsWith(r));
+  if (n.length < 3) return "linha curta demais";
+
+  const tot = RUIDO_TOTALIZADOR.find((r) => n.startsWith(r));
+  if (tot) return `totalizador/rodapé financeiro ("${tot.trim()}")`;
+
+  const rot = RUIDO_ROTULO.find((r) => n.startsWith(r));
+  if (!rot) return null;
+  // Dois-pontos logo depois do prefixo é rótulo de campo, por mais que venha
+  // valor atrás: "Pagamento: 3x de R$ 2.680,00" não é item, "Garantia
+  // estendida do banco  R$ 300,00" é.
+  if (rot.endsWith(":") || /^\s*:/.test(n.slice(rot.length))) {
+    return `rótulo de cabeçalho ("${rot.trim().replace(/:$/, "")}:")`;
+  }
+  if (acharMoedas(linha).length) return null;
+  return `cabeçalho/dado cadastral sem valor ("${rot.trim()}")`;
+}
+
+function ehRuido(linha: string): boolean {
+  return motivoRuido(linha) !== null;
 }
 
 /** Unidade logo depois do número: "2,20 m" e "1,50 kg" são MEDIDA, não preço —
@@ -91,10 +156,12 @@ function acharMoedas(linha: string): { valor: number; inicio: number; fim: numbe
   RE_MOEDA.lastIndex = 0;
   let m: RegExpExecArray | null;
   while ((m = RE_MOEDA.exec(linha))) {
-    const v = parseNum(m[1]);
+    // Grupo 1 = metade com cifrão; grupo 2 = metade sem. Qual deles veio já diz
+    // se havia "R$" na linha, sem reexaminar o texto casado.
+    const temCifrao = m[1] !== undefined;
+    const v = parseNum(m[1] ?? m[2]);
     if (v == null || v <= 0) continue;
     const fim = m.index + m[0].length;
-    const temCifrao = /R\$/i.test(m[0]);
     if (!temCifrao && RE_UNIDADE.test(linha.slice(fim))) continue;
     out.push({ valor: v, inicio: m.index, fim });
   }
@@ -272,7 +339,7 @@ export function interpretarOrcamento(texto: string, tipoPadrao: TipoLinha = "equ
   const cnpj = acharCnpj(linhas);
   const fornecedor = acharFornecedor(linhas, cnpj);
 
-  const cab: Omit<OrcamentoLido, "linhas" | "texto" | "paginas" | "temTexto" | "fornecedor" | "cnpj"> = {
+  const cab: Omit<OrcamentoLido, "linhas" | "texto" | "paginas" | "temTexto" | "fornecedor" | "cnpj" | "descartadas"> = {
     // "Proposta Nº 4093" / "Orçamento nº 2026-4471" — exige dígito, senão o
     // rótulo da coluna seguinte ("Qtd.") virava o número da proposta.
     documento: acharDocumento(inteiro),
@@ -319,13 +386,24 @@ export function interpretarOrcamento(texto: string, tipoPadrao: TipoLinha = "equ
   }
 
   const itens: LinhaOrcamento[] = [];
+  // Contrapartida de `itens`: aqui entra TODA linha que não virou item, com o
+  // motivo. `posDescarte` guarda onde cada linha foi parar, para o caso de ela
+  // ser absorvida depois pela descrição do item de baixo.
+  const descartadas: { linha: string; motivo: string }[] = [];
+  const posDescarte = new Map<number, number>();
+  const descartar = (i: number, motivo: string) => {
+    posDescarte.set(i, descartadas.length);
+    descartadas.push({ linha: linhas[i].replace(/\s{2,}/g, "  ").trim(), motivo });
+  };
+
   for (let i = 0; i < linhas.length; i++) {
     const linha = linhas[i];
-    if (ehRuido(linha)) continue;
+    const ruido = motivoRuido(linha);
+    if (ruido) { descartar(i, ruido); continue; }
     // Condição de pagamento tem vários valores e não é item.
-    if (RE_PAGAMENTO_LINHA.test(linha)) continue;
+    if (RE_PAGAMENTO_LINHA.test(linha)) { descartar(i, "condição de pagamento (vários valores, nenhum item)"); continue; }
     const moedas = acharMoedas(linha);
-    if (!moedas.length) continue;
+    if (!moedas.length) { descartar(i, "sem valor monetário"); continue; }
 
     // As duas ÚLTIMAS moedas são unitário e total — é a convenção de todas as
     // tabelas de orçamento. Pegar a primeira quebrava o layout que imprime a
@@ -370,9 +448,14 @@ export function interpretarOrcamento(texto: string, tipoPadrao: TipoLinha = "equ
       const acima = linhas[i - 1];
       if (acima && !ehRuido(acima) && !acharMoedas(acima).length && letras(acima) >= 12) {
         descricao = limparDescricao(`${acima} ${descricao}`, []);
+        // A linha de cima não se perdeu: foi absorvida. Corrige o motivo que
+        // ela já tinha recebido ("sem valor monetário"), senão o relatório de
+        // descartes acusaria uma perda que não existe.
+        const pos = posDescarte.get(i - 1);
+        if (pos != null) descartadas[pos].motivo = "juntada à descrição do item de baixo";
       }
     }
-    if (letras(descricao) < 3) continue;
+    if (letras(descricao) < 3) { descartar(i, "sem descrição depois de tirar números e rótulos"); continue; }
 
     itens.push({
       id: `l${itens.length + 1}`,
@@ -396,6 +479,7 @@ export function interpretarOrcamento(texto: string, tipoPadrao: TipoLinha = "equ
     texto: inteiro,
     paginas: 1,
     temTexto: linhas.length > 0,
+    descartadas,
   };
 }
 

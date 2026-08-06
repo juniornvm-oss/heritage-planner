@@ -1,5 +1,6 @@
 import type { Cena, ItemPosicionado, Cenario } from "./types";
 import { CENARIOS } from "./types";
+import { analisarEspaco } from "./analiseEspaco";
 
 interface RectCm { x_cm: number; y_cm: number; w_cm: number; h_cm: number }
 const overlapR = (a: RectCm, b: RectCm) =>
@@ -84,8 +85,11 @@ export function resumo(cena: Cena) {
   const nCol = Object.values(problemas).filter((v) => v === "colisao").length;
   const nCor = Object.values(problemas).filter((v) => v === "corredor").length;
   const nUso = Object.values(problemas).filter((v) => v === "uso").length;
-  const areaItens = itens.reduce((s, i) => s + i.w_cm * i.h_cm, 0);
-  const ocup = sala.largura_cm && sala.profundidade_cm ? (areaItens / (sala.largura_cm * sala.profundidade_cm)) * 100 : 0;
+  // Ocupação vem de `analiseEspaco`, a mesma conta que alimenta o painel e o
+  // Dossiê. Antes eram três fórmulas diferentes com o mesmo nome: aqui era
+  // Σ(w×h) sobre o retângulo da sala — que conta sobreposição duas vezes e
+  // ignora pilar e mobiliário —, e o PDF refazia à mão de outro jeito.
+  const ocup = analisarEspaco(cena).ocupacaoFuncional.valor;
   const subtotal = itens.reduce((s, i) => s + (i.preco || 0), 0);
   return {
     problemas, nCol, nCor, nUso,

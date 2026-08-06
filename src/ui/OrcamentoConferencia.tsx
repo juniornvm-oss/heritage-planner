@@ -58,6 +58,7 @@ export default function OrcamentoConferencia({
 
   const [linhas, setLinhas] = useState<LinhaConferida[]>(lido.linhas.map((l) => ({ ...l, usar: true })));
   const [verTexto, setVerTexto] = useState(false);
+  const [verDescartadas, setVerDescartadas] = useState(false);
 
   const patch = (id: string, p: Partial<LinhaConferida>) =>
     setLinhas((xs) => xs.map((l) => (l.id === id ? { ...l, ...p } : l)));
@@ -233,17 +234,28 @@ export default function OrcamentoConferencia({
           </div>
         )}
 
-        <div>
-          <button className="btn" style={{ padding: "5px 10px", fontSize: 11 }} onClick={() => setVerTexto((v) => !v)}>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button className="btn btn--sm" onClick={() => { setVerTexto((v) => !v); setVerDescartadas(false); }}>
             {verTexto ? "− Ocultar" : "🔍 Ver"} texto extraído do PDF
           </button>
-          {verTexto && (
-            <pre style={{
-              marginTop: 8, maxHeight: 220, overflow: "auto", background: "var(--panel-2)", border: "1px solid var(--line)",
-              borderRadius: 8, padding: 10, fontSize: 10.5, lineHeight: 1.45, color: "#b6b6b1", whiteSpace: "pre-wrap",
-            }}>{lido.texto || "(vazio)"}</pre>
+          {/* O que o leitor NÃO usou, e por quê. Sem esta lista, o app decide
+              em silêncio o que virou item — e uma linha de produto engolida
+              por uma heurística some do orçamento sem ninguém notar. */}
+          {lido.descartadas.length > 0 && (
+            <button className="btn btn--sm" onClick={() => { setVerDescartadas((v) => !v); setVerTexto(false); }}
+              style={{ borderColor: "var(--warn)", color: "var(--warn)" }}>
+              {verDescartadas ? "− Ocultar" : "⚠ Ver"} {lido.descartadas.length} linha(s) que não viraram item
+            </button>
           )}
         </div>
+        {(verTexto || verDescartadas) && (
+          <pre style={{
+            marginTop: -4, maxHeight: 240, overflow: "auto", background: "var(--panel-2)", border: "1px solid var(--line)",
+            borderRadius: 8, padding: 10, fontSize: 10.5, lineHeight: 1.5, color: "#b6b6b1", whiteSpace: "pre-wrap",
+          }}>{verDescartadas
+            ? lido.descartadas.map((d) => `[${d.motivo}]\n${d.linha}`).join("\n\n") || "(nenhuma)"
+            : lido.texto || "(vazio)"}</pre>
+        )}
 
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
           <button className="btn" disabled={salvando} onClick={onCancelar}>Cancelar</button>

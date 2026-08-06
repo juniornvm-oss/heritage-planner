@@ -244,6 +244,14 @@ describe("leitor — layouts reais do Maison Heritage", () => {
     expect(o.garantia).toContain("10 ANOS DE GARANTIA");
   });
 
+  it("G2: o rodapé de totalizadores é descartado com motivo, não em silêncio", () => {
+    const o = interpretarOrcamento(G2, "acessorio");
+    // "7,00  28  0,00  15.976,00  0,00  15.976,00" tem valores mas não tem
+    // descrição: some da lista de itens, e por isso precisa aparecer aqui.
+    const rodape = o.descartadas.find((d) => d.linha.startsWith("7,00"))!;
+    expect(rodape.motivo).toMatch(/sem descrição/);
+  });
+
   it("G2: quantidade com casas decimais e medida na descrição", () => {
     const o = interpretarOrcamento(G2, "acessorio");
     expect(o.fornecedor).toContain("G2 FITNESS");
@@ -271,5 +279,91 @@ describe("leitor — layouts reais do Maison Heritage", () => {
     expect(o.linhas.length).toBe(7);
     expect(somaLinhas(o.linhas)).toBe(15976);
     expect(o.linhas.every((l) => l.tipo === "acessorio")).toBe(true);
+  });
+});
+
+// ── O que o leitor perdia em silêncio ───────────────────────────────────────
+// Três defeitos com a mesma assinatura: a linha existia no PDF, não virava
+// item e não aparecia em lugar nenhum. O consultor só descobria conferindo o
+// papel ao lado da tela — quando descobria.
+
+// Prefixo de ruído aplicado como veredito: "Banco", "Para" e "Garantia" no
+// começo da linha derrubavam o item inteiro, mesmo com preço ao lado.
+const PREFIXO = `HERITAGE FITNESS ACESSORIOS LTDA
+CNPJ: 10.111.222/0001-33
+Orçamento nº 77
+
+Banco Regulável 0-90 graus                    R$ 4.600,00
+Paralela para calistenia                      R$ 1.250,00
+Banco Scott em aço                            R$ 1.890
+Garantia estendida do banco (24 meses)        R$ 300,00
+
+Banco: Itaú  Agência: 0001  Conta: 12345-6
+Garantia: 12 meses
+Total: R$ 8.040,00`;
+
+// O prefixo com dois-pontos continua sendo rótulo, e o rodapé financeiro
+// continua sendo rodapé — mesmo carregando valor.
+const ROTULOS = `Fornecedor Teste LTDA
+Banco: Itaú  Agência: 0001  Conta: 12345-6
+Cadeira Extensora Dual                        R$ 8.040,00
+Pagamento: 3x de R$ 2.680,00
+Frete: R$ 250,00
+Total: R$ 8.290,00`;
+
+describe("leitor — o que era descartado em silêncio", () => {
+  it("prefixo de ruído não derruba linha que tem preço", () => {
+    const o = interpretarOrcamento(PREFIXO, "acessorio");
+    const desc = o.linhas.map((l) => l.descricao);
+    expect(desc).toContain("Banco Regulável 0-90 graus");
+    expect(desc).toContain("Paralela para calistenia");
+    expect(desc).toContain("Garantia estendida do banco (24 meses)");
+    expect(o.linhas.length).toBe(4);
+    // A prova de que nada ficou de fora: a soma fecha com o total impresso.
+    expect(somaLinhas(o.linhas)).toBe(8040);
+    expect(o.total).toBe(8040);
+  });
+
+  it("prefixo com dois-pontos e rodapé financeiro continuam fora dos itens", () => {
+    const o = interpretarOrcamento(ROTULOS);
+    expect(o.linhas.length).toBe(1);
+    expect(o.linhas[0].descricao).toBe("Cadeira Extensora Dual");
+    expect(o.total).toBe(8290);
+    const pag = o.descartadas.find((d) => d.linha.startsWith("Pagamento:"))!;
+    expect(pag.motivo).toMatch(/rótulo/);
+    const frete = o.descartadas.find((d) => d.linha.startsWith("Frete:"))!;
+    expect(frete.motivo).toMatch(/totalizador/);
+    // Sem preço, o bloco bancário cai por falta de valor — não por prefixo.
+    const banco = o.descartadas.find((d) => d.linha.startsWith("Banco:"))!;
+    expect(banco.motivo).toMatch(/sem valor/);
+  });
+
+  it("aceita inteiro sem centavos quando o R$ está colado", () => {
+    const o = interpretarOrcamento("Banco Scott em aço    R$ 1.890");
+    expect(o.linhas.length).toBe(1);
+    expect(o.linhas[0].descricao).toBe("Banco Scott em aço");
+    expect(o.linhas[0].total).toBe(1890);
+    expect(o.linhas[0].preco_un).toBe(1890);
+    // Sem o cifrão o inteiro continua sendo medida ou código, nunca preço —
+    // é o "R$" que autoriza a leitura sem centavos.
+    expect(interpretarOrcamento("Barra olímpica cromada 220").linhas).toEqual([]);
+    expect(interpretarOrcamento("Leg Press  21.213.298/0001-98").linhas).toEqual([]);
+  });
+
+  it("descartadas cobre toda linha que não virou item, com o motivo", () => {
+    const o = interpretarOrcamento(A);
+    // Invariante: item ou motivo. Nenhuma linha do PDF pode desaparecer sem uma
+    // das duas coisas — é isso que separa "leu tudo" de "leu o que quis".
+    expect(o.linhas.length + o.descartadas.length).toBe(o.texto.split("\n").length);
+    expect(o.descartadas.find((d) => d.linha.startsWith("TOTAL GERAL"))!.motivo).toMatch(/totalizador/);
+    expect(o.descartadas.find((d) => d.linha.startsWith("Garantia:"))!.motivo).toMatch(/rótulo/);
+    expect(o.descartadas.some((d) => /Leg Press/.test(d.linha))).toBe(false);
+  });
+
+  it("a linha absorvida pela descrição de baixo não conta como perdida", () => {
+    const o = interpretarOrcamento(CORE);
+    const absorvida = o.descartadas.find((d) => d.linha.startsWith("MAQUINA DE MUSC"))!;
+    expect(absorvida.motivo).toMatch(/juntada/);
+    expect(o.linhas.length + o.descartadas.length).toBe(o.texto.split("\n").length);
   });
 });

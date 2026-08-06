@@ -18,6 +18,13 @@ export const CENARIOS: Record<Cenario, { label: string; cor: string; ordem: numb
 
 export const TAXA_ASSESSORIA = 0.005; // 0,5% do teto do condomínio (padrão)
 
+/** Circulação mínima entre equipamentos, em cm. É a régua da análise de
+ *  espaço: 90 cm é o vão que deixa duas pessoas se cruzarem de lado sem
+ *  esbarrar em aparelho. Rota de saída pede mais — ver `CIRCULACAO_ROTA`. */
+export const CIRCULACAO_PADRAO = 90;
+/** Vão livre exigido em corredor de saída / rota de fuga, em cm. */
+export const CIRCULACAO_ROTA = 120;
+
 /** Honorário efetivo (fração) — vem do Cadastro do consultor; cai no padrão se vazio. */
 export const taxaDe = (c?: { honorario_pct?: number | null } | null): number => {
   const pct = Number(c?.honorario_pct);
@@ -437,9 +444,16 @@ export interface ItemInventario {
   valor_estimado?: number | null;
 }
 
-/** Seções OPCIONAIS do Dossiê — o consultor liga/desliga por projeto. */
+/**
+ * Seções do Dossiê — TODAS controláveis pelo consultor.
+ *
+ * As oito primeiras chaves existiam antes e mantêm o nome exato, para não
+ * invalidar o `dossie` já gravado nas cenas em produção. `acabamentos`
+ * controlava DUAS seções (revestimentos + espelhos/mobiliário); agora
+ * `mobiliario` é separada — não fazia sentido publicar piso sem espelho.
+ */
 export interface OpcoesDossie {
-  acabamentos?: boolean;   // revestimentos, espelhos e mobiliário
+  acabamentos?: boolean;   // revestimentos & acabamentos
   capacidade?: boolean;    // capacidade & ocupação
   cenarios?: boolean;      // cenários de investimento
   matriz?: boolean;        // matriz de priorização
@@ -447,23 +461,142 @@ export interface OpcoesDossie {
   acessorios?: boolean;    // lista de acessórios
   marcas?: boolean;        // apresentação das marcas do projeto
   exercicios?: boolean;    // exercícios contemplados pela academia
+  // ── Seções que antes saíam sempre, sem controle nenhum ──
+  planta?: boolean;        // a planta do projeto na sala
+  parecer?: boolean;       // parecer técnico do consultor
+  diagnostico?: boolean;   // leitura do condomínio
+  infraestrutura?: boolean;// análise de infraestrutura
+  financeiro?: boolean;    // resumo financeiro
+  categorias?: boolean;    // categorias & lista técnica
+  mobiliario?: boolean;    // espelhos, parede & mobiliário
+  memorial?: boolean;      // memorial dos equipamentos
+  cobertura?: boolean;     // cobertura muscular & padrões de movimento
+  validacao?: boolean;     // validação técnica do layout
 }
 
 /** Padrão: tudo ligado (o dossiê completo). */
 export const OPCOES_DOSSIE_PADRAO: Required<OpcoesDossie> = {
   acabamentos: true, capacidade: true, cenarios: true, matriz: true, inventario: true,
   acessorios: true, marcas: true, exercicios: true,
+  planta: true, parecer: true, diagnostico: true, infraestrutura: true, financeiro: true,
+  categorias: true, mobiliario: true, memorial: true, cobertura: true, validacao: true,
 };
 
-export const ROTULO_SECAO_DOSSIE: Record<keyof OpcoesDossie, string> = {
-  acabamentos: "Revestimentos, espelhos e mobiliário",
-  capacidade: "Capacidade & ocupação",
+/** Chave de uma seção do Dossiê. */
+export type SecaoDossie = keyof OpcoesDossie;
+
+export const ROTULO_SECAO_DOSSIE: Record<SecaoDossie, string> = {
+  planta: "Planta — o projeto na sala",
+  parecer: "Parecer técnico",
+  diagnostico: "Diagnóstico — leitura do condomínio",
+  infraestrutura: "Análise de infraestrutura",
+  financeiro: "Resumo financeiro",
   cenarios: "Cenários de investimento",
-  matriz: "Matriz de priorização",
-  inventario: "Inventário (reaproveitado/residual)",
+  categorias: "Categorias & lista técnica",
   acessorios: "Acessórios",
   marcas: "Marcas do projeto",
+  memorial: "Memorial dos equipamentos",
+  cobertura: "Cobertura muscular & movimento",
   exercicios: "Exercícios contemplados",
+  inventario: "Inventário (reaproveitado/residual)",
+  acabamentos: "Revestimentos & acabamentos",
+  mobiliario: "Espelhos, parede & mobiliário",
+  capacidade: "Capacidade & ocupação",
+  matriz: "Matriz de priorização",
+  validacao: "Validação técnica do layout",
+};
+
+/**
+ * Ordem PADRÃO em que as seções saem no papel. A numeração impressa acompanha
+ * esta lista (ou a de `cena.dossieOrdem`, quando o consultor reordena), então
+ * mexer aqui nunca embaralha o índice.
+ */
+export const ORDEM_DOSSIE_PADRAO: SecaoDossie[] = [
+  "planta", "parecer", "diagnostico", "infraestrutura", "financeiro", "cenarios",
+  "categorias", "acessorios", "marcas", "memorial", "cobertura", "exercicios",
+  "inventario", "acabamentos", "mobiliario", "capacidade", "matriz", "validacao",
+];
+
+/** O que a seção precisa ter para sair — mostrado na Central do Dossiê quando
+ *  o consultor liga uma seção que ainda não tem conteúdo. */
+export const SECAO_EXIGE_DADO: Partial<Record<SecaoDossie, string>> = {
+  planta: "uma planta capturada do editor",
+  parecer: "o parecer escrito na etapa Cenários",
+  cenarios: "equipamentos classificados em mais de um cenário",
+  acessorios: "acessórios lançados na etapa Acessórios",
+  marcas: "marcas detectadas nos equipamentos",
+  inventario: "itens no inventário do condomínio",
+  acabamentos: "áreas de piso/parede pintadas",
+  mobiliario: "espelhos, itens de parede ou mobiliário",
+  exercicios: "equipamentos com lista de exercícios",
+  cobertura: "equipamentos reconhecidos pela base técnica",
+};
+
+/**
+ * Textos do Dossiê sobrescritos pelo consultor neste projeto.
+ * Chave = `"<uso>:<secao>"` — `titulo:financeiro`, `intro:memorial`,
+ * `capa:kicker`, `capa:tagline`. Ausente = usa o texto padrão do código.
+ */
+export type DossieTextos = Record<string, string>;
+
+/** Especificação de uma categoria (zona) escrita PARA ESTE PROJETO.
+ *  Campo vazio cai no texto padrão de `ESPEC_ZONA`. */
+export interface EspecProjeto {
+  oque?: string;
+  entrega?: string;
+  criterio?: string;
+  operacao?: string;
+  /** Observação adicional — o único campo que existia antes (como string solta). */
+  nota?: string;
+}
+
+/** Marca no contexto DESTE projeto — override do que vem da biblioteca. */
+export interface MarcaProjeto {
+  /** Casamento com a biblioteca: nome da marca, normalizado. */
+  ref: string;
+  nome?: string | null;
+  /** Texto de apresentação escrito para este projeto (vence a biblioteca). */
+  resumo?: string | null;
+  /** Observação curta do consultor ("fornecedor local, entrega em 20 dias"). */
+  nota?: string | null;
+  /** Marca âncora — sai primeiro e com destaque. */
+  destaque?: boolean;
+  /** Não sai no Dossiê nem na vitrine. */
+  ocultar?: boolean;
+  ordem?: number;
+}
+
+/** Marca da biblioteca (planner.marcas) — reaproveitada entre projetos. */
+export interface Marca {
+  id?: string;
+  nome: string;
+  /** Trechos que identificam a marca em nomes/campos (minúsculo, sem acento). */
+  chaves?: string[] | null;
+  /** equipamento · acabamento · mobiliário · acessório */
+  tipo?: TipoMarca | null;
+  origem?: string | null;
+  /** Grupo controlador ("Core Health & Fitness") — agrupa marcas irmãs. */
+  grupo?: string | null;
+  resumo?: string | null;
+  site?: string | null;
+  /** De onde veio o texto (site oficial, imprensa) — honestidade editorial. */
+  fonte?: string | null;
+  logo?: string | null; // dataURL (PNG/JPEG reduzido), mesmo padrão de equipamentos.imagem
+  cor?: string | null;  // cor institucional (#RRGGBB)
+  garantia?: string | null;
+  assistencia?: string | null;
+  ordem?: number | null;
+  ativo?: boolean | null;
+  criado_em?: string;
+}
+
+export type TipoMarca = "equipamento" | "acabamento" | "mobiliario" | "acessorio";
+
+export const TIPOS_MARCA: Record<TipoMarca, string> = {
+  equipamento: "Equipamento",
+  acabamento: "Acabamento",
+  mobiliario: "Mobiliário",
+  acessorio: "Acessório",
 };
 
 // ── Fase 02: LAYOUT DE ÁREA — as regiões da sala, antes dos equipamentos ────
@@ -504,6 +637,9 @@ export interface AnexoOrcamento {
   path: string; // caminho no bucket "orcamentos"
   tamanho: number; // bytes
   criado_em: string; // ISO
+  /** SHA-256 do arquivo — detecta o mesmo PDF subido duas vezes, inclusive
+   *  entre sessões (o anexo mora na cena, então o hash volta com o projeto). */
+  hash?: string | null;
 }
 
 // ── Etapa 5: acessórios do projeto (orçamento de itens sem posição na planta) ─
@@ -577,17 +713,32 @@ export interface Cena {
   anexos?: AnexoOrcamento[]; // PDFs de orçamento (arquivos no Storage)
   infra?: ItemInfraestrutura[]; // mobiliário e infraestrutura (Etapa 2)
   estrutura?: EstruturaPlanta | null; // Etapa 1: paredes/aberturas/pilares
-  /** Nota da categoria NESTE projeto (Etapa 6) — complementa a especificação
-   *  padrão da zona no Dossiê. Chave = zona. */
-  especificacoes?: Partial<Record<Zona, string>>;
+  /** Especificação da categoria NESTE projeto (etapa Cenários) — sobrescreve,
+   *  campo a campo, a especificação padrão da zona no Dossiê. Chave = zona.
+   *  Cenas antigas gravavam uma string solta; a normalização a converte em
+   *  `{ nota }`, que é o que aquela string sempre significou. */
+  especificacoes?: Partial<Record<Zona, EspecProjeto>>;
   /** Equipamentos que o condomínio já tem: reaproveitados e residuais. */
   inventario?: ItemInventario[];
-  /** Seções opcionais do Dossiê (ausente = tudo ligado). */
+  /** Seções do Dossiê ligadas/desligadas (ausente = tudo ligado). */
   dossie?: OpcoesDossie;
+  /** Ordem das seções no papel (ausente = `ORDEM_DOSSIE_PADRAO`). */
+  dossieOrdem?: SecaoDossie[];
+  /** Títulos e textos de abertura sobrescritos pelo consultor. */
+  dossieTextos?: DossieTextos;
+  /** Data de emissão do Dossiê (ISO). Ausente = data de criação do projeto. */
+  dossieEmissao?: string | null;
   /** Parecer técnico do consultor — a defesa do layout, no Dossiê. */
   parecer?: string | null;
   /** Fase 02 — layout de área: as regiões funcionais da sala. */
   areas?: AreaFuncional[];
+  /** Marcas do projeto: overrides por marca (ordem, destaque, texto próprio). */
+  marcas?: MarcaProjeto[];
+  /** Parágrafo de abertura da seção de marcas. */
+  marcasIntro?: string | null;
+  /** Circulação mínima exigida neste projeto (cm) — régua da análise de espaço.
+   *  Ausente = `CIRCULACAO_PADRAO`. */
+  circulacaoMin?: number | null;
 }
 
 /** Papel de quem representa o condomínio na decisão. */

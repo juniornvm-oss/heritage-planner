@@ -1,6 +1,6 @@
 import { create } from "zustand";
-import type { Projeto, Cena, Cenario, AreaFuncional, Equipamento, ItemInventario, OpcoesDossie, ItemPosicionado, PlantaFundo, AreaAcabamento, PlantaVetorial, EstruturaPlanta, Parede, Abertura, PilarPlanta, Cota, ElementoParede, ItemInfraestrutura, AcessorioProjeto, AnexoOrcamento, Zona } from "../lib/types";
-import { CENARIOS, ZONAS } from "../lib/types";
+import type { Projeto, Cena, Cenario, AreaFuncional, Equipamento, ItemInventario, OpcoesDossie, ItemPosicionado, PlantaFundo, AreaAcabamento, PlantaVetorial, EstruturaPlanta, Parede, Abertura, PilarPlanta, Cota, ElementoParede, ItemInfraestrutura, AcessorioProjeto, AnexoOrcamento, Zona, EspecProjeto, MarcaProjeto, SecaoDossie } from "../lib/types";
+import { CENARIOS, ZONAS, OPCOES_DOSSIE_PADRAO, ORDEM_DOSSIE_PADRAO } from "../lib/types";
 import { cenarioSugerido, normalizarExercicios } from "../lib/curadoria";
 import { gerarEstrutura, estruturaVazia } from "../lib/estrutura";
 import { bboxPoligono, retanguloParaPontos, transladar } from "../lib/geometria";
@@ -53,15 +53,39 @@ function normalizarCena(bruta: Cena | null | undefined): Cena {
   const estrutura: EstruturaPlanta | null = e && (Array.isArray(e.paredes) || Array.isArray(e.pilares))
     ? { paredes: e.paredes ?? [], aberturas: e.aberturas ?? [], pilares: e.pilares ?? [] }
     : null;
-  const esp = base.especificacoes;
-  const especificacoes: Partial<Record<Zona, string>> = {};
+  // `especificacoes` mudou de string solta para objeto por campo. A string
+  // antiga sempre significou "a nota do consultor", então vira `{ nota }`.
+  const esp = base.especificacoes as unknown;
+  const especificacoes: Partial<Record<Zona, EspecProjeto>> = {};
   if (esp && typeof esp === "object") {
+    const mapa = esp as Record<string, unknown>;
     for (const z of Object.keys(ZONAS) as Zona[]) {
-      const t = esp[z];
-      if (typeof t === "string" && t.trim()) especificacoes[z] = t.trim();
+      const t = mapa[z];
+      if (typeof t === "string") {
+        if (t.trim()) especificacoes[z] = { nota: t.trim() };
+      } else if (t && typeof t === "object") {
+        const src = t as Record<string, unknown>;
+        const limpo: EspecProjeto = {};
+        for (const k of ["oque", "entrega", "criterio", "operacao", "nota"] as const) {
+          const v = src[k];
+          if (typeof v === "string" && v.trim()) limpo[k] = v.trim();
+        }
+        if (Object.keys(limpo).length) especificacoes[z] = limpo;
+      }
     }
   }
-  return { ...base, sala, itens, acabamentos, cotas, elementosParede, infra, acessorios, anexos, estrutura, especificacoes, inventario, areas };
+  // `dossie.acabamentos` controlava DUAS seções (revestimentos + espelhos/
+  // mobiliário) antes de `mobiliario` existir. Cena antiga com a seção
+  // desligada continua com as duas ocultas — sem isto, uma seção que o
+  // consultor desligou voltaria a sair no PDF entregue ao síndico.
+  const dossie = base.dossie && typeof base.dossie === "object"
+    ? { ...base.dossie, ...(base.dossie.acabamentos === false && base.dossie.mobiliario === undefined ? { mobiliario: false } : {}) }
+    : base.dossie;
+  const marcas = (Array.isArray(base.marcas) ? base.marcas : []).filter((m) => m && m.ref);
+  const dossieOrdem = Array.isArray(base.dossieOrdem)
+    ? base.dossieOrdem.filter((s): s is SecaoDossie => s in OPCOES_DOSSIE_PADRAO)
+    : undefined;
+  return { ...base, sala, itens, acabamentos, cotas, elementosParede, infra, acessorios, anexos, estrutura, especificacoes, inventario, areas, marcas, dossieOrdem, dossie };
 }
 
 interface ProjetoState {
@@ -112,8 +136,19 @@ interface ProjetoState {
   classificarEmLote: (cenario: Cenario, zona?: Zona) => void;
   /** Etapa 6 — aplica o cenário sugerido pela base técnica em quem ainda não foi classificado. */
   sugerirCenarios: (sobrescrever?: boolean) => void;
-  /** Etapa 6 — nota da categoria neste projeto (complementa a especificação padrão). */
-  setEspecificacao: (zona: Zona, texto: string) => void;
+  /** Especificação da categoria neste projeto — sobrescreve o padrão campo a campo. */
+  setEspecificacao: (zona: Zona, patch: Partial<EspecProjeto>) => void;
+  /** Título/texto de abertura de uma seção do Dossiê ("titulo:financeiro"…). */
+  setDossieTexto: (chave: string, texto: string) => void;
+  /** Sobe/desce uma seção na ordem impressa. */
+  moverSecaoDossie: (secao: SecaoDossie, delta: -1 | 1) => void;
+  resetOrdemDossie: () => void;
+  setDossieEmissao: (iso: string | null) => void;
+  /** Override da marca NESTE projeto (texto, ordem, destaque, ocultar). */
+  setMarcaProjeto: (ref: string, patch: Partial<MarcaProjeto>) => void;
+  setMarcasIntro: (texto: string) => void;
+  /** Régua de circulação do projeto, em cm. */
+  setCirculacaoMin: (cm: number) => void;
   /** Espelha nos itens posicionados o cadastro ATUAL do catálogo — preço,
    *  dimensões, desenho e ficha técnica. Roda sozinho ao abrir o projeto:
    *  atualizou o cadastro, o layout acompanha. Devolve quantos itens mudaram. */
@@ -138,9 +173,9 @@ interface ProjetoState {
   espelharItem: (id: string, eixo: "h" | "v") => void;
 
   setPlanta: (planta: PlantaFundo | null) => void;
-  updatePlanta: (patch: Partial<PlantaFundo>) => void;
+  updatePlanta: (patch: Partial<PlantaFundo>, commit?: boolean) => void;
   setPlantaVetorial: (pv: PlantaVetorial | null) => void;
-  updatePlantaVetorial: (patch: Partial<PlantaVetorial>) => void;
+  updatePlantaVetorial: (patch: Partial<PlantaVetorial>, commit?: boolean) => void;
   toggleCamada: (nome: string) => void;
   recortarVetorial: (rect: { x: number; y: number; w: number; h: number }) => void;
 
@@ -165,7 +200,29 @@ interface ProjetoState {
   salvar: () => Promise<void>;
 }
 
-const clone = (c: Cena): Cena => JSON.parse(JSON.stringify(c));
+/** Cópia profunda da cena para o histórico. `structuredClone` (Safari 15.4+,
+ *  o alvo do iPad) é bem mais rápido que passar por JSON numa cena grande. */
+const clone = (c: Cena): Cena =>
+  typeof structuredClone === "function" ? structuredClone(c) : JSON.parse(JSON.stringify(c));
+
+/** Teto do histórico: cena grande × passos ilimitados estoura a memória do iPad. */
+const MAX_HIST = 60;
+const empilhar = (past: Cena[], atual: Cena): Cena[] => {
+  const novo = [...past, clone(atual)];
+  return novo.length > MAX_HIST ? novo.slice(novo.length - MAX_HIST) : novo;
+};
+
+/** Zera toda a seleção — usado por undo/redo e ao selecionar outra coisa.
+ *  Esquecer uma destas chaves deixa o inspetor mostrando um item que já não
+ *  existe mais na cena. */
+const SEM_SELECAO = {
+  selectedId: null,
+  selectedAcabId: null,
+  selElemParedeId: null,
+  selInfraId: null,
+  selEstrutura: null,
+  selAreaFuncId: null,
+} as const;
 
 export const useProjeto = create<ProjetoState>((set, get) => ({
   projeto: null,
@@ -187,28 +244,28 @@ export const useProjeto = create<ProjetoState>((set, get) => ({
   },
 
   selecionar(id) {
-    set({ selectedId: id, selectedAcabId: null, selElemParedeId: null, selInfraId: null, selEstrutura: null });
+    set({ ...SEM_SELECAO, selectedId: id });
   },
 
   selecionarAcab(id) {
-    set({ selectedAcabId: id, selectedId: null, selElemParedeId: null, selInfraId: null, selEstrutura: null });
+    set({ ...SEM_SELECAO, selectedAcabId: id });
   },
 
   addArea(area) {
     const a = normalizarArea(area);
-    set((s) => ({ past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, acabamentos: [...(s.cena.acabamentos ?? []), a] }, selectedAcabId: a.id, selectedId: null, dirty: true }));
+    set((s) => ({ past: empilhar(s.past, s.cena), future: [], cena: { ...s.cena, acabamentos: [...(s.cena.acabamentos ?? []), a] }, selectedAcabId: a.id, selectedId: null, dirty: true }));
   },
 
   updateArea(id, patch, commit = true) {
     set((s) => {
       const acabamentos = (s.cena.acabamentos ?? []).map((a) => (a.id === id ? normalizarArea({ ...a, ...patch }) : a));
-      const past = commit ? [...s.past, clone(s.cena)] : s.past;
+      const past = commit ? empilhar(s.past, s.cena) : s.past;
       return { past, future: commit ? [] : s.future, cena: { ...s.cena, acabamentos }, dirty: true };
     });
   },
 
   removerArea(id) {
-    set((s) => ({ past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, acabamentos: (s.cena.acabamentos ?? []).filter((a) => a.id !== id) }, selectedAcabId: null, dirty: true }));
+    set((s) => ({ past: empilhar(s.past, s.cena), future: [], cena: { ...s.cena, acabamentos: (s.cena.acabamentos ?? []).filter((a) => a.id !== id) }, selectedAcabId: null, dirty: true }));
   },
 
   // Duplica a área com um pequeno deslocamento (30 cm), já selecionando a cópia.
@@ -217,52 +274,52 @@ export const useProjeto = create<ProjetoState>((set, get) => ({
       const orig = (s.cena.acabamentos ?? []).find((a) => a.id === id);
       if (!orig) return {};
       const nova = normalizarArea({ ...orig, id: crypto.randomUUID(), pontos: transladar(orig.pontos ?? [], 30, 30), bloqueado: false });
-      return { past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, acabamentos: [...(s.cena.acabamentos ?? []), nova] }, selectedAcabId: nova.id, dirty: true };
+      return { past: empilhar(s.past, s.cena), future: [], cena: { ...s.cena, acabamentos: [...(s.cena.acabamentos ?? []), nova] }, selectedAcabId: nova.id, dirty: true };
     });
   },
 
   moverArea(id, dx, dy) {
     set((s) => {
       const acabamentos = (s.cena.acabamentos ?? []).map((a) => (a.id === id ? normalizarArea({ ...a, pontos: transladar(a.pontos ?? [], dx, dy) }) : a));
-      return { past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, acabamentos }, dirty: true };
+      return { past: empilhar(s.past, s.cena), future: [], cena: { ...s.cena, acabamentos }, dirty: true };
     });
   },
 
   addCota(c) {
-    set((s) => ({ past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, cotas: [...(s.cena.cotas ?? []), c] }, dirty: true }));
+    set((s) => ({ past: empilhar(s.past, s.cena), future: [], cena: { ...s.cena, cotas: [...(s.cena.cotas ?? []), c] }, dirty: true }));
   },
 
   removerCota(id) {
-    set((s) => ({ past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, cotas: (s.cena.cotas ?? []).filter((c) => c.id !== id) }, dirty: true }));
+    set((s) => ({ past: empilhar(s.past, s.cena), future: [], cena: { ...s.cena, cotas: (s.cena.cotas ?? []).filter((c) => c.id !== id) }, dirty: true }));
   },
 
   // ── Etapa 5: acessórios (orçamento) ────────────────────────────────────────
   addAcessorio(a) {
-    set((s) => ({ past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, acessorios: [...(s.cena.acessorios ?? []), a] }, dirty: true }));
+    set((s) => ({ past: empilhar(s.past, s.cena), future: [], cena: { ...s.cena, acessorios: [...(s.cena.acessorios ?? []), a] }, dirty: true }));
   },
   updateAcessorio(id, patch) {
-    set((s) => ({ past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, acessorios: (s.cena.acessorios ?? []).map((a) => (a.id === id ? { ...a, ...patch } : a)) }, dirty: true }));
+    set((s) => ({ past: empilhar(s.past, s.cena), future: [], cena: { ...s.cena, acessorios: (s.cena.acessorios ?? []).map((a) => (a.id === id ? { ...a, ...patch } : a)) }, dirty: true }));
   },
   removerAcessorio(id) {
-    set((s) => ({ past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, acessorios: (s.cena.acessorios ?? []).filter((a) => a.id !== id) }, dirty: true }));
+    set((s) => ({ past: empilhar(s.past, s.cena), future: [], cena: { ...s.cena, acessorios: (s.cena.acessorios ?? []).filter((a) => a.id !== id) }, dirty: true }));
   },
 
   addAnexo(a) {
-    set((s) => ({ past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, anexos: [...(s.cena.anexos ?? []), a] }, dirty: true }));
+    set((s) => ({ past: empilhar(s.past, s.cena), future: [], cena: { ...s.cena, anexos: [...(s.cena.anexos ?? []), a] }, dirty: true }));
   },
   removerAnexo(id) {
-    set((s) => ({ past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, anexos: (s.cena.anexos ?? []).filter((x) => x.id !== id) }, dirty: true }));
+    set((s) => ({ past: empilhar(s.past, s.cena), future: [], cena: { ...s.cena, anexos: (s.cena.anexos ?? []).filter((x) => x.id !== id) }, dirty: true }));
   },
 
   addItem(item) {
-    set((s) => ({ past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, itens: [...s.cena.itens, item] }, selectedId: item.id, dirty: true }));
+    set((s) => ({ past: empilhar(s.past, s.cena), future: [], cena: { ...s.cena, itens: [...s.cena.itens, item] }, selectedId: item.id, dirty: true }));
   },
 
   updateItem(id, patch, commit = true) {
     set((s) => {
       const itens = s.cena.itens.map((it) => (it.id === id ? { ...it, ...patch } : it));
       // Movimentos contínuos (commit=false) não empilham histórico a cada frame.
-      const past = commit ? [...s.past, clone(s.cena)] : s.past;
+      const past = commit ? empilhar(s.past, s.cena) : s.past;
       return { past, future: commit ? [] : s.future, cena: { ...s.cena, itens }, dirty: true };
     });
   },
@@ -271,7 +328,7 @@ export const useProjeto = create<ProjetoState>((set, get) => ({
   classificarEmLote(cenario, zona) {
     set((s) => {
       const itens = s.cena.itens.map((it) => (!zona || it.zona === zona ? { ...it, cenario } : it));
-      return { past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, itens }, dirty: true };
+      return { past: empilhar(s.past, s.cena), future: [], cena: { ...s.cena, itens }, dirty: true };
     });
   },
 
@@ -282,7 +339,7 @@ export const useProjeto = create<ProjetoState>((set, get) => ({
       const itens = s.cena.itens.map((it) =>
         sobrescrever || it.cenario === "balanceado" ? { ...it, cenario: cenarioSugerido(it.nome, it.zona) } : it,
       );
-      return { past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, itens }, dirty: true };
+      return { past: empilhar(s.past, s.cena), future: [], cena: { ...s.cena, itens }, dirty: true };
     });
   },
 
@@ -315,36 +372,91 @@ export const useProjeto = create<ProjetoState>((set, get) => ({
         return { ...it, ...patch };
       });
       if (!mudados) return {};
-      return { past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, itens }, dirty: true };
+      return { past: empilhar(s.past, s.cena), future: [], cena: { ...s.cena, itens }, dirty: true };
     });
     return mudados;
   },
 
-  setEspecificacao(zona, texto) {
+  setEspecificacao(zona, patch) {
     set((s) => {
       const especificacoes = { ...(s.cena.especificacoes ?? {}) };
-      if (texto.trim()) especificacoes[zona] = texto.trim();
+      const atual: EspecProjeto = { ...(especificacoes[zona] ?? {}) };
+      for (const [k, v] of Object.entries(patch) as [keyof EspecProjeto, string | undefined][]) {
+        if (v && v.trim()) atual[k] = v.trim();
+        else delete atual[k];
+      }
+      if (Object.keys(atual).length) especificacoes[zona] = atual;
       else delete especificacoes[zona];
-      return { past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, especificacoes }, dirty: true };
+      return { past: empilhar(s.past, s.cena), future: [], cena: { ...s.cena, especificacoes }, dirty: true };
     });
   },
 
+  // ── Dossiê: texto, ordem e emissão ───────────────────────────────────────
+  setDossieTexto(chave, texto) {
+    set((s) => {
+      const dossieTextos = { ...(s.cena.dossieTextos ?? {}) };
+      // Campo LIMPO volta ao texto padrão; só-espaços é a supressão prometida
+      // pela Central ("escreva um espaço") — grava vazio, e vazio não imprime.
+      if (texto === "") delete dossieTextos[chave];
+      else dossieTextos[chave] = texto.trim();
+      return { past: empilhar(s.past, s.cena), future: [], cena: { ...s.cena, dossieTextos }, dirty: true };
+    });
+  },
+
+  moverSecaoDossie(secao, delta) {
+    set((s) => {
+      const ordem = [...(s.cena.dossieOrdem ?? ORDEM_DOSSIE_PADRAO)];
+      const i = ordem.indexOf(secao);
+      const j = i + delta;
+      if (i < 0 || j < 0 || j >= ordem.length) return {};
+      [ordem[i], ordem[j]] = [ordem[j], ordem[i]];
+      return { past: empilhar(s.past, s.cena), future: [], cena: { ...s.cena, dossieOrdem: ordem }, dirty: true };
+    });
+  },
+
+  resetOrdemDossie() {
+    set((s) => ({ past: empilhar(s.past, s.cena), future: [], cena: { ...s.cena, dossieOrdem: undefined }, dirty: true }));
+  },
+
+  setDossieEmissao(iso) {
+    set((s) => ({ past: empilhar(s.past, s.cena), future: [], cena: { ...s.cena, dossieEmissao: iso }, dirty: true }));
+  },
+
+  // ── Marcas do projeto ────────────────────────────────────────────────────
+  setMarcaProjeto(ref, patch) {
+    set((s) => {
+      const lista = [...(s.cena.marcas ?? [])];
+      const i = lista.findIndex((m) => m.ref === ref);
+      if (i >= 0) lista[i] = { ...lista[i], ...patch };
+      else lista.push({ ref, ...patch });
+      return { past: empilhar(s.past, s.cena), future: [], cena: { ...s.cena, marcas: lista }, dirty: true };
+    });
+  },
+
+  setMarcasIntro(texto) {
+    set((s) => ({ past: empilhar(s.past, s.cena), future: [], cena: { ...s.cena, marcasIntro: texto.trim() || null }, dirty: true }));
+  },
+
+  setCirculacaoMin(cm) {
+    set((s) => ({ past: empilhar(s.past, s.cena), future: [], cena: { ...s.cena, circulacaoMin: cm > 0 ? Math.round(cm) : null }, dirty: true }));
+  },
+
   addInventario(i) {
-    set((s) => ({ past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, inventario: [...(s.cena.inventario ?? []), i] }, dirty: true }));
+    set((s) => ({ past: empilhar(s.past, s.cena), future: [], cena: { ...s.cena, inventario: [...(s.cena.inventario ?? []), i] }, dirty: true }));
   },
   updateInventario(id, patch) {
-    set((s) => ({ past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, inventario: (s.cena.inventario ?? []).map((i) => (i.id === id ? { ...i, ...patch } : i)) }, dirty: true }));
+    set((s) => ({ past: empilhar(s.past, s.cena), future: [], cena: { ...s.cena, inventario: (s.cena.inventario ?? []).map((i) => (i.id === id ? { ...i, ...patch } : i)) }, dirty: true }));
   },
   removerInventario(id) {
-    set((s) => ({ past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, inventario: (s.cena.inventario ?? []).filter((i) => i.id !== id) }, dirty: true }));
+    set((s) => ({ past: empilhar(s.past, s.cena), future: [], cena: { ...s.cena, inventario: (s.cena.inventario ?? []).filter((i) => i.id !== id) }, dirty: true }));
   },
 
   selecionarAreaFunc(id) {
-    set({ selAreaFuncId: id, selectedId: null, selectedAcabId: null, selElemParedeId: null, selInfraId: null, selEstrutura: null });
+    set({ ...SEM_SELECAO, selAreaFuncId: id });
   },
   addAreaFuncional(a) {
     const norm = { ...a, ...bboxDe(a.pontos) };
-    set((s) => ({ past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, areas: [...(s.cena.areas ?? []), norm] }, selAreaFuncId: a.id, dirty: true }));
+    set((s) => ({ past: empilhar(s.past, s.cena), future: [], cena: { ...s.cena, areas: [...(s.cena.areas ?? []), norm] }, selAreaFuncId: a.id, dirty: true }));
   },
   updateAreaFuncional(id, patch, commit = true) {
     set((s) => {
@@ -353,25 +465,25 @@ export const useProjeto = create<ProjetoState>((set, get) => ({
         const nova = { ...a, ...patch };
         return patch.pontos ? { ...nova, ...bboxDe(nova.pontos) } : nova;
       });
-      return { past: commit ? [...s.past, clone(s.cena)] : s.past, future: commit ? [] : s.future, cena: { ...s.cena, areas }, dirty: true };
+      return { past: commit ? empilhar(s.past, s.cena) : s.past, future: commit ? [] : s.future, cena: { ...s.cena, areas }, dirty: true };
     });
   },
   removerAreaFuncional(id) {
-    set((s) => ({ past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, areas: (s.cena.areas ?? []).filter((a) => a.id !== id) }, selAreaFuncId: null, dirty: true }));
+    set((s) => ({ past: empilhar(s.past, s.cena), future: [], cena: { ...s.cena, areas: (s.cena.areas ?? []).filter((a) => a.id !== id) }, selAreaFuncId: null, dirty: true }));
   },
 
   setParecer(texto) {
-    set((s) => ({ past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, parecer: texto.trim() || null }, dirty: true }));
+    set((s) => ({ past: empilhar(s.past, s.cena), future: [], cena: { ...s.cena, parecer: texto.trim() || null }, dirty: true }));
   },
 
   setOpcaoDossie(chave, ligado) {
-    set((s) => ({ cena: { ...s.cena, dossie: { ...(s.cena.dossie ?? {}), [chave]: ligado } }, dirty: true }));
+    set((s) => ({ past: empilhar(s.past, s.cena), future: [], cena: { ...s.cena, dossie: { ...(s.cena.dossie ?? {}), [chave]: ligado } }, dirty: true }));
   },
 
   removerSelecionado() {
     const id = get().selectedId;
     if (!id) return;
-    set((s) => ({ past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, itens: s.cena.itens.filter((it) => it.id !== id) }, selectedId: null, dirty: true }));
+    set((s) => ({ past: empilhar(s.past, s.cena), future: [], cena: { ...s.cena, itens: s.cena.itens.filter((it) => it.id !== id) }, selectedId: null, dirty: true }));
   },
 
   // Rotação REAL em torno do centro (qualquer grau; padrão 90°).
@@ -380,7 +492,7 @@ export const useProjeto = create<ProjetoState>((set, get) => ({
     if (!id) return;
     set((s) => {
       const itens = s.cena.itens.map((it) => (it.id === id ? { ...it, rotacao: (((it.rotacao || 0) + graus) % 360 + 360) % 360 } : it));
-      return { past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, itens }, dirty: true };
+      return { past: empilhar(s.past, s.cena), future: [], cena: { ...s.cena, itens }, dirty: true };
     });
   },
 
@@ -389,37 +501,41 @@ export const useProjeto = create<ProjetoState>((set, get) => ({
       const orig = s.cena.itens.find((i) => i.id === id);
       if (!orig) return {};
       const novo = { ...orig, id: crypto.randomUUID(), x_cm: orig.x_cm + 30, y_cm: orig.y_cm + 30, bloqueado: false };
-      return { past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, itens: [...s.cena.itens, novo] }, selectedId: novo.id, dirty: true };
+      return { past: empilhar(s.past, s.cena), future: [], cena: { ...s.cena, itens: [...s.cena.itens, novo] }, selectedId: novo.id, dirty: true };
     });
   },
 
   espelharItem(id, eixo) {
     set((s) => {
       const itens = s.cena.itens.map((it) => (it.id === id ? { ...it, ...(eixo === "h" ? { flipH: !it.flipH } : { flipV: !it.flipV }) } : it));
-      return { past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, itens }, dirty: true };
+      return { past: empilhar(s.past, s.cena), future: [], cena: { ...s.cena, itens }, dirty: true };
     });
   },
 
   setPlanta(planta) {
     // planta raster e vetorial são mutuamente exclusivas
-    set((s) => ({ past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, planta, plantaVetorial: planta ? null : s.cena.plantaVetorial }, dirty: true }));
+    set((s) => ({ past: empilhar(s.past, s.cena), future: [], cena: { ...s.cena, planta, plantaVetorial: planta ? null : s.cena.plantaVetorial }, dirty: true }));
   },
 
-  updatePlanta(patch) {
+  updatePlanta(patch, commit = true) {
     set((s) => {
       if (!s.cena.planta) return {};
-      return { cena: { ...s.cena, planta: { ...s.cena.planta, ...patch } }, dirty: true };
+      // Entra no histórico: mover/girar a planta já calibrada com o dedo era
+      // irreversível — um deslize apagava a calibração de escala.
+      return { past: commit ? empilhar(s.past, s.cena) : s.past, future: commit ? [] : s.future,
+        cena: { ...s.cena, planta: { ...s.cena.planta, ...patch } }, dirty: true };
     });
   },
 
   setPlantaVetorial(pv) {
-    set((s) => ({ past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, plantaVetorial: pv, planta: pv ? null : s.cena.planta }, dirty: true }));
+    set((s) => ({ past: empilhar(s.past, s.cena), future: [], cena: { ...s.cena, plantaVetorial: pv, planta: pv ? null : s.cena.planta }, dirty: true }));
   },
 
-  updatePlantaVetorial(patch) {
+  updatePlantaVetorial(patch, commit = true) {
     set((s) => {
       if (!s.cena.plantaVetorial) return {};
-      return { cena: { ...s.cena, plantaVetorial: { ...s.cena.plantaVetorial, ...patch } }, dirty: true };
+      return { past: commit ? empilhar(s.past, s.cena) : s.past, future: commit ? [] : s.future,
+        cena: { ...s.cena, plantaVetorial: { ...s.cena.plantaVetorial, ...patch } }, dirty: true };
     });
   },
 
@@ -428,7 +544,7 @@ export const useProjeto = create<ProjetoState>((set, get) => ({
       const pv = s.cena.plantaVetorial;
       if (!pv) return {};
       const camadas = pv.camadas.map((c) => (c.nome === nome ? { ...c, visivel: !c.visivel } : c));
-      return { cena: { ...s.cena, plantaVetorial: { ...pv, camadas } }, dirty: true };
+      return { past: empilhar(s.past, s.cena), future: [], cena: { ...s.cena, plantaVetorial: { ...pv, camadas } }, dirty: true };
     });
   },
 
@@ -446,60 +562,60 @@ export const useProjeto = create<ProjetoState>((set, get) => ({
         return dentro((mnx + mxx) / 2, (mny + mxy) / 2);
       });
       const rotulos = pv.rotulos.filter((r) => dentro(r.x_cm, r.y_cm));
-      return { past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, plantaVetorial: { ...pv, tracos, rotulos } }, dirty: true };
+      return { past: empilhar(s.past, s.cena), future: [], cena: { ...s.cena, plantaVetorial: { ...pv, tracos, rotulos } }, dirty: true };
     });
   },
 
   // ── Etapa 1 — estrutura (paredes / pilares / aberturas) ────────────────────
   selecionarEstrutura(sel) {
-    set({ selEstrutura: sel, selectedId: null, selectedAcabId: null, selElemParedeId: null, selInfraId: null });
+    set({ ...SEM_SELECAO, selEstrutura: sel });
   },
 
   gerarEstruturaAuto() {
-    set((s) => ({ past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, estrutura: gerarEstrutura(s.cena) }, selEstrutura: null, dirty: true }));
+    set((s) => ({ past: empilhar(s.past, s.cena), future: [], cena: { ...s.cena, estrutura: gerarEstrutura(s.cena) }, selEstrutura: null, dirty: true }));
   },
 
   limparEstrutura() {
-    set((s) => ({ past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, estrutura: estruturaVazia() }, selEstrutura: null, dirty: true }));
+    set((s) => ({ past: empilhar(s.past, s.cena), future: [], cena: { ...s.cena, estrutura: estruturaVazia() }, selEstrutura: null, dirty: true }));
   },
 
   addParede(p) {
     set((s) => {
       const est = s.cena.estrutura ?? estruturaVazia();
-      return { past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, estrutura: { ...est, paredes: [...est.paredes, p] } }, selEstrutura: { tipo: "parede", id: p.id }, selectedId: null, selectedAcabId: null, dirty: true };
+      return { past: empilhar(s.past, s.cena), future: [], cena: { ...s.cena, estrutura: { ...est, paredes: [...est.paredes, p] } }, selEstrutura: { tipo: "parede", id: p.id }, selectedId: null, selectedAcabId: null, dirty: true };
     });
   },
   updateParede(id, patch, commit = true) {
     set((s) => {
       const est = s.cena.estrutura ?? estruturaVazia();
       const paredes = est.paredes.map((p) => (p.id === id ? { ...p, ...patch } : p));
-      return { past: commit ? [...s.past, clone(s.cena)] : s.past, future: commit ? [] : s.future, cena: { ...s.cena, estrutura: { ...est, paredes } }, dirty: true };
+      return { past: commit ? empilhar(s.past, s.cena) : s.past, future: commit ? [] : s.future, cena: { ...s.cena, estrutura: { ...est, paredes } }, dirty: true };
     });
   },
   removerParede(id) {
     set((s) => {
       const est = s.cena.estrutura ?? estruturaVazia();
-      return { past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, estrutura: { ...est, paredes: est.paredes.filter((p) => p.id !== id), aberturas: est.aberturas.filter((a) => a.paredeId !== id) } }, selEstrutura: null, dirty: true };
+      return { past: empilhar(s.past, s.cena), future: [], cena: { ...s.cena, estrutura: { ...est, paredes: est.paredes.filter((p) => p.id !== id), aberturas: est.aberturas.filter((a) => a.paredeId !== id) } }, selEstrutura: null, dirty: true };
     });
   },
 
   addPilar(p) {
     set((s) => {
       const est = s.cena.estrutura ?? estruturaVazia();
-      return { past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, estrutura: { ...est, pilares: [...est.pilares, p] } }, selEstrutura: { tipo: "pilar", id: p.id }, selectedId: null, selectedAcabId: null, dirty: true };
+      return { past: empilhar(s.past, s.cena), future: [], cena: { ...s.cena, estrutura: { ...est, pilares: [...est.pilares, p] } }, selEstrutura: { tipo: "pilar", id: p.id }, selectedId: null, selectedAcabId: null, dirty: true };
     });
   },
   updatePilar(id, patch, commit = true) {
     set((s) => {
       const est = s.cena.estrutura ?? estruturaVazia();
       const pilares = est.pilares.map((p) => (p.id === id ? { ...p, ...patch } : p));
-      return { past: commit ? [...s.past, clone(s.cena)] : s.past, future: commit ? [] : s.future, cena: { ...s.cena, estrutura: { ...est, pilares } }, dirty: true };
+      return { past: commit ? empilhar(s.past, s.cena) : s.past, future: commit ? [] : s.future, cena: { ...s.cena, estrutura: { ...est, pilares } }, dirty: true };
     });
   },
   removerPilar(id) {
     set((s) => {
       const est = s.cena.estrutura ?? estruturaVazia();
-      return { past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, estrutura: { ...est, pilares: est.pilares.filter((p) => p.id !== id) } }, selEstrutura: null, dirty: true };
+      return { past: empilhar(s.past, s.cena), future: [], cena: { ...s.cena, estrutura: { ...est, pilares: est.pilares.filter((p) => p.id !== id) } }, selEstrutura: null, dirty: true };
     });
   },
 
@@ -507,7 +623,7 @@ export const useProjeto = create<ProjetoState>((set, get) => ({
   // parede gira o segmento; pilar troca largura ↔ profundidade.
   // Redimensiona a sala-guia (retângulo de referência do projeto).
   updateSala(patch) {
-    set((s) => ({ past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, sala: { ...s.cena.sala, ...patch } }, dirty: true }));
+    set((s) => ({ past: empilhar(s.past, s.cena), future: [], cena: { ...s.cena, sala: { ...s.cena.sala, ...patch } }, dirty: true }));
   },
 
   girarEstruturaSel() {
@@ -522,7 +638,7 @@ export const useProjeto = create<ProjetoState>((set, get) => ({
           const cx = (p.x1 + p.x2) / 2, cy = (p.y1 + p.y2) / 2;
           return { ...p, x1: cx - (p.y1 - cy), y1: cy + (p.x1 - cx), x2: cx - (p.y2 - cy), y2: cy + (p.x2 - cx) };
         });
-        return { past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, estrutura: { ...est, paredes } }, dirty: true };
+        return { past: empilhar(s.past, s.cena), future: [], cena: { ...s.cena, estrutura: { ...est, paredes } }, dirty: true };
       }
       if (sel.tipo === "pilar") {
         const pilares = est.pilares.map((p) => {
@@ -530,7 +646,7 @@ export const useProjeto = create<ProjetoState>((set, get) => ({
           const cx = p.x_cm + p.w_cm / 2, cy = p.y_cm + p.h_cm / 2;
           return { ...p, x_cm: cx - p.h_cm / 2, y_cm: cy - p.w_cm / 2, w_cm: p.h_cm, h_cm: p.w_cm };
         });
-        return { past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, estrutura: { ...est, pilares } }, dirty: true };
+        return { past: empilhar(s.past, s.cena), future: [], cena: { ...s.cena, estrutura: { ...est, pilares } }, dirty: true };
       }
       return {};
     });
@@ -539,62 +655,62 @@ export const useProjeto = create<ProjetoState>((set, get) => ({
   addAbertura(a) {
     set((s) => {
       const est = s.cena.estrutura ?? estruturaVazia();
-      return { past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, estrutura: { ...est, aberturas: [...est.aberturas, a] } }, selEstrutura: { tipo: "abertura", id: a.id }, selectedId: null, selectedAcabId: null, dirty: true };
+      return { past: empilhar(s.past, s.cena), future: [], cena: { ...s.cena, estrutura: { ...est, aberturas: [...est.aberturas, a] } }, selEstrutura: { tipo: "abertura", id: a.id }, selectedId: null, selectedAcabId: null, dirty: true };
     });
   },
   updateAbertura(id, patch, commit = true) {
     set((s) => {
       const est = s.cena.estrutura ?? estruturaVazia();
       const aberturas = est.aberturas.map((a) => (a.id === id ? { ...a, ...patch } : a));
-      return { past: commit ? [...s.past, clone(s.cena)] : s.past, future: commit ? [] : s.future, cena: { ...s.cena, estrutura: { ...est, aberturas } }, dirty: true };
+      return { past: commit ? empilhar(s.past, s.cena) : s.past, future: commit ? [] : s.future, cena: { ...s.cena, estrutura: { ...est, aberturas } }, dirty: true };
     });
   },
   removerAbertura(id) {
     set((s) => {
       const est = s.cena.estrutura ?? estruturaVazia();
-      return { past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, estrutura: { ...est, aberturas: est.aberturas.filter((a) => a.id !== id) } }, selEstrutura: null, dirty: true };
+      return { past: empilhar(s.past, s.cena), future: [], cena: { ...s.cena, estrutura: { ...est, aberturas: est.aberturas.filter((a) => a.id !== id) } }, selEstrutura: null, dirty: true };
     });
   },
 
   // ── Etapa 2: elementos de parede (espelho, TV, elétrica…) ──────────────────
   selecionarElemParede(id) {
-    set({ selElemParedeId: id, selectedId: null, selectedAcabId: null, selInfraId: null, selEstrutura: null });
+    set({ ...SEM_SELECAO, selElemParedeId: id });
   },
   addElemParede(e) {
-    set((s) => ({ past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, elementosParede: [...(s.cena.elementosParede ?? []), e] }, selElemParedeId: e.id, selectedId: null, selectedAcabId: null, selInfraId: null, selEstrutura: null, dirty: true }));
+    set((s) => ({ past: empilhar(s.past, s.cena), future: [], cena: { ...s.cena, elementosParede: [...(s.cena.elementosParede ?? []), e] }, selElemParedeId: e.id, selectedId: null, selectedAcabId: null, selInfraId: null, selEstrutura: null, dirty: true }));
   },
   updateElemParede(id, patch, commit = true) {
     set((s) => {
       const elementosParede = (s.cena.elementosParede ?? []).map((e) => (e.id === id ? { ...e, ...patch } : e));
-      return { past: commit ? [...s.past, clone(s.cena)] : s.past, future: commit ? [] : s.future, cena: { ...s.cena, elementosParede }, dirty: true };
+      return { past: commit ? empilhar(s.past, s.cena) : s.past, future: commit ? [] : s.future, cena: { ...s.cena, elementosParede }, dirty: true };
     });
   },
   removerElemParede(id) {
-    set((s) => ({ past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, elementosParede: (s.cena.elementosParede ?? []).filter((e) => e.id !== id) }, selElemParedeId: null, dirty: true }));
+    set((s) => ({ past: empilhar(s.past, s.cena), future: [], cena: { ...s.cena, elementosParede: (s.cena.elementosParede ?? []).filter((e) => e.id !== id) }, selElemParedeId: null, dirty: true }));
   },
 
   // ── Etapa 2: mobiliário / infraestrutura ───────────────────────────────────
   selecionarInfra(id) {
-    set({ selInfraId: id, selectedId: null, selectedAcabId: null, selElemParedeId: null, selEstrutura: null });
+    set({ ...SEM_SELECAO, selInfraId: id });
   },
   addInfra(i) {
-    set((s) => ({ past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, infra: [...(s.cena.infra ?? []), i] }, selInfraId: i.id, selectedId: null, selectedAcabId: null, selElemParedeId: null, selEstrutura: null, dirty: true }));
+    set((s) => ({ past: empilhar(s.past, s.cena), future: [], cena: { ...s.cena, infra: [...(s.cena.infra ?? []), i] }, selInfraId: i.id, selectedId: null, selectedAcabId: null, selElemParedeId: null, selEstrutura: null, dirty: true }));
   },
   updateInfra(id, patch, commit = true) {
     set((s) => {
       const infra = (s.cena.infra ?? []).map((i) => (i.id === id ? { ...i, ...patch } : i));
-      return { past: commit ? [...s.past, clone(s.cena)] : s.past, future: commit ? [] : s.future, cena: { ...s.cena, infra }, dirty: true };
+      return { past: commit ? empilhar(s.past, s.cena) : s.past, future: commit ? [] : s.future, cena: { ...s.cena, infra }, dirty: true };
     });
   },
   removerInfra(id) {
-    set((s) => ({ past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, infra: (s.cena.infra ?? []).filter((i) => i.id !== id) }, selInfraId: null, dirty: true }));
+    set((s) => ({ past: empilhar(s.past, s.cena), future: [], cena: { ...s.cena, infra: (s.cena.infra ?? []).filter((i) => i.id !== id) }, selInfraId: null, dirty: true }));
   },
   duplicarInfra(id) {
     set((s) => {
       const orig = (s.cena.infra ?? []).find((i) => i.id === id);
       if (!orig) return {};
       const novo = { ...orig, id: crypto.randomUUID(), x_cm: orig.x_cm + 30, y_cm: orig.y_cm + 30, bloqueado: false };
-      return { past: [...s.past, clone(s.cena)], future: [], cena: { ...s.cena, infra: [...(s.cena.infra ?? []), novo] }, selInfraId: novo.id, dirty: true };
+      return { past: empilhar(s.past, s.cena), future: [], cena: { ...s.cena, infra: [...(s.cena.infra ?? []), novo] }, selInfraId: novo.id, dirty: true };
     });
   },
 
@@ -602,7 +718,7 @@ export const useProjeto = create<ProjetoState>((set, get) => ({
     set((s) => {
       if (!s.past.length) return {};
       const previous = s.past[s.past.length - 1];
-      return { cena: previous, past: s.past.slice(0, -1), future: [clone(s.cena), ...s.future], dirty: true, selectedId: null, selEstrutura: null, selElemParedeId: null, selInfraId: null };
+      return { ...SEM_SELECAO, cena: previous, past: s.past.slice(0, -1), future: [clone(s.cena), ...s.future], dirty: true };
     });
   },
 
@@ -610,7 +726,7 @@ export const useProjeto = create<ProjetoState>((set, get) => ({
     set((s) => {
       if (!s.future.length) return {};
       const next = s.future[0];
-      return { cena: next, future: s.future.slice(1), past: [...s.past, clone(s.cena)], dirty: true, selectedId: null, selEstrutura: null, selElemParedeId: null, selInfraId: null };
+      return { ...SEM_SELECAO, cena: next, future: s.future.slice(1), past: empilhar(s.past, s.cena), dirty: true };
     });
   },
 

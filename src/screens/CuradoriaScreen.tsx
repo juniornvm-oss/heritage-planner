@@ -9,6 +9,7 @@ import {
   uploadOrcamento, urlOrcamento, removerOrcamentoArquivo,
 } from "../lib/supabase";
 import { lerOrcamentoPdf, type OrcamentoLido, type TipoLinha } from "../lib/orcamentoPdf";
+import EntradaPDF from "../ui/EntradaPDF";
 import OrcamentoConferencia from "../ui/OrcamentoConferencia";
 import { lerCotacoes } from "../lib/readers";
 import { heritageProjeto } from "../lib/seed";
@@ -63,7 +64,6 @@ export default function CuradoriaScreen() {
   const [tipoUpload, setTipoUpload] = useState<TipoLinha>("equipamento");
   const [conferencia, setConferencia] = useState<{ lido: OrcamentoLido; arquivo: File } | null>(null);
   const [salvandoOrc, setSalvandoOrc] = useState(false);
-  const pdfRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     (async () => {
@@ -147,18 +147,18 @@ export default function CuradoriaScreen() {
   }
 
   // ── Orçamento em PDF ──────────────────────────────────────────────────────
-  async function lerPdf(file?: File | null) {
-    if (!file || !podeCotar) return;
-    if (!/\.pdf$/i.test(file.name)) { setErro("Envie um arquivo PDF."); return; }
+  // A validação de tipo e tamanho ficou com a `EntradaPDF`; aqui sobra a
+  // leitura. O erro é RELANÇADO para aparecer dentro da própria entrada, junto
+  // do arquivo que falhou, em vez de numa faixa distante no alto da tela.
+  async function lerPdf(file: File) {
+    if (!podeCotar) return;
     setStatus("Lendo o orçamento…"); setErro(null);
     try {
       const lido = await lerOrcamentoPdf(file, tipoUpload);
       setConferencia({ lido, arquivo: file });
-      setStatus(null);
     } catch (e) {
-      setErro(`Não consegui ler o PDF: ${(e as Error).message}`);
-      setStatus(null);
-    } finally { if (pdfRef.current) pdfRef.current.value = ""; }
+      throw new Error(`Não consegui ler o PDF: ${(e as Error).message}`);
+    } finally { setStatus(null); }
   }
 
   async function confirmarOrcamento(cab: Orcamento, linhas: Cotacao[], fornecedorNovo: string | null) {
@@ -318,12 +318,22 @@ export default function CuradoriaScreen() {
                 <button key={k} className="btn" onClick={() => setTipoUpload(k)}
                   style={{ padding: "5px 10px", fontSize: 11, ...(tipoUpload === k ? { borderColor: "var(--gold)", color: "var(--gold)" } : {}) }}>{lbl}</button>
               ))}
-              <input ref={pdfRef} type="file" accept="application/pdf,.pdf" style={{ display: "none" }} onChange={(e) => void lerPdf(e.target.files?.[0])} />
-              <button className="btn btn-gold" onClick={() => pdfRef.current?.click()}>⭱ Subir orçamento (PDF)</button>
               <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls" style={{ display: "none" }} onChange={(e) => importar(e.target.files?.[0])} />
-              <button className="btn" onClick={() => fileRef.current?.click()}>Planilha</button>
+              <button className="btn btn--sm" onClick={() => fileRef.current?.click()}>Planilha</button>
             </div>
           ) : undefined}>
+          <div style={{ marginBottom: 14 }}>
+            <EntradaPDF
+              titulo="Orçamento do fornecedor"
+              ajuda="O app lê fornecedor, itens, quantidades, valores, prazo e garantia — e mostra o que NÃO conseguiu ler. Você confere antes de virar cotação."
+              rotuloConfirmar="Ler e conferir"
+              desabilitado={!podeCotar}
+              motivoDesabilitado={ehHeritage
+                ? "Os orçamentos ficam disponíveis em um projeto salvo (o Heritage é um modelo)."
+                : "Configure o Supabase para registrar orçamentos."}
+              ocupado={status}
+              onDocumento={(doc) => lerPdf(doc.arquivo)} />
+          </div>
           {!podeCotar ? (
             <div style={{ color: "var(--muted)", fontSize: 13 }}>
               {ehHeritage ? "Os orçamentos ficam disponíveis em um projeto salvo (o Heritage é um modelo)." : "Configure o Supabase para registrar orçamentos."}

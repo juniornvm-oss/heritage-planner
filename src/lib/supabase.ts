@@ -1,5 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
-import type { Projeto, Equipamento, Acabamento, Fornecedor, Cotacao, Orcamento } from "./types";
+import type { Projeto, Equipamento, Acabamento, Fornecedor, Cotacao, Orcamento, Marca } from "./types";
 import { CAMPOS_TECNICOS } from "./types";
 
 // Empacota a ficha técnica no jsonb `tecnico` (coluna aditiva 013) e separa as
@@ -135,6 +135,37 @@ export async function listarAcabamentos(): Promise<Acabamento[]> {
 export async function inserirAcabamento(a: Acabamento): Promise<void> {
   if (!sb) throw new Error("Supabase não configurado");
   const { error } = await sb.from("acabamentos").insert(a);
+  if (error) throw error;
+}
+
+// ── Marcas (migração 018) ────────────────────────────────────────────────────
+// `ordem` primeiro, `nome` como desempate: é a ordem em que a vitrine e o
+// Dossiê apresentam as marcas quando o projeto não reordena.
+export async function listarMarcas(): Promise<Marca[]> {
+  if (!sb) return [];
+  const { data, error } = await sb.from("marcas").select("*").order("ordem", { nullsFirst: false }).order("nome");
+  if (error) return []; // tabela pode não existir ainda
+  return (data as Marca[]) || [];
+}
+
+export async function inserirMarca(m: Marca): Promise<Marca> {
+  if (!sb) throw new Error("Supabase não configurado");
+  const { id: _id, criado_em: _c, ...limpo } = m;
+  const { data, error } = await sb.from("marcas").insert(limpo).select().single();
+  if (error) throw error;
+  return data as Marca;
+}
+
+export async function atualizarMarca(id: string, patch: Partial<Marca>): Promise<void> {
+  if (!sb) throw new Error("Supabase não configurado");
+  const { id: _i, criado_em: _c, ...limpo } = patch;
+  const { error } = await sb.from("marcas").update(limpo).eq("id", id);
+  if (error) throw error;
+}
+
+export async function removerMarca(id: string): Promise<void> {
+  if (!sb) throw new Error("Supabase não configurado");
+  const { error } = await sb.from("marcas").delete().eq("id", id);
   if (error) throw error;
 }
 

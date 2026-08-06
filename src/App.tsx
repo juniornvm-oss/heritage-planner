@@ -15,6 +15,7 @@ import CuradoriaScreen from "./screens/CuradoriaScreen";
 import BibliotecaEquipamentosScreen from "./screens/BibliotecaEquipamentosScreen";
 import CadastrarEquipamentoScreen from "./screens/CadastrarEquipamentoScreen";
 import BibliotecaAcabamentosScreen from "./screens/BibliotecaAcabamentosScreen";
+import BibliotecaMarcasScreen from "./screens/BibliotecaMarcasScreen";
 import { useAuth } from "./lib/auth";
 import { online } from "./lib/supabase";
 import { useLibrary } from "./store/libraryStore";
@@ -59,6 +60,7 @@ function Plataforma() {
             <Route path="/equipamentos/novo" element={<CadastrarEquipamentoScreen />} />
             <Route path="/equipamentos/:ref" element={<CadastrarEquipamentoScreen />} />
             <Route path="/acabamentos" element={<BibliotecaAcabamentosScreen />} />
+            <Route path="/marcas" element={<BibliotecaMarcasScreen />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </ErrorBoundary>

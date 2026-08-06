@@ -1,5 +1,13 @@
 // Domínio do Heritage Planner (schema Supabase "planner").
 
+// Só TIPOS: `esquadrias.ts` importa tipos daqui e este importa tipos de lá.
+// Como as duas pontas são `import type`, o ciclo é apagado na compilação e
+// não existe em tempo de execução.
+import type {
+  MaterialParede, ModeloPorta, ModeloJanela, FormaJanela,
+  LadoAbertura, SentidoAbertura, FormaPilar, MaterialPilar,
+} from "./esquadrias";
+
 export type Zona = "ergo" | "forca" | "livre" | "prep";
 export type Cenario = "essencial" | "balanceado" | "premium";
 
@@ -279,11 +287,25 @@ export interface PlantaVetorial {
 }
 
 // ── Etapa 1: estrutura da planta (paredes, aberturas, pilares) ──────────────
+//
+// Os campos de VARIANTE (material, modelo, lado, forma…) são todos opcionais
+// de propósito: a cena gravada antes deles não tem nenhum, e a resolução dos
+// padrões vive em `esquadrias.ts` — nunca em `??` espalhado pelas telas. É por
+// isso que este arquivo importa só os TIPOS de lá: o catálogo (com rótulos e
+// medidas de fábrica) mora junto da geometria que o consome.
 /** Parede: segmento de reta em cm (mundo), com espessura. */
 export interface Parede {
   id: string;
   x1: number; y1: number; x2: number; y2: number;
   espessura_cm: number;
+  /** Sistema construtivo. Ausente = alvenaria ½ vez (o padrão do catálogo). */
+  material?: MaterialParede;
+  /** Drywall/madeira com reforço embutido previsto para carga pendurada. */
+  reforcada?: boolean;
+  /** Pé-direito local, em cm. Ausente = o da sala. */
+  altura_cm?: number;
+  /** Etiqueta do consultor ("divisa do vestiário"). */
+  nome?: string;
 }
 /** Abertura (porta/janela) posicionada sobre uma parede. */
 export interface Abertura {
@@ -292,11 +314,29 @@ export interface Abertura {
   centro_cm: number; // distância do início da parede (x1,y1) até o centro da abertura
   largura_cm: number;
   tipo: "porta" | "janela";
+  /** Variante dentro da família: chave de `PORTAS` ou de `JANELAS`. */
+  modelo?: ModeloPorta | ModeloJanela;
+  /** Ombreira da dobradiça: "esquerda" = a do lado de (x1,y1) da parede. */
+  lado?: LadoAbertura;
+  /** Para que face a folha varre. "dentro" = a face voltada ao interior. */
+  sentido?: SentidoAbertura;
+  /** Forma do vão (só janela) — aparece na elevação e no quadro, não no corte. */
+  forma?: FormaJanela;
+  /** Altura do vão, em cm. Ausente = a do modelo. */
+  altura_cm?: number;
+  /** Peitoril (só janela), em cm do piso. Ausente = o do modelo. */
+  peitoril_cm?: number;
+  /** Observação que sai no quadro de esquadrias. */
+  nota?: string;
 }
 /** Pilar estrutural (retângulo em cm). */
 export interface PilarPlanta {
   id: string;
   x_cm: number; y_cm: number; w_cm: number; h_cm: number;
+  /** Seção. Ausente = retangular. */
+  forma?: FormaPilar;
+  /** Material. Ausente = concreto armado. */
+  material?: MaterialPilar;
 }
 /** Estrutura construtiva gerada/editada na Etapa 1. */
 export interface EstruturaPlanta {
@@ -463,6 +503,7 @@ export interface OpcoesDossie {
   exercicios?: boolean;    // exercícios contemplados pela academia
   // ── Seções que antes saíam sempre, sem controle nenhum ──
   planta?: boolean;        // a planta do projeto na sala
+  esquadrias?: boolean;    // quadro de portas e janelas
   parecer?: boolean;       // parecer técnico do consultor
   diagnostico?: boolean;   // leitura do condomínio
   infraestrutura?: boolean;// análise de infraestrutura
@@ -478,7 +519,7 @@ export interface OpcoesDossie {
 export const OPCOES_DOSSIE_PADRAO: Required<OpcoesDossie> = {
   acabamentos: true, capacidade: true, cenarios: true, matriz: true, inventario: true,
   acessorios: true, marcas: true, exercicios: true,
-  planta: true, parecer: true, diagnostico: true, infraestrutura: true, financeiro: true,
+  planta: true, esquadrias: true, parecer: true, diagnostico: true, infraestrutura: true, financeiro: true,
   categorias: true, mobiliario: true, memorial: true, cobertura: true, validacao: true,
 };
 
@@ -487,6 +528,7 @@ export type SecaoDossie = keyof OpcoesDossie;
 
 export const ROTULO_SECAO_DOSSIE: Record<SecaoDossie, string> = {
   planta: "Planta — o projeto na sala",
+  esquadrias: "Quadro de esquadrias",
   parecer: "Parecer técnico",
   diagnostico: "Diagnóstico — leitura do condomínio",
   infraestrutura: "Análise de infraestrutura",
@@ -512,7 +554,7 @@ export const ROTULO_SECAO_DOSSIE: Record<SecaoDossie, string> = {
  * mexer aqui nunca embaralha o índice.
  */
 export const ORDEM_DOSSIE_PADRAO: SecaoDossie[] = [
-  "planta", "parecer", "diagnostico", "infraestrutura", "financeiro", "cenarios",
+  "planta", "esquadrias", "parecer", "diagnostico", "infraestrutura", "financeiro", "cenarios",
   "categorias", "acessorios", "marcas", "memorial", "cobertura", "exercicios",
   "inventario", "acabamentos", "mobiliario", "capacidade", "matriz", "validacao",
 ];
@@ -521,6 +563,7 @@ export const ORDEM_DOSSIE_PADRAO: SecaoDossie[] = [
  *  o consultor liga uma seção que ainda não tem conteúdo. */
 export const SECAO_EXIGE_DADO: Partial<Record<SecaoDossie, string>> = {
   planta: "uma planta capturada do editor",
+  esquadrias: "portas e janelas lançadas na Etapa 1",
   parecer: "o parecer escrito na etapa Cenários",
   cenarios: "equipamentos classificados em mais de um cenário",
   acessorios: "acessórios lançados na etapa Acessórios",

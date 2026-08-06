@@ -12,6 +12,7 @@ import {
 import { MUSCULOS, REGIOES } from "../musculatura";
 import { analisarEspaco } from "../analiseEspaco";
 import { agruparMarcas, marcasDaCena, presencaDaMarca } from "../marcas";
+import { medidaEsquadria, quadroDeEsquadrias } from "../esquadrias";
 import { PAPEL_LADO, PAPEIS_CONTATO, enderecoEmLinha, formatarTelefone } from "../types";
 
 // Paleta do dossiê
@@ -345,6 +346,9 @@ export async function montarDossie(
   // ── Inventário do condomínio: o que já existe e o que fica ──
   const inventario = cena.inventario ?? [];
 
+  // ── Quadro de esquadrias: portas e janelas, agrupadas por tipo ──
+  const esquadrias = quadroDeEsquadrias(cena.estrutura);
+
   // ── Revestimentos & acabamentos ──
   const revest = cena.acabamentos ?? [];
 
@@ -642,6 +646,56 @@ export async function montarDossie(
       at("INVESTIMENTO TOTAL (PREMIUM)", M + 9, y, 9, bold, GOLD);
       rightAt(BRL(r.cenarios.premium), A4.w - M - 9, y, 10.5, bold, GOLD);
       y -= 28;
+    },
+
+    /**
+     * QUADRO DE ESQUADRIAS — a tabela que o serralheiro orça e o mestre de
+     * obras confere. Vem logo depois da planta porque é o quantitativo do
+     * mesmo desenho: quem acabou de ver a porta no papel quer o vão dela.
+     *
+     * Cabeçalho REEMITIDO após quebra de página. Nenhuma outra tabela do
+     * arquivo faz isso, e é o que produz linha órfã sem título na página 2 —
+     * aqui não dá para conviver com isso: um quadro de esquadrias longo é o
+     * caso comum, não a exceção.
+     */
+    esquadrias: () => {
+      if (!mostrar.esquadrias || !esquadrias.length) return;
+      secN("esquadrias", 90);
+      intro("esquadrias", "Portas e janelas lançadas na planta, agrupadas por tipo. As medidas são de VÃO acabado (largura × altura, em metros); o peitoril é medido do piso acabado.");
+      const codCol = M + 6, qtdCol = M + 52, tipoCol = M + 76, vaoCol = A4.w - M - 168, peitCol = A4.w - M - 96, pareCol = A4.w - M - 6;
+      const cabecalho = () => {
+        page.drawRectangle({ x: M, y: y - 4, width: CW, height: 18, color: CREAM });
+        at("COD.", codCol, y, 8, bold, MUTED);
+        at("QTD", qtdCol, y, 8, bold, MUTED);
+        at("TIPO / MODELO", tipoCol, y, 8, bold, MUTED);
+        rightAt("VÃO L × A (m)", vaoCol, y, 8, bold, MUTED);
+        rightAt("PEITORIL", peitCol, y, 8, bold, MUTED);
+        rightAt("PAREDE", pareCol, y, 8, bold, MUTED);
+        y -= 22;
+      };
+      cabecalho();
+      for (const e of esquadrias) {
+        const obs = e.observacao ? linhasDe(e.observacao, CW - 60, 7.5) : [];
+        const alto = 16 + obs.length * 9;
+        const antes = pageNo;
+        ensure(alto);
+        if (pageNo !== antes) cabecalho();
+        at(e.codigo, codCol, y, 9, bold, DARK);
+        at(String(e.qtd), qtdCol, y, 9, font, MUTED);
+        at(trunc(`${e.tipo === "porta" ? "Porta" : "Janela"} · ${e.modelo}`, vaoCol - tipoCol - 10, 9.5), tipoCol, y, 9.5, font, DARK);
+        rightAt(medidaEsquadria(e.largura_cm, e.altura_cm), vaoCol, y, 9, font, DARK);
+        rightAt(e.peitoril_cm != null ? `${Math.round(e.peitoril_cm)} cm` : "—", peitCol, y, 9, font, MUTED);
+        rightAt(trunc(e.parede, 104, 8.5), pareCol, y, 8.5, font, MUTED);
+        y -= 12;
+        for (const l of obs) { at(l, tipoCol, y, 7.5, font, MUTED); y -= 9; }
+        page.drawLine({ start: { x: M, y: y - 3 }, end: { x: A4.w - M, y: y - 3 }, thickness: 0.4, color: LINE });
+        y -= 12;
+      }
+      const nP = esquadrias.filter((e) => e.tipo === "porta").reduce((t, e) => t + e.qtd, 0);
+      const nJ = esquadrias.filter((e) => e.tipo === "janela").reduce((t, e) => t + e.qtd, 0);
+      ensure(16);
+      at(`${nP} porta(s) e ${nJ} janela(s) em ${esquadrias.length} tipo(s) distinto(s).`, M + 6, y, 8.5, bold, DARK);
+      y -= 24;
     },
 
     acessorios: async () => {

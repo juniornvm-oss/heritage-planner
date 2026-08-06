@@ -3,13 +3,19 @@ import { Stage, Layer, Rect, Line, Group, Text, Image as KImage, Circle } from "
 import type Konva from "konva";
 import { useProjeto } from "../store/projetoStore";
 import { ZONAS, type ItemPosicionado, type Parede, type PilarPlanta, type Abertura } from "../lib/types";
-import { problemasDaCena } from "../lib/validation";
+import { problemasDaCena, type Problema } from "../lib/validation";
 import { GRID_CM } from "../lib/canvas";
 import { folgaAte, resolverSnapItem, tolCmPorZoom, type AlvoSnap, type CtxSnap, type FolgaViva } from "../lib/snap";
 import { formatLength } from "../lib/units";
 import { arred } from "../lib/estrutura";
 import { areaPoligonoM2, projetarNoSegmento, m2, type Ponto } from "../lib/geometria";
 import { analisarEspaco } from "../lib/analiseEspaco";
+import {
+  MATERIAIS_PILAR, MODELO_JANELA_PADRAO, MODELO_PORTA_PADRAO, PAREDES, PORTAS, JANELAS,
+  centroDaEstrutura, contornoPilar, defParede, simboloAbertura,
+  type FormaJanela, type FormaPilar, type LadoAbertura, type MaterialParede,
+  type MaterialPilar, type ModeloJanela, type ModeloPorta, type SentidoAbertura,
+} from "../lib/esquadrias";
 import { gerarCotasAutomaticas } from "../lib/lamina";
 import { MATERIAIS_PISO, ELEMENTOS_PAREDE, PAPEL_LADO, LADOS_PADRAO, TIPOS_AREA, type TipoElementoParede, type LadoRect } from "../lib/types";
 import { CANVAS, TOKENS } from "../ui/tokens";
@@ -20,6 +26,42 @@ import { halo } from "./konvaMotion";
 export type Etapa = "planta" | "acabamento" | "areas" | "layout" | "fichas" | "curadoria" | "acessorios";
 export type FerramentaEstrutura = "parede" | "porta" | "janela" | "pilar" | "apagar" | null;
 export type FerramentaAcab = "rect" | "poligono" | "cota" | "espelho" | "itemParede" | "apagar" | null;
+
+/**
+ * Os PADRÕES DA FERRAMENTA — o que a próxima parede/porta/janela/pilar vai
+ * ser, escolhido no flyout da caixa de ferramentas e editável na barra de
+ * propriedades enquanto nada está selecionado.
+ *
+ * É a metade do modelo do CorelDraw que costuma faltar: lá, a barra de
+ * propriedades sem seleção configura a PRÓXIMA forma. Sem isto, escolher
+ * "porta de correr" no flyout desenharia uma porta de giro assim mesmo.
+ */
+export interface PadroesPlanta {
+  materialParede: MaterialParede;
+  espessuraParede: number;
+  paredeReforcada: boolean;
+  modeloPorta: ModeloPorta;
+  larguraPorta: number;
+  ladoPorta: LadoAbertura;
+  sentidoPorta: SentidoAbertura;
+  modeloJanela: ModeloJanela;
+  larguraJanela: number;
+  formaJanela: FormaJanela;
+  formaPilar: FormaPilar;
+  materialPilar: MaterialPilar;
+}
+
+/** Espelho vivo do ponteiro para a barra de status (cm de mundo + zoom). */
+export interface EstadoPonteiro { x: number; y: number; zoom: number; dentro: boolean }
+
+export const PADROES_PLANTA: PadroesPlanta = {
+  materialParede: "alvenaria", espessuraParede: PAREDES.alvenaria.espessura_cm, paredeReforcada: false,
+  modeloPorta: MODELO_PORTA_PADRAO, larguraPorta: PORTAS[MODELO_PORTA_PADRAO].vao_cm,
+  ladoPorta: "direita", sentidoPorta: "dentro",
+  modeloJanela: MODELO_JANELA_PADRAO, larguraJanela: JANELAS[MODELO_JANELA_PADRAO].vao_cm,
+  formaJanela: "retangular",
+  formaPilar: "retangular", materialPilar: "concreto",
+};
 
 // Ponto mais próximo sobre um segmento (parede) e distância — para encaixar aberturas.
 function projetarNaParede(px: number, py: number, w: Parede) {
@@ -43,7 +85,7 @@ function useHtmlImage(src?: string) {
 
 interface Cam { zoom: number; x: number; y: number } // x,y = posição da layer em px
 
-export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoElemParede, snapPasso, camadas, apresentacao, lamina, modoVista, onVista, onArea, modoRecorte, onRecorte, modoParede, onParede, modoMoverPlanta, stageRef, somenteLeitura, etapa, ferrEstrutura }: {
+export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoElemParede, snapPasso, camadas, apresentacao, lamina, modoVista, onVista, onArea, modoRecorte, onRecorte, modoParede, onParede, modoMoverPlanta, stageRef, somenteLeitura, etapa, ferrEstrutura, padroes, ponteiroExternoRef }: {
   modoCalibrar: boolean;
   onCalibrar: (distanciaMundoCm: number) => void;
   ferrAcab?: FerramentaAcab; // ferramentas da Etapa 2 (área/polígono/cota/apagar)
@@ -64,8 +106,14 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoE
   somenteLeitura?: boolean;
   etapa?: Etapa;
   ferrEstrutura?: FerramentaEstrutura;
+  /** O que a próxima parede/porta/janela/pilar vai ser (flyout + barra de propriedades). */
+  padroes?: PadroesPlanta;
+  /** Espelho do ponteiro e do zoom para a barra de status ler por rAF, sem
+   *  re-renderizar o canvas a cada movimento do dedo. */
+  ponteiroExternoRef?: React.MutableRefObject<EstadoPonteiro>;
 }) {
   const etapaAtual: Etapa = etapa ?? "layout";
+  const pad = padroes ?? PADROES_PLANTA;
   const cena = useProjeto((s) => s.cena);
   const selectedId = useProjeto((s) => s.selectedId);
   const selectedAcabId = useProjeto((s) => s.selectedAcabId);
@@ -179,7 +227,26 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoE
     });
   };
 
-  const problemas = useMemo(() => problemasDaCena(cena), [cena]);
+  /**
+   * A análise, UMA vez por cena. Ela é a conta mais cara do editor e era
+   * chamada duas vezes aqui dentro (uma direta, outra por dentro de
+   * `problemasDaCena`) — agora a instância é compartilhada, e a varredura das
+   * portas chega ao mapa de problemas sem custo novo.
+   */
+  const espaco = useMemo(() => analisarEspaco(cena), [cena]);
+  const problemas = useMemo(() => problemasDaCena(cena, espaco), [cena, espaco]);
+  /** Diagnóstico por abertura: setor de varredura + se está travada. */
+  const diagAberturas = useMemo(() => new Map(espaco.aberturas.map((a) => [a.id, a])), [espaco]);
+  /** Elementos de parede com problema de fixação (drywall, vidro, vão atrás). */
+  const fixaProblema = useMemo(
+    () => new Map(espaco.fixacoes.map((f) => [f.elementoId, f])),
+    [espaco],
+  );
+  /** Referência de "para dentro" das folhas — o centro do conjunto de paredes. */
+  const centroSala = useMemo(
+    () => centroDaEstrutura(cena.estrutura, { x: sala.largura_cm / 2, y: sala.profundidade_cm / 2 }),
+    [cena.estrutura, sala.largura_cm, sala.profundidade_cm],
+  );
 
   // Pulso de seleção: um anel que nasce, cresce e some sobre a peça escolhida.
   // Sem ele, num canvas com quarenta retângulos, a única pista da seleção é a
@@ -196,8 +263,8 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoE
   // Área, itens contidos e ocupação de cada região funcional — a mesma conta
   // do painel de análise, para o canvas e o relatório nunca discordarem.
   const resumoDaArea = useMemo(
-    () => new Map(analisarEspaco(cena).porArea.map((z) => [z.id, z])),
-    [cena],
+    () => new Map(espaco.porArea.map((z) => [z.id, z])),
+    [espaco],
   );
 
   /**
@@ -336,20 +403,32 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoE
     }
     // ── Etapa 1: ferramentas de estrutura ──────────────────────────────────
     if (ferrEstrutura === "parede" || ferrEstrutura === "pilar") {
-      const w = toWorld(p.x, p.y);
+      // MESMO encaixe do resto do editor. Antes aqui era `toWorld` cru + `arred`
+      // (passo fixo de 5 cm): o controle "Encaixe" da barra não valia para a
+      // Etapa 1, e a prévia elástica — que lê o ponteiro JÁ encaixado — mostrava
+      // um ponto e o traço nascia em outro.
+      const w = snapPonto(toWorld(p.x, p.y));
       const pts = [...estPts, w];
       if (pts.length === 2) {
         setEstPts([]);
         if (ferrEstrutura === "parede") {
           // ortogonaliza se estiver quase na horizontal/vertical
-          let x1 = arred(pts[0].x), y1 = arred(pts[0].y), x2 = arred(pts[1].x), y2 = arred(pts[1].y);
+          let x1 = pts[0].x, y1 = pts[0].y, x2 = pts[1].x, y2 = pts[1].y;
           const dx = Math.abs(x2 - x1), dy = Math.abs(y2 - y1);
           if (dy < dx * 0.2) y2 = y1; else if (dx < dy * 0.2) x2 = x1;
-          if (Math.hypot(x2 - x1, y2 - y1) >= GRID_CM) addParede({ id: crypto.randomUUID(), x1, y1, x2, y2, espessura_cm: 15 });
+          if (Math.hypot(x2 - x1, y2 - y1) >= GRID_CM) addParede({
+            id: crypto.randomUUID(), x1, y1, x2, y2,
+            espessura_cm: pad.espessuraParede,
+            material: pad.materialParede,
+            ...(pad.paredeReforcada ? { reforcada: true } : {}),
+          });
         } else {
-          const x = arred(Math.min(pts[0].x, pts[1].x)), y = arred(Math.min(pts[0].y, pts[1].y));
-          const w2 = arred(Math.abs(pts[1].x - pts[0].x)), h2 = arred(Math.abs(pts[1].y - pts[0].y));
-          if (w2 >= GRID_CM && h2 >= GRID_CM) addPilar({ id: crypto.randomUUID(), x_cm: x, y_cm: y, w_cm: w2, h_cm: h2 });
+          const x = Math.min(pts[0].x, pts[1].x), y = Math.min(pts[0].y, pts[1].y);
+          const w2 = Math.abs(pts[1].x - pts[0].x), h2 = Math.abs(pts[1].y - pts[0].y);
+          if (w2 >= GRID_CM && h2 >= GRID_CM) addPilar({
+            id: crypto.randomUUID(), x_cm: x, y_cm: y, w_cm: w2, h_cm: h2,
+            forma: pad.formaPilar, material: pad.materialPilar,
+          });
         }
       } else setEstPts(pts);
       return;
@@ -363,8 +442,18 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoE
         if (!melhor || pj.dist < melhor.dist) melhor = { parede: pr, t: pj.t, len: pj.len, dist: pj.dist };
       }
       if (melhor && melhor.dist < 80) {
-        const largura = ferrEstrutura === "porta" ? 90 : 120;
-        addAbertura({ id: crypto.randomUUID(), paredeId: melhor.parede.id, centro_cm: arred(melhor.t * melhor.len), largura_cm: largura, tipo: ferrEstrutura });
+        const passo = snapPasso ?? 0;
+        const offset = melhor.t * melhor.len;
+        const base = {
+          id: crypto.randomUUID(), paredeId: melhor.parede.id,
+          centro_cm: passo > 0 ? Math.round(offset / passo) * passo : Math.round(offset * 10) / 10,
+        };
+        // A abertura nasce COM a variante escolhida no flyout. Antes nascia
+        // sempre porta de giro de 90 / janela de 120, e trocar exigia
+        // selecionar e reeditar peça a peça.
+        addAbertura(ferrEstrutura === "porta"
+          ? { ...base, tipo: "porta", largura_cm: pad.larguraPorta, modelo: pad.modeloPorta, lado: pad.ladoPorta, sentido: pad.sentidoPorta }
+          : { ...base, tipo: "janela", largura_cm: pad.larguraJanela, modelo: pad.modeloJanela, forma: pad.formaJanela });
       }
       return;
     }
@@ -386,6 +475,12 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoE
     // re-renderizaria a cena inteira (inclusive os traços da planta vetorial).
     const pp = stage.getPointerPosition();
     ponteiroRef.current = pp ? snapPonto(toWorld(pp.x, pp.y)) : null;
+    if (ponteiroExternoRef) {
+      const p = ponteiroRef.current;
+      ponteiroExternoRef.current = p
+        ? { x: p.x, y: p.y, zoom: cam.zoom, dentro: true }
+        : { ...ponteiroExternoRef.current, zoom: cam.zoom, dentro: false };
+    }
 
     const touches = (e.evt as TouchEvent).touches;
     // Captura os refs em locais ANTES do setCam: o updater roda depois e o
@@ -410,6 +505,11 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoE
     }
   }
   const stageUp = () => { pan.current = null; pinch.current = null; };
+  // O zoom muda sem o dedo se mexer (roda, pinça, enquadramento inicial): sem
+  // este espelho a barra de status mostraria a escala anterior.
+  useEffect(() => {
+    if (ponteiroExternoRef) ponteiroExternoRef.current = { ...ponteiroExternoRef.current, zoom: cam.zoom };
+  }, [cam.zoom, ponteiroExternoRef]);
 
   // Grade adaptativa (evita milhares de linhas quando muito afastado)
   const gridLines = useMemo(() => {
@@ -445,7 +545,12 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoE
   const camVis = useMemo(() => new Map((pv?.camadas ?? []).map((c) => [c.nome, c.visivel])), [pv]);
 
   // Trocar de ferramenta cancela desenhos parciais.
-  useEffect(() => { setAreaPts([]); setPolyPts([]); setCotaPts([]); setVistaPts([]); }, [ferrAcab, etapaAtual, modoVista]);
+  // `estPts` (o 1º toque de parede/pilar) faltava aqui: cancelar a ferramenta
+  // deixava o ponto vivo, e a ferramenta seguinte o herdava — dois toques
+  // depois nascia uma parede começando onde o consultor havia desistido.
+  useEffect(() => {
+    setAreaPts([]); setPolyPts([]); setCotaPts([]); setVistaPts([]); setEstPts([]);
+  }, [ferrAcab, ferrEstrutura, etapaAtual, modoVista]);
 
   /**
    * Qual pré-visualização mostrar, a partir da ferramenta ativa e dos pontos
@@ -546,62 +651,134 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoE
             const ctx = etapaAtual === "planta" ? 1 : 0.5; // esmaece fora da Etapa 1
             return (
               <Group opacity={ctx}>
-                {/* pilares */}
+                {/* pilares — a seção real (retangular, circular ou em L) e a
+                    cor do material. O contorno vem de `contornoPilar`, em
+                    coordenadas absolutas, então o Group arrasta a partir de
+                    (0,0) e o commit devolve o deslocamento ao canto. */}
                 {est.pilares.map((p) => {
                   const sel = selEstrutura?.tipo === "pilar" && selEstrutura.id === p.id;
+                  const mat = MATERIAIS_PILAR[p.material ?? "concreto"] ?? MATERIAIS_PILAR.concreto;
                   return (
-                    <Rect key={p.id} x={p.x_cm} y={p.y_cm} width={p.w_cm} height={p.h_cm} fill="#2B2B2E"
-                      stroke={sel ? CANVAS.selecao : "#8A8A8F"} strokeWidth={(sel ? 4 : 2) / cam.zoom}
-                      listening={estAtiva} draggable={estAtiva && !apagando}
+                    <Group key={p.id} listening={estAtiva} draggable={estAtiva && !apagando}
                       onMouseDown={() => tocarEstrutura("pilar", p.id)} onTap={() => tocarEstrutura("pilar", p.id)}
-                      onDragMove={(e) => updatePilar(p.id, { x_cm: e.target.x(), y_cm: e.target.y() }, false)}
-                      onDragEnd={(e) => updatePilar(p.id, { x_cm: arred(e.target.x()), y_cm: arred(e.target.y()) })} />
+                      onDragEnd={(e) => {
+                        const dx = e.target.x(), dy = e.target.y();
+                        e.target.position({ x: 0, y: 0 });
+                        if (dx || dy) {
+                          const passo = snapPasso ?? 0;
+                          const q = (v: number) => (passo > 0 ? Math.round(v / passo) * passo : Math.round(v * 10) / 10);
+                          updatePilar(p.id, { x_cm: q(p.x_cm + dx), y_cm: q(p.y_cm + dy) });
+                        }
+                      }}>
+                      <Line points={contornoPilar(p)} closed fill="#2B2B2E"
+                        stroke={sel ? CANVAS.selecao : mat.cor} strokeWidth={(sel ? 4 : 2) / cam.zoom} />
+                    </Group>
                   );
                 })}
-                {/* paredes */}
+                {/* paredes — o material aparece no traço: alvenaria e concreto
+                    cheios, drywall e madeira com o miolo aberto (duas linhas de
+                    face), vidro numa linha fina. É a convenção de prancha, e é
+                    o que faz "posso pendurar o espelho aqui?" ter resposta
+                    visual antes de o alerta aparecer. */}
                 {est.paredes.map((w) => {
                   const sel = selEstrutura?.tipo === "parede" && selEstrutura.id === w.id;
                   const len = Math.hypot(w.x2 - w.x1, w.y2 - w.y1);
+                  const dp = defParede(w.material);
+                  const esp = Math.max(w.espessura_cm, 4);
+                  const ux = len ? (w.x2 - w.x1) / len : 1, uy = len ? (w.y2 - w.y1) / len : 0;
+                  const nx = -uy, ny = ux, meia = esp / 2;
+                  const face = (s: number) => [
+                    w.x1 + nx * meia * s, w.y1 + ny * meia * s,
+                    w.x2 + nx * meia * s, w.y2 + ny * meia * s,
+                  ];
+                  const cheia = dp.hachura === "solida" || dp.hachura === "diagonal";
                   return (
                     <Group key={w.id}>
-                      <Line points={[w.x1, w.y1, w.x2, w.y2]} stroke={sel ? CANVAS.selecao : "#C9C9C4"} strokeWidth={Math.max(w.espessura_cm, 4)}
-                        lineCap="round" hitStrokeWidth={Math.max(w.espessura_cm, 34 / cam.zoom)} listening={estAtiva}
+                      {cheia ? (
+                        <Line points={[w.x1, w.y1, w.x2, w.y2]} stroke={sel ? CANVAS.selecao : dp.cor} strokeWidth={esp}
+                          lineCap="butt" opacity={dp.hachura === "diagonal" ? 0.9 : 1} listening={false} />
+                      ) : dp.hachura === "vidro" ? (
+                        <Line points={[w.x1, w.y1, w.x2, w.y2]} stroke={sel ? CANVAS.selecao : dp.cor} strokeWidth={Math.max(2 / cam.zoom, esp * 0.3)} listening={false} />
+                      ) : (
+                        <>
+                          <Line points={[w.x1, w.y1, w.x2, w.y2]} stroke={TOKENS.canvas} strokeWidth={esp} lineCap="butt" listening={false} />
+                          <Line points={face(1)} stroke={sel ? CANVAS.selecao : dp.cor} strokeWidth={2 / cam.zoom} listening={false} />
+                          <Line points={face(-1)} stroke={sel ? CANVAS.selecao : dp.cor} strokeWidth={2 / cam.zoom} listening={false} />
+                          {dp.hachura === "listrada" && (
+                            <Line points={[w.x1, w.y1, w.x2, w.y2]} stroke={dp.cor} strokeWidth={1 / cam.zoom} dash={[8 / cam.zoom, 6 / cam.zoom]} listening={false} />
+                          )}
+                        </>
+                      )}
+                      {/* Parede reforçada: o tracinho que diz "aqui pode pendurar". */}
+                      {w.reforcada && (
+                        <Line points={[w.x1, w.y1, w.x2, w.y2]} stroke={CANVAS.ok} strokeWidth={Math.max(1.5 / cam.zoom, esp * 0.18)}
+                          dash={[14 / cam.zoom, 8 / cam.zoom]} opacity={0.85} listening={false} />
+                      )}
+                      {/* Área de toque separada do desenho: com o traço fino do
+                          vidro, a parede era quase impossível de acertar no dedo. */}
+                      <Line points={[w.x1, w.y1, w.x2, w.y2]} stroke="transparent" strokeWidth={esp}
+                        hitStrokeWidth={Math.max(esp, 34 / cam.zoom)} listening={estAtiva}
                         onMouseDown={() => tocarEstrutura("parede", w.id)} onTap={() => tocarEstrutura("parede", w.id)} />
                       {sel && (
-                        <Text x={(w.x1 + w.x2) / 2} y={(w.y1 + w.y2) / 2 - 22 / cam.zoom} text={formatLength(len)}
+                        <Text x={(w.x1 + w.x2) / 2} y={(w.y1 + w.y2) / 2 - 22 / cam.zoom} text={`${formatLength(len)} · ${dp.label}`}
                           fontSize={15 / cam.zoom} fill={CANVAS.selecao} listening={false} />
                       )}
                       {sel && estAtiva && [{ k: "a", x: w.x1, y: w.y1 }, { k: "b", x: w.x2, y: w.y2 }].map((h) => (
                         <Circle key={h.k} x={h.x} y={h.y} radius={9 / cam.zoom} fill={TOKENS.canvas} stroke={CANVAS.selecao} strokeWidth={2 / cam.zoom} draggable
                           onDragMove={(e) => updateParede(w.id, h.k === "a" ? { x1: e.target.x(), y1: e.target.y() } : { x2: e.target.x(), y2: e.target.y() }, false)}
-                          onDragEnd={(e) => updateParede(w.id, h.k === "a" ? { x1: arred(e.target.x()), y1: arred(e.target.y()) } : { x2: arred(e.target.x()), y2: arred(e.target.y()) })} />
+                          onDragEnd={(e) => {
+                            const q = snapPonto({ x: e.target.x(), y: e.target.y() });
+                            e.target.position(q);
+                            updateParede(w.id, h.k === "a" ? { x1: q.x, y1: q.y } : { x2: q.x, y2: q.y });
+                          }} />
                       ))}
                     </Group>
                   );
                 })}
-                {/* aberturas (portas/janelas) */}
+                {/* ABERTURAS — o símbolo real de cada variante.
+                    Antes toda porta saía igual: uma folha a 90° e um tracejado,
+                    fosse ela de giro, de correr ou um vão sem folha. Agora a
+                    geometria vem de `simboloAbertura`, a mesma função que
+                    desenha o ícone do flyout — botão e planta não podem
+                    divergir. E a varredura da folha é PINTADA: o piso que a
+                    porta reserva deixa de ser invisível, e fica vermelho no
+                    instante em que um equipamento entra nele. */}
                 {est.aberturas.map((ab) => {
                   const w = pmap.get(ab.paredeId); if (!w) return null;
-                  const len = Math.hypot(w.x2 - w.x1, w.y2 - w.y1) || 1;
-                  const ux = (w.x2 - w.x1) / len, uy = (w.y2 - w.y1) / len;
-                  const cx = w.x1 + ux * ab.centro_cm, cy = w.y1 + uy * ab.centro_cm, half = ab.largura_cm / 2;
-                  const ax = cx - ux * half, ay = cy - uy * half, bx = cx + ux * half, by = cy + uy * half;
+                  const sim = simboloAbertura(ab, w, centroSala, est.paredes);
+                  const [P, Q] = sim.vao;
+                  const cx = (P.x + Q.x) / 2, cy = (P.y + Q.y) / 2;
                   const sel = selEstrutura?.tipo === "abertura" && selEstrutura.id === ab.id;
-                  const cor = ab.tipo === "porta" ? CANVAS.ok : CANVAS.guia;
-                  const px = -uy, py = ux; // perpendicular (batente da porta)
+                  const diag = diagAberturas.get(ab.id);
+                  const travada = !!diag?.ids.length;
+                  const cor = sel ? CANVAS.selecao : travada ? CANVAS.colisao : ab.tipo === "porta" ? CANVAS.ok : CANVAS.guia;
                   return (
                     <Group key={ab.id} listening={estAtiva}
                       onMouseDown={() => tocarEstrutura("abertura", ab.id)} onTap={() => tocarEstrutura("abertura", ab.id)}>
+                      {/* setor de varredura, por baixo de tudo */}
+                      {(diag?.setores ?? []).map((s, i) => (
+                        <Line key={`v${i}`} points={s.flatMap((p) => [p.x, p.y])} closed
+                          fill={travada ? CANVAS.colisao : CANVAS.ok} opacity={travada ? 0.18 : 0.07}
+                          stroke={travada ? CANVAS.colisao : "transparent"} strokeWidth={1 / cam.zoom} listening={false} />
+                      ))}
                       {/* "corta" a parede no vão */}
-                      <Line points={[ax, ay, bx, by]} stroke={TOKENS.canvas} strokeWidth={w.espessura_cm + 3} lineCap="butt" listening={false} />
-                      {ab.tipo === "janela"
-                        ? <Line points={[ax, ay, bx, by]} stroke={sel ? CANVAS.selecao : cor} strokeWidth={4 / cam.zoom} listening={false} />
-                        : <>
-                            <Line points={[ax, ay, ax + px * ab.largura_cm, ay + py * ab.largura_cm]} stroke={sel ? CANVAS.selecao : cor} strokeWidth={3 / cam.zoom} listening={false} />
-                            <Line points={[ax, ay, bx, by]} stroke={sel ? CANVAS.selecao : cor} strokeWidth={2 / cam.zoom} dash={[6 / cam.zoom, 6 / cam.zoom]} listening={false} />
-                          </>}
+                      <Line points={[P.x, P.y, Q.x, Q.y]} stroke={TOKENS.canvas} strokeWidth={w.espessura_cm + 3} lineCap="butt" listening={false} />
+                      {sim.tracejadas.map((p, i) => (
+                        <Line key={`t${i}`} points={p} stroke={cor} strokeWidth={1.4 / cam.zoom}
+                          dash={[7 / cam.zoom, 5 / cam.zoom]} opacity={0.8} listening={false} />
+                      ))}
+                      {sim.finas.map((p, i) => <Line key={`f${i}`} points={p} stroke={cor} strokeWidth={1.6 / cam.zoom} opacity={0.85} listening={false} />)}
+                      {sim.setas.map((p, i) => <Line key={`s${i}`} points={p} stroke={cor} strokeWidth={2 / cam.zoom} listening={false} />)}
+                      {sim.cheias.map((p, i) => (
+                        <Line key={`c${i}`} points={p} stroke={cor} strokeWidth={Math.max(sim.espFolha_cm, 2 / cam.zoom)}
+                          lineCap="round" lineJoin="round" listening={false} />
+                      ))}
+                      {sel && (
+                        <Text x={cx} y={cy - 26 / cam.zoom} text={diag?.rotulo ?? `${ab.tipo} · ${Math.round(ab.largura_cm)} cm`}
+                          fontSize={13 / cam.zoom} fill={CANVAS.selecao} listening={false} />
+                      )}
                       {/* alça de clique */}
-                      <Circle x={cx} y={cy} radius={(sel ? 8 : 6) / cam.zoom} fill={sel ? CANVAS.selecao : cor} listening={estAtiva} />
+                      <Circle x={cx} y={cy} radius={(sel ? 8 : 6) / cam.zoom} fill={cor} listening={estAtiva} />
                     </Group>
                   );
                 })}
@@ -790,7 +967,12 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoE
               const half = el.largura_cm / 2;
               const sel = selElemParedeId === el.id;
               const def = ELEMENTOS_PAREDE[el.tipo];
-              const cor = sel ? CANVAS.selecao : def.cor;
+              // Fixação impossível (vidro, vão atrás) em vermelho; que exige
+              // reforço, em âmbar. O elemento de parede era o único objeto do
+              // canvas sem nenhum canal de problema — o espelho de 40 kg no
+              // drywall desenhava igual ao espelho na alvenaria.
+              const fx = fixaProblema.get(el.id);
+              const cor = sel ? CANVAS.selecao : fx ? (fx.nivel === "critico" ? CANVAS.colisao : CANVAS.aviso) : def.cor;
               const escuta = areasEscutam;
               const podeMexer = areasAtivas && !el.bloqueado;
               const off = (w.espessura_cm / 2 + 6); // desloca para a face da parede
@@ -1007,14 +1189,22 @@ function ArrasteFX({ origemRef, guiasRef, folgasRef, zoom, circulacaoMin }: {
 }
 
 function ItemView({ it, zoom, selected, problema, listening, camadas, lamina, numero, onSelect, onDrag, onDragStart, onDragBound }: {
-  it: ItemPosicionado; zoom: number; selected: boolean; problema: "colisao" | "corredor" | "uso" | null; listening?: boolean;
+  it: ItemPosicionado; zoom: number; selected: boolean;
+  /** Importado de `validation`, nunca reescrito à mão: a cópia literal desta
+   *  união já deixou passar um tipo de problema que nunca chegou à tela. */
+  problema: Problema; listening?: boolean;
   camadas?: "tudo" | "uso" | "nada"; lamina?: boolean; numero?: number;
   onSelect: () => void; onDrag: (x: number, y: number, commit: boolean) => void;
   onDragStart?: () => void;
   /** Posição corrigida pelo encaixe — recebe e devolve o canto superior-esquerdo. */
   onDragBound?: (x: number, y: number) => { x: number; y: number };
 }) {
-  const cor = problema === "colisao" ? CANVAS.colisao : problema === "corredor" || problema === "uso" ? CANVAS.aviso : (ZONAS[it.zona]?.cor || "#888");
+  // Tabela, não cadeia de ternários: com o `default` caindo na cor da zona, um
+  // problema novo pintava o item como se estivesse saudável.
+  const CorDoProblema: Record<Exclude<Problema, null>, string> = {
+    colisao: CANVAS.colisao, giro: CANVAS.aviso, corredor: CANVAS.aviso, uso: CANVAS.aviso,
+  };
+  const cor = problema ? CorDoProblema[problema] : (ZONAS[it.zona]?.cor || "#888");
   // Footprint técnico: área de uso (margens frontal/lateral) e de segurança (margem extra).
   const usoF = it.uso_frontal_cm || 0, usoL = it.uso_lateral_cm || 0, seg = it.seguranca_cm || 0;
   const temUso = usoF > 0 || usoL > 0, temSeg = seg > 0;

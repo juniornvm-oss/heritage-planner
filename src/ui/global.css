@@ -242,3 +242,147 @@ select.fld { appearance: none; -webkit-appearance: none; }
   user-select: none;
   -webkit-touch-callout: none;
 }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   ÁREA DE EDIÇÃO NO MODELO CORELDRAW
+   Caixa de ferramentas vertical (com flyout de variantes), barra de
+   propriedades contextual e barra de status. Três superfícies, três papéis:
+   a caixa escolhe O QUE fazer, a barra de propriedades diz COMO, a de status
+   diz ONDE.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Caixa de ferramentas ── */
+.caixaferr {
+  width: 62px; flex-shrink: 0; overflow-y: auto;
+  border-right: 1px solid var(--line); background: var(--panel);
+  padding: 6px 0 10px; display: flex; flex-direction: column; gap: 2px;
+  padding-left: var(--sal);
+  /* O rail rola; o flyout vive em portal justamente para não ser recortado
+     por esta rolagem (um eixo com overflow != visible recorta os dois). */
+  scrollbar-width: none;
+}
+.caixaferr::-webkit-scrollbar { width: 0; }
+.cf-grupo { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.cf-sep { width: 34px; height: 1px; background: var(--line-2); margin: 5px 0 2px; }
+.cf-titulo {
+  font-size: 8px; letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--text-4); margin-bottom: 1px;
+}
+.cf-slot { position: relative; }
+.cf-btn {
+  width: 52px; min-height: 46px; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 2px;
+  background: transparent; border: 1px solid transparent; border-radius: 10px;
+  color: var(--text-2); padding: 4px 2px; -webkit-tap-highlight-color: transparent;
+  transition: background var(--mo-fast), border-color var(--mo-fast), color var(--mo-fast);
+}
+.cf-glifo { font-size: 17px; line-height: 1; display: flex; align-items: center; justify-content: center; height: 22px; }
+.cf-label { font: 600 9px "DM Sans"; letter-spacing: 0.01em; text-align: center; line-height: 1.1; }
+@media (hover: hover) and (pointer: fine) {
+  .cf-btn:hover { background: rgba(255,255,255,0.06); color: var(--text); }
+}
+.cf-btn:active { transform: scale(0.96); }
+.cf-btn:focus-visible { outline: none; border-color: var(--gold); box-shadow: 0 0 0 3px var(--gold-soft); }
+.cf-btn[aria-pressed="true"] { background: var(--gold-soft); border-color: var(--gold); color: var(--gold); }
+.cf-btn--perigo[aria-pressed="true"] { background: rgba(224,69,69,0.13); border-color: var(--red); color: var(--red); }
+
+/* O triângulo do canto: a pista de que há mais de uma opção ali dentro. */
+.cf-seta {
+  position: absolute; right: 1px; bottom: 1px; width: 22px; height: 22px;
+  display: flex; align-items: flex-end; justify-content: flex-end; padding: 0 2px 1px 0;
+  background: transparent; border: 0; color: var(--text-4); font-size: 7px; line-height: 1;
+  border-radius: 0 0 9px 0; -webkit-tap-highlight-color: transparent;
+}
+.cf-seta[aria-expanded="true"], .cf-btn[aria-pressed="true"] + .cf-seta { color: var(--gold); }
+.cf-seta:focus-visible { outline: none; color: var(--gold); box-shadow: 0 0 0 2px var(--gold-soft); }
+
+.cf-flyout {
+  position: fixed; z-index: 60; width: 302px; overflow-y: auto;
+  background: rgba(16,17,19,0.98); border: 1px solid var(--line-2); border-radius: 14px;
+  box-shadow: 0 18px 44px rgba(0,0,0,0.55); padding: 10px;
+  backdrop-filter: blur(10px);
+}
+.cf-flyout-topo { padding: 0 2px 8px; border-bottom: 1px solid var(--line); margin-bottom: 6px; }
+.cf-flyout-dica { font-size: 11px; color: var(--text-4); line-height: 1.45; margin-top: 3px; }
+.cf-flyout-grade { display: grid; gap: 2px; }
+.cf-var {
+  display: flex; align-items: flex-start; gap: 9px; width: 100%; text-align: left;
+  padding: 7px 8px; border: 1px solid transparent; border-radius: 10px;
+  background: transparent; color: var(--text-2); -webkit-tap-highlight-color: transparent;
+  transition: background var(--mo-fast), border-color var(--mo-fast);
+}
+@media (hover: hover) and (pointer: fine) { .cf-var:hover { background: rgba(255,255,255,0.05); } }
+.cf-var--on { border-color: var(--gold); background: var(--gold-soft); }
+.cf-var:focus-visible { outline: none; border-color: var(--gold); box-shadow: 0 0 0 3px var(--gold-soft); }
+.cf-var-icone {
+  flex-shrink: 0; width: 34px; height: 34px; display: flex; align-items: center; justify-content: center;
+  font-size: 17px; border: 1px solid var(--line); border-radius: 8px; background: rgba(255,255,255,0.03);
+}
+.cf-var-texto { display: grid; gap: 1px; min-width: 0; }
+.cf-var-texto b { font: 700 12px "DM Sans"; color: var(--text); }
+.cf-var--on .cf-var-texto b { color: var(--gold); }
+.cf-var-texto em { font: 600 10px "DM Sans"; font-style: normal; color: var(--info-soft); letter-spacing: 0.02em; }
+.cf-var-texto small { font-size: 10.5px; line-height: 1.4; color: var(--text-4); }
+
+/* ── Barra de propriedades ── */
+.barraprops {
+  display: flex; align-items: center; gap: 7px; flex-wrap: nowrap; overflow-x: auto;
+  padding: 6px calc(12px + var(--sar)) 6px calc(12px + var(--sal));
+  border-bottom: 1px solid var(--line); flex-shrink: 0; min-height: 52px;
+  background: var(--panel-2); scrollbar-width: thin;
+}
+.barraprops > * { flex-shrink: 0; }
+.bp-titulo { font: 700 10px "DM Sans"; letter-spacing: 0.14em; color: var(--gold); text-transform: uppercase; }
+.bp-medida { font: 700 13px "DM Sans"; color: var(--text); }
+.bp-ajuda { font-size: 11.5px; color: var(--text-4); line-height: 1.35; max-width: 420px; white-space: normal; }
+.bp-campo { display: flex; flex-direction: column; gap: 2px; }
+.bp-label { font-size: 8.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-4); }
+.bp-num { padding: 6px 8px; font-size: 12.5px; min-height: 32px; border-radius: 8px; text-align: right; }
+.bp-sel { padding: 6px 8px; font-size: 12px; min-height: 32px; border-radius: 8px; }
+.bp-par { display: flex; align-items: center; gap: 4px; }
+.bp-x { color: var(--text-4); font-size: 11px; }
+.bp-div { width: 1px; height: 26px; background: var(--line-2); margin: 0 2px; }
+
+.bp-seg { display: inline-flex; border: 1px solid var(--line-2); border-radius: 9px; overflow: hidden; }
+.bp-seg-b {
+  background: transparent; border: 0; color: var(--muted); font: 600 11px "DM Sans";
+  padding: 7px 10px; min-height: 32px; -webkit-tap-highlight-color: transparent;
+  transition: background var(--mo-fast), color var(--mo-fast);
+}
+.bp-seg-b + .bp-seg-b { border-left: 1px solid var(--line-2); }
+.bp-seg-b.on { background: var(--gold-soft); color: var(--gold); font-weight: 700; }
+
+.bp-atalhos { display: inline-flex; gap: 3px; align-self: flex-end; padding-bottom: 1px; }
+.bp-chip {
+  background: transparent; border: 1px solid var(--line-2); border-radius: 7px; color: var(--muted);
+  font: 600 10.5px "DM Sans"; padding: 5px 7px; min-height: 28px; -webkit-tap-highlight-color: transparent;
+}
+.bp-chip.on { border-color: var(--info); color: var(--info-soft); background: rgba(95,200,232,0.12); }
+
+.bp-toggle, .bp-acao {
+  background: transparent; border: 1px solid var(--line-2); border-radius: 9px; color: var(--text-2);
+  font: 600 11.5px "DM Sans"; padding: 7px 11px; min-height: 34px; align-self: flex-end;
+  -webkit-tap-highlight-color: transparent; transition: border-color var(--mo-fast), color var(--mo-fast), background var(--mo-fast);
+}
+.bp-toggle[aria-pressed="true"] { border-color: var(--green); color: var(--green); background: rgba(95,191,122,0.12); }
+.bp-acao--perigo { border-color: transparent; color: var(--red); }
+.bp-acao:focus-visible, .bp-toggle:focus-visible { outline: none; border-color: var(--gold); box-shadow: 0 0 0 3px var(--gold-soft); }
+
+.bp-previa {
+  display: flex; align-items: flex-end; justify-content: center; height: 46px; min-width: 34px;
+  padding: 0 4px; color: var(--text-2);
+}
+.bp-nota { font-size: 10.5px; color: var(--text-4); max-width: 260px; white-space: normal; line-height: 1.35; }
+.bp-nota--aviso { color: var(--warn); font-weight: 600; }
+
+/* ── Barra de status ── */
+.statusbar { display: inline-flex; align-items: center; gap: 10px; }
+.sb-item {
+  font: 600 11px "DM Sans"; color: var(--text-3); letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.sb-item b {
+  font: 700 8.5px "DM Sans"; letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--text-4); margin-right: 3px;
+}
+.sb-item b + b, .sb-item :not(b) + b { margin-left: 7px; }

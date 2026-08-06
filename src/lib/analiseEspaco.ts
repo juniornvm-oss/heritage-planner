@@ -20,9 +20,10 @@
 // Função pura sobre a cena: sem React, sem DOM, sem rede.
 
 import type { Cena, ItemPosicionado, TipoArea, TipoInfra } from "./types";
-import { CIRCULACAO_PADRAO, CIRCULACAO_ROTA, TIPOS_AREA } from "./types";
-import { areaPoligonoM2, pontoNoPoligono } from "./geometria";
+import { CIRCULACAO_PADRAO, CIRCULACAO_ROTA, ELEMENTOS_PAREDE, TIPOS_AREA } from "./types";
+import { areaPoligonoM2, convexoTocaRetangulo, pontoNoPoligono, type Ponto } from "./geometria";
 import { gerarCotasAutomaticas } from "./lamina";
+import { avaliarFixacao, centroDaEstrutura, defParede, fichaAbertura, setoresGiro } from "./esquadrias";
 
 // ── Réguas ──────────────────────────────────────────────────────────────────
 
@@ -156,6 +157,41 @@ export interface Alerta {
   ids?: string[];
 }
 
+/**
+ * Uma abertura julgada pelo que a folha faz com o piso.
+ *
+ * É aqui que a variante deixa de ser rótulo: a mesma passagem de 90 cm, como
+ * porta de giro, reserva 0,64 m² de piso que nenhum equipamento pode ocupar;
+ * como porta de correr, reserva zero. Trocar o modelo na barra de propriedades
+ * muda este registro — e, com ele, o alerta e o semáforo da planta.
+ */
+export interface AnaliseAbertura {
+  id: string;
+  tipo: "porta" | "janela";
+  /** "Porta de giro · 90 cm" — o que aparece no alerta e na planta. */
+  rotulo: string;
+  /** A folha varre piso? Correr, sanfonada e vão livre não varrem. */
+  varre: boolean;
+  /** Polígonos da varredura, em cm de mundo (vazio quando não varre). */
+  setores: Ponto[][];
+  /** Equipamentos que invadem a varredura — a porta não abre. */
+  ids: string[];
+  /** Mobiliário fixo dentro da varredura (catraca, armário, bebedouro).
+   *  Separado de `ids` porque a UI destaca EQUIPAMENTO por id — um id de
+   *  mobiliário misturado ali viraria um realce que nunca acende. */
+  idsInfra: string[];
+  status: Status;
+}
+
+/** Um elemento de parede julgado contra a parede em que está preso. */
+export interface AnaliseFixacao {
+  elementoId: string;
+  paredeId: string;
+  nivel: NivelAlerta;
+  /** Frase pronta: já diz o problema E a saída. */
+  motivo: string;
+}
+
 export interface AnaliseEspaco {
   circulacaoMinCm: number;
   areaBrutaM2: Metrica;
@@ -168,6 +204,10 @@ export interface AnaliseEspaco {
   capacidade: Capacidade;
   folgas: Folgas;
   porArea: AnaliseArea[];
+  /** Portas e janelas da Etapa 1, julgadas pela varredura da folha. */
+  aberturas: AnaliseAbertura[];
+  /** Espelhos, TVs e afins julgados contra o material da parede e as aberturas. */
+  fixacoes: AnaliseFixacao[];
   alertas: Alerta[];
 }
 
@@ -439,6 +479,84 @@ export function analisarEspaco(cena: Cena): AnaliseEspaco {
     };
   });
 
+  // ── Aberturas: o piso que a folha da porta reserva ──
+  //
+  // Um leque de 90° com 90 cm de raio come 0,64 m² de piso. Até aqui esse piso
+  // era invisível para o app: o consultor encostava a esteira na porta, o
+  // desenho não reclamava e a descoberta acontecia na entrega. Note o que NÃO
+  // se faz aqui: o setor não entra em `obstaculosDe` nem sai da área útil. Ele
+  // não é obstáculo (dá para treinar ali, só não dá para deixar máquina), e
+  // subtraí-lo quebraria a identidade `útil = uso + livre`.
+  const paredesCena = cena.estrutura?.paredes ?? [];
+  const paredesPorId = new Map(paredesCena.map((p) => [p.id, p]));
+  const centroSala = centroDaEstrutura(cena.estrutura, { x: largura / 2, y: profundidade / 2 });
+  const aberturasCena = cena.estrutura?.aberturas ?? [];
+  const aberturas: AnaliseAbertura[] = [];
+  for (const ab of aberturasCena) {
+    const w = paredesPorId.get(ab.paredeId);
+    if (!w) continue; // abertura órfã: a parede foi apagada
+    const f = fichaAbertura(ab);
+    // `paredesCena` vai junto: é o que permite acertar o "para dentro" em
+    // planta em L, onde o centro do conjunto cai fora da sala.
+    const setores = setoresGiro(ab, w, centroSala, paredesCena);
+    const toca = (r: Ret) => {
+      const ret = { x_cm: r.x0, y_cm: r.y0, w_cm: r.x1 - r.x0, h_cm: r.y1 - r.y0 };
+      return setores.some((s) => convexoTocaRetangulo(s, ret));
+    };
+    // Mobiliário fixo bloqueia a folha tanto quanto um aparelho: a catraca na
+    // entrada é o caso clássico, e ela mora em `cena.infra`, não em `itens`.
+    const dentro = setores.length ? itens.filter((i) => toca(corpoDe(i))) : [];
+    const dentroInfra = setores.length
+      ? (cena.infra ?? []).filter((i) => !INFRA_TRANSPONIVEL.includes(i.tipo)
+          && toca({ x0: i.x_cm, y0: i.y_cm, x1: i.x_cm + i.w_cm, y1: i.y_cm + i.h_cm }))
+      : [];
+    aberturas.push({
+      id: ab.id,
+      tipo: ab.tipo,
+      rotulo: `${f.label} · ${Math.round(f.largura_cm)} cm`,
+      varre: setores.length > 0,
+      setores,
+      ids: dentro.map((i) => i.id),
+      idsInfra: dentroInfra.map((i) => i.id),
+      status: dentro.length || dentroInfra.length ? "critico" : setores.length ? "ok" : "neutro",
+    });
+  }
+
+  // ── Fixações: o que a parede aguenta e o que a abertura atrapalha ──
+  const fixacoes: AnaliseFixacao[] = [];
+  for (const el of cena.elementosParede ?? []) {
+    const w = paredesPorId.get(el.paredeId);
+    if (!w) continue; // elemento órfão de parede apagada
+    const rotuloEl = ELEMENTOS_PAREDE[el.tipo]?.label ?? el.tipo;
+    const fix = avaliarFixacao(w.material, el.tipo, w.reforcada);
+    if (!fix.ok) {
+      fixacoes.push({
+        elementoId: el.id, paredeId: el.paredeId,
+        nivel: fix.nivel === "nao_recebe" ? "critico" : "atencao",
+        motivo: `${rotuloEl} em ${defParede(w.material).label}: ${fix.motivo}`,
+      });
+    }
+    // Sobreposição com abertura: o vão não tem parede atrás para receber
+    // parafuso, e tapar janela com espelho tira a iluminação que a esquadria
+    // existe para dar. Testa nos dois eixos — elemento acima da verga passa.
+    const e0 = el.offset_cm - el.largura_cm / 2, e1 = el.offset_cm + el.largura_cm / 2;
+    const eBaixo = el.dist_piso_cm, eAlto = el.dist_piso_cm + el.altura_cm;
+    for (const ab of aberturasCena) {
+      if (ab.paredeId !== el.paredeId) continue;
+      const f = fichaAbertura(ab);
+      const a0 = ab.centro_cm - f.largura_cm / 2, a1 = ab.centro_cm + f.largura_cm / 2;
+      if (e1 <= a0 + EPS || e0 >= a1 - EPS) continue;
+      const aBaixo = f.peitoril_cm ?? 0, aAlto = aBaixo + f.altura_cm;
+      if (eAlto <= aBaixo + EPS || eBaixo >= aAlto - EPS) continue;
+      fixacoes.push({
+        elementoId: el.id, paredeId: el.paredeId,
+        nivel: "critico",
+        motivo: `${rotuloEl} sobrepõe ${f.label.toLowerCase()} de ${Math.round(f.largura_cm)} cm — não há parede atrás do vão para fixar, e a esquadria fica tapada.`,
+      });
+      break; // um conflito por elemento basta para o consultor agir
+    }
+  }
+
   // ── Alertas ──
   const alertas: Alerta[] = [];
   const push = (nivel: NivelAlerta, texto: string, ids?: string[]) => {
@@ -497,6 +615,18 @@ export function analisarEspaco(cena: Cena): AnaliseEspaco {
       push("atencao", `${a.nome}: ${num(a.ocupacaoPct)}% de ocupação em ${num(a.m2)} m² — acima do limite de ${OCUPACAO_AMBAR_PCT}%.`, a.ids);
     }
   }
+  for (const ab of aberturas) {
+    const nE = ab.ids.length, nM = ab.idsInfra.length;
+    if (!nE && !nM) continue;
+    const quem = [nE ? `${nE} equipamento(s)` : "", nM ? `${nM} item(ns) de mobiliário` : ""].filter(Boolean).join(" e ");
+    push(
+      "critico",
+      `${ab.rotulo}: ${quem} dentro da varredura da folha — a porta não abre. Recuar a peça, inverter o lado de abertura ou trocar por porta de correr resolve.`,
+      ab.ids,
+    );
+  }
+  for (const f of fixacoes) push(f.nivel, f.motivo);
+
   // Largura da circulação: o bbox é o que existe em toda área, com ou sem
   // polígono, e o lado menor é o gargalo por onde a rota passa.
   for (const a of cena.areas ?? []) {
@@ -564,6 +694,8 @@ export function analisarEspaco(cena: Cena): AnaliseEspaco {
       criticos,
     },
     porArea,
+    aberturas,
+    fixacoes,
     alertas,
   };
 }

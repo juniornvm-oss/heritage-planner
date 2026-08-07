@@ -284,3 +284,30 @@ describe("curadoria — exercícios de musculação por equipamento", () => {
     expect(explicarItem(itemDe("Esteira")).exercicios).toEqual([]);
   });
 });
+
+describe("lâminas do Dossiê", () => {
+  // PNG 1×1 transparente — basta para o pdf-lib embutir.
+  const PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+
+  it("aceita a string antiga (a planta única de sempre)", async () => {
+    const bytes = await montarDossie({ nome: "Antigo", orcamento_teto: null, cena: cena() }, PNG);
+    const semPlanta = await montarDossie({ nome: "Antigo", orcamento_teto: null, cena: cena() }, null);
+    expect(bytes.length).toBeGreaterThan(semPlanta.length);
+  });
+
+  it("aceita várias lâminas e cresce com elas", async () => {
+    const p = { nome: "Lâminas", orcamento_teto: null, cena: cena() };
+    const uma = await montarDossie(p, [{ png: PNG, indice: true }]);
+    const tres = await montarDossie(p, [
+      { png: PNG, indice: true },
+      { png: PNG, legenda: "Piso e revestimento" },
+      { png: PNG, legenda: "Distâncias entre aparelhos" },
+    ]);
+    expect(tres.length).toBeGreaterThan(uma.length);
+  });
+
+  it("sem lâmina nenhuma o Dossiê ainda sai", async () => {
+    const bytes = await montarDossie({ nome: "Sem planta", orcamento_teto: null, cena: cena() }, []);
+    expect(bytes.length).toBeGreaterThan(5000);
+  });
+});

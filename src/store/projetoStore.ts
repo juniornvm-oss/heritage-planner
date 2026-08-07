@@ -1,6 +1,6 @@
 import { create } from "zustand";
-import type { Projeto, Cena, Cenario, AreaFuncional, Equipamento, ItemInventario, OpcoesDossie, ItemPosicionado, PlantaFundo, AreaAcabamento, PlantaVetorial, EstruturaPlanta, Parede, Abertura, PilarPlanta, Cota, ElementoParede, ItemInfraestrutura, AcessorioProjeto, AnexoOrcamento, Zona, EspecProjeto, MarcaProjeto, SecaoDossie } from "../lib/types";
-import { CENARIOS, ZONAS, OPCOES_DOSSIE_PADRAO, ORDEM_DOSSIE_PADRAO } from "../lib/types";
+import type { Projeto, Cena, Cenario, AreaFuncional, Equipamento, ItemInventario, OpcoesDossie, ItemPosicionado, PlantaFundo, AreaAcabamento, PlantaVetorial, EstruturaPlanta, Parede, Abertura, PilarPlanta, Cota, ElementoParede, ItemInfraestrutura, AcessorioProjeto, AnexoOrcamento, Zona, EspecProjeto, MarcaProjeto, SecaoDossie, LaminaDossie, CamadasLamina } from "../lib/types";
+import { CENARIOS, ZONAS, OPCOES_DOSSIE_PADRAO, ORDEM_DOSSIE_PADRAO, PRESETS_LAMINA, CAMADAS_TUDO } from "../lib/types";
 import { cenarioSugerido, normalizarExercicios } from "../lib/curadoria";
 import { gerarEstrutura, estruturaVazia } from "../lib/estrutura";
 import { bboxPoligono, retanguloParaPontos, transladar } from "../lib/geometria";
@@ -107,10 +107,15 @@ function normalizarCena(bruta: Cena | null | undefined): Cena {
     ? { ...base.dossie, ...(base.dossie.acabamentos === false && base.dossie.mobiliario === undefined ? { mobiliario: false } : {}) }
     : base.dossie;
   const marcas = (Array.isArray(base.marcas) ? base.marcas : []).filter((m) => m && m.ref);
+  // Lâmina gravada por uma versão anterior pode não ter uma camada criada
+  // depois: o padrão preenche o buraco em vez de deixar `undefined` decidindo.
+  const laminas = (Array.isArray(base.laminas) ? base.laminas : [])
+    .filter((l) => l && l.id)
+    .map((l) => ({ ...l, camadas: { ...CAMADAS_TUDO, ...(l.camadas ?? {}) } }));
   const dossieOrdem = Array.isArray(base.dossieOrdem)
     ? base.dossieOrdem.filter((s): s is SecaoDossie => s in OPCOES_DOSSIE_PADRAO)
     : undefined;
-  return { ...base, sala, itens, acabamentos, cotas, elementosParede, infra, acessorios, anexos, estrutura, especificacoes, inventario, areas, marcas, dossieOrdem, dossie };
+  return { ...base, sala, itens, acabamentos, cotas, elementosParede, infra, acessorios, anexos, estrutura, especificacoes, inventario, areas, marcas, laminas, dossieOrdem, dossie };
 }
 
 interface ProjetoState {
@@ -172,6 +177,13 @@ interface ProjetoState {
   /** Override da marca NESTE projeto (texto, ordem, destaque, ocultar). */
   setMarcaProjeto: (ref: string, patch: Partial<MarcaProjeto>) => void;
   setMarcasIntro: (texto: string) => void;
+  // ── Lâminas do Dossiê ──
+  addLamina: (presetId: string) => void;
+  updateLamina: (id: string, patch: Partial<LaminaDossie>) => void;
+  setCamadaLamina: (id: string, camada: keyof CamadasLamina, valor: boolean) => void;
+  duplicarLamina: (id: string) => void;
+  removerLamina: (id: string) => void;
+  moverLamina: (id: string, delta: -1 | 1) => void;
   /** Régua de circulação do projeto, em cm. */
   setCirculacaoMin: (cm: number) => void;
   /** Espelha nos itens posicionados o cadastro ATUAL do catálogo — preço,
@@ -464,6 +476,66 @@ export const useProjeto = create<ProjetoState>((set, get) => ({
 
   setMarcasIntro(texto) {
     set((s) => ({ past: empilhar(s.past, s.cena), future: [], cena: { ...s.cena, marcasIntro: texto.trim() || null }, dirty: true }));
+  },
+
+  // ── Lâminas do Dossiê ──────────────────────────────────────────────────
+  // Lista vazia é significativa: quer dizer "o Dossiê sai com a planta única
+  // de sempre". Só quando o consultor cria a primeira lâmina é que ele assume
+  // o controle da apresentação.
+  addLamina(presetId) {
+    set((s) => {
+      const preset = PRESETS_LAMINA.find((p) => p.id === presetId) ?? PRESETS_LAMINA[0];
+      const atuais = s.cena.laminas ?? [];
+      const nova: LaminaDossie = {
+        id: crypto.randomUUID(),
+        nome: preset.nome,
+        camadas: { ...preset.camadas },
+        indice: preset.indice,
+        ativa: true,
+      };
+      return { past: empilhar(s.past, s.cena), future: [], cena: { ...s.cena, laminas: [...atuais, nova] }, dirty: true };
+    });
+  },
+  updateLamina(id, patch) {
+    set((s) => ({
+      past: empilhar(s.past, s.cena), future: [],
+      cena: { ...s.cena, laminas: (s.cena.laminas ?? []).map((l) => (l.id === id ? { ...l, ...patch } : l)) },
+      dirty: true,
+    }));
+  },
+  setCamadaLamina(id, camada, valor) {
+    set((s) => ({
+      past: empilhar(s.past, s.cena), future: [],
+      cena: { ...s.cena, laminas: (s.cena.laminas ?? []).map((l) => (l.id === id ? { ...l, camadas: { ...l.camadas, [camada]: valor } } : l)) },
+      dirty: true,
+    }));
+  },
+  duplicarLamina(id) {
+    set((s) => {
+      const atuais = s.cena.laminas ?? [];
+      const i = atuais.findIndex((l) => l.id === id);
+      if (i < 0) return {};
+      const copia: LaminaDossie = { ...atuais[i], id: crypto.randomUUID(), nome: `${atuais[i].nome} (cópia)`, camadas: { ...atuais[i].camadas } };
+      const laminas = [...atuais.slice(0, i + 1), copia, ...atuais.slice(i + 1)];
+      return { past: empilhar(s.past, s.cena), future: [], cena: { ...s.cena, laminas }, dirty: true };
+    });
+  },
+  removerLamina(id) {
+    set((s) => ({
+      past: empilhar(s.past, s.cena), future: [],
+      cena: { ...s.cena, laminas: (s.cena.laminas ?? []).filter((l) => l.id !== id) },
+      dirty: true,
+    }));
+  },
+  moverLamina(id, delta) {
+    set((s) => {
+      const laminas = [...(s.cena.laminas ?? [])];
+      const i = laminas.findIndex((l) => l.id === id);
+      const j = i + delta;
+      if (i < 0 || j < 0 || j >= laminas.length) return {};
+      [laminas[i], laminas[j]] = [laminas[j], laminas[i]];
+      return { past: empilhar(s.past, s.cena), future: [], cena: { ...s.cena, laminas }, dirty: true };
+    });
   },
 
   setCirculacaoMin(cm) {

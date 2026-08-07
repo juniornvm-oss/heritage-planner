@@ -607,7 +607,133 @@ export interface MarcaProjeto {
   /** Não sai no Dossiê nem na vitrine. */
   ocultar?: boolean;
   ordem?: number;
+  /**
+   * Imagem da LINHA usada neste projeto (dataURL) — a prancha do fabricante
+   * com a família de aparelhos especificada. O logo diz de quem é; esta imagem
+   * mostra o que o condomínio vai receber, que é o que o síndico quer ver.
+   */
+  imagem?: string | null;
+  /** Legenda da imagem ("Linha EDGE — musculação"). */
+  imagemLegenda?: string | null;
 }
+
+// ── Lâminas do Dossiê ───────────────────────────────────────────────────────
+
+/**
+ * As camadas que uma LÂMINA mostra.
+ *
+ * O editor sempre desenhou tudo de uma vez, e o Dossiê imprimia uma captura só
+ * dessa vista. Mas uma apresentação não é uma vista: é uma sequência de
+ * argumentos. "Aqui é o piso", "aqui é o zoneamento", "aqui é a distância
+ * entre os aparelhos" são três desenhos da mesma planta com camadas
+ * diferentes, e antes só dava para entregar os três juntos, embaralhados.
+ */
+export interface CamadasLamina {
+  plantaFundo: boolean;   // a planta importada, por baixo
+  estrutura: boolean;     // paredes, portas, janelas, pilares
+  acabamento: boolean;    // áreas de piso e parede pintadas
+  mobiliario: boolean;    // mobiliário, espelhos e itens de parede
+  areas: boolean;         // regiões funcionais (zoneamento)
+  equipamentos: boolean;  // o layout dos aparelhos
+  rotulos: boolean;       // o nome de cada aparelho
+  medidas: boolean;       // as medidas de cada aparelho
+  areasUso: boolean;      // a área de uso e de segurança de cada aparelho
+  orientacao: boolean;    // faixas e letras de entrada/frente/costas
+  cotas: boolean;         // as cotas fixadas à mão
+  afastamentos: boolean;  // as distâncias automáticas entre aparelhos e paredes
+  grade: boolean;
+}
+
+export interface LaminaDossie {
+  id: string;
+  /** Nome de trabalho, para o consultor se achar na lista. Não sai no papel. */
+  nome: string;
+  /** Legenda impressa sob a imagem. Vazia = lâmina muda, só o desenho. */
+  legenda?: string | null;
+  camadas: CamadasLamina;
+  /** Fora do Dossiê sem perder a configuração. */
+  ativa: boolean;
+  /** Imprime a lista numerada de equipamentos ao lado (como a planta clássica). */
+  indice?: boolean;
+}
+
+/** Tudo ligado, menos o que é rascunho de tela (grade) ou anotação técnica. */
+export const CAMADAS_TUDO: CamadasLamina = {
+  plantaFundo: true, estrutura: true, acabamento: true, mobiliario: true,
+  areas: true, equipamentos: true, rotulos: true, medidas: true,
+  areasUso: false, orientacao: true, cotas: true, afastamentos: false, grade: false,
+};
+
+const semNada: CamadasLamina = {
+  plantaFundo: false, estrutura: false, acabamento: false, mobiliario: false,
+  areas: false, equipamentos: false, rotulos: false, medidas: false,
+  areasUso: false, orientacao: false, cotas: false, afastamentos: false, grade: false,
+};
+
+/**
+ * Pontos de partida. Nenhum traz rótulo nem medida: lâmina de apresentação é
+ * imagem, e nome de aparelho em cima do desenho é ruído para quem só quer
+ * entender a sala. Quem precisar liga na hora.
+ */
+export const PRESETS_LAMINA: { id: string; nome: string; descricao: string; camadas: CamadasLamina; indice?: boolean }[] = [
+  {
+    id: "completa", nome: "Layout completo", indice: true,
+    descricao: "A planta como ela é: obra, piso, mobiliário e equipamentos, com a lista numerada ao lado.",
+    camadas: { ...CAMADAS_TUDO },
+  },
+  {
+    id: "acabamento", nome: "Acabamento",
+    descricao: "Só a obra e o revestimento: piso, parede e espelhos, sem nenhum aparelho na frente.",
+    camadas: { ...semNada, estrutura: true, acabamento: true, mobiliario: true },
+  },
+  {
+    id: "zoneamento", nome: "Zoneamento",
+    descricao: "As regiões da sala sobre o piso, sem os aparelhos — a leitura de como o espaço se divide.",
+    camadas: { ...semNada, estrutura: true, acabamento: true, areas: true },
+  },
+  {
+    id: "layout_limpo", nome: "Layout sobre o piso",
+    descricao: "Piso e equipamentos, sem as regiões e sem texto. A imagem do projeto pronto.",
+    camadas: { ...semNada, estrutura: true, acabamento: true, mobiliario: true, equipamentos: true },
+  },
+  {
+    id: "distancias", nome: "Distâncias",
+    descricao: "As folgas medidas entre um aparelho e outro, e entre aparelho e parede.",
+    camadas: { ...semNada, estrutura: true, equipamentos: true, afastamentos: true, cotas: true },
+  },
+  {
+    id: "areas_uso", nome: "Áreas de uso",
+    descricao: "O espaço que cada aparelho ocupa em operação, além do corpo dele.",
+    camadas: { ...semNada, estrutura: true, equipamentos: true, areasUso: true, orientacao: true },
+  },
+  {
+    id: "obra", nome: "Planta seca",
+    descricao: "Só paredes, portas, janelas e pilares. A base para o construtor.",
+    camadas: { ...semNada, estrutura: true, cotas: true },
+  },
+];
+
+export const ROTULO_CAMADA: Record<keyof CamadasLamina, string> = {
+  plantaFundo: "Planta importada",
+  estrutura: "Paredes, portas e pilares",
+  acabamento: "Piso e revestimento",
+  mobiliario: "Mobiliário e espelhos",
+  areas: "Regiões (zoneamento)",
+  equipamentos: "Equipamentos",
+  rotulos: "Nome dos equipamentos",
+  medidas: "Medidas dos equipamentos",
+  areasUso: "Áreas de uso e segurança",
+  orientacao: "Orientação (entrada/frente)",
+  cotas: "Cotas marcadas à mão",
+  afastamentos: "Distâncias automáticas",
+  grade: "Grade",
+};
+
+/** A ordem em que as camadas aparecem no editor de lâminas. */
+export const ORDEM_CAMADAS: (keyof CamadasLamina)[] = [
+  "plantaFundo", "estrutura", "acabamento", "mobiliario", "areas", "equipamentos",
+  "rotulos", "medidas", "orientacao", "areasUso", "cotas", "afastamentos", "grade",
+];
 
 /** Marca da biblioteca (planner.marcas) — reaproveitada entre projetos. */
 export interface Marca {
@@ -779,6 +905,8 @@ export interface Cena {
   marcas?: MarcaProjeto[];
   /** Parágrafo de abertura da seção de marcas. */
   marcasIntro?: string | null;
+  /** As lâminas da apresentação. Ausente/vazia = a planta única de sempre. */
+  laminas?: LaminaDossie[];
   /** Circulação mínima exigida neste projeto (cm) — régua da análise de espaço.
    *  Ausente = `CIRCULACAO_PADRAO`. */
   circulacaoMin?: number | null;

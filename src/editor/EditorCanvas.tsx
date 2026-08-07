@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Stage, Layer, Rect, Line, Group, Text, Image as KImage, Circle } from "react-konva";
 import type Konva from "konva";
 import { useProjeto } from "../store/projetoStore";
@@ -17,7 +17,7 @@ import {
   type MaterialPilar, type ModeloJanela, type ModeloPorta, type SentidoAbertura,
 } from "../lib/esquadrias";
 import { gerarCotasAutomaticas } from "../lib/lamina";
-import { MATERIAIS_PISO, ELEMENTOS_PAREDE, PAPEL_LADO, LADOS_PADRAO, TIPOS_AREA, type TipoElementoParede, type LadoRect } from "../lib/types";
+import { MATERIAIS_PISO, ELEMENTOS_PAREDE, PAPEL_LADO, LADOS_PADRAO, TIPOS_AREA, type CamadasLamina, type TipoElementoParede, type LadoRect } from "../lib/types";
 import { CANVAS, TOKENS } from "../ui/tokens";
 import { CIRCULACAO_PADRAO } from "../lib/types";
 import PreviewFX, { type PreviewProps } from "./PreviewFX";
@@ -85,7 +85,7 @@ function useHtmlImage(src?: string) {
 
 interface Cam { zoom: number; x: number; y: number } // x,y = posição da layer em px
 
-export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoElemParede, snapPasso, camadas, apresentacao, lamina, modoVista, onVista, onArea, modoRecorte, onRecorte, modoParede, onParede, modoMoverPlanta, stageRef, somenteLeitura, etapa, ferrEstrutura, padroes, ponteiroExternoRef }: {
+export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoElemParede, snapPasso, camadas, apresentacao, lamina, modoVista, onVista, onArea, modoRecorte, onRecorte, modoParede, onParede, modoMoverPlanta, stageRef, somenteLeitura, etapa, ferrEstrutura, padroes, ponteiroExternoRef, camadasLamina }: {
   modoCalibrar: boolean;
   onCalibrar: (distanciaMundoCm: number) => void;
   ferrAcab?: FerramentaAcab; // ferramentas da Etapa 2 (área/polígono/cota/apagar)
@@ -111,9 +111,22 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoE
   /** Espelho do ponteiro e do zoom para a barra de status ler por rAF, sem
    *  re-renderizar o canvas a cada movimento do dedo. */
   ponteiroExternoRef?: React.MutableRefObject<EstadoPonteiro>;
+  /**
+   * MODO LÂMINA: desenha exatamente as camadas pedidas, e nada além.
+   *
+   * É o que permite ao mesmo canvas servir de prévia viva no editor de lâminas
+   * e de fonte da captura que vai ao PDF — a lâmina impressa não pode ser uma
+   * segunda implementação do desenho, ou ela diverge do que foi aprovado na
+   * tela. Presente = a vista é uma lâmina: sem seleção, sem realce de problema
+   * e sem nada que não esteja ligado.
+   */
+  camadasLamina?: CamadasLamina | null;
 }) {
   const etapaAtual: Etapa = etapa ?? "layout";
   const pad = padroes ?? PADROES_PLANTA;
+  /** `null` no editor normal; em modo lâmina, o que pode aparecer. */
+  const LAM = camadasLamina ?? null;
+  const ver = (c: keyof CamadasLamina) => !LAM || LAM[c];
   const cena = useProjeto((s) => s.cena);
   const selectedId = useProjeto((s) => s.selectedId);
   const selectedAcabId = useProjeto((s) => s.selectedAcabId);
@@ -182,14 +195,39 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoE
     return () => ro.disconnect();
   }, []);
 
-  // Enquadra a sala quando abre / muda dimensões
   const sala = cena.sala;
-  useEffect(() => {
-    const margin = 1.2;
-    const zoom = Math.min(size.w / (sala.largura_cm * margin), size.h / (sala.profundidade_cm * margin));
+
+  /** Enquadra a sala inteira na área visível. */
+  const enquadrar = useCallback((w = size.w, h = size.h) => {
+    const margem = 1.2;
+    const zoom = Math.min(w / (sala.largura_cm * margem), h / (sala.profundidade_cm * margem));
     const z = Number.isFinite(zoom) && zoom > 0 ? zoom : 0.4;
-    setCam({ zoom: z, x: size.w / 2 - (sala.largura_cm / 2) * z, y: size.h / 2 - (sala.profundidade_cm / 2) * z });
+    setCam({ zoom: z, x: w / 2 - (sala.largura_cm / 2) * z, y: h / 2 - (sala.profundidade_cm / 2) * z });
   }, [sala.largura_cm, sala.profundidade_cm, size.w, size.h]);
+
+  /**
+   * ENQUADRAMENTO: só na primeira medida real e quando a SALA muda de tamanho.
+   *
+   * Antes este efeito também dependia de `size`, e `size` vem de um
+   * ResizeObserver na div do canvas — que dispara sempre que a barra de
+   * propriedades cresce (a prévia da esquadria é mais alta que o texto de
+   * ajuda) ou um rail entra em cena. Resultado: trocar de ferramenta
+   * reenquadrava a sala e jogava fora o zoom que o consultor tinha acabado de
+   * ajustar. Agora um redimensionamento do CONTAINER só recentraliza: mantém o
+   * mesmo ponto do mundo no meio da tela, e o zoom fica onde estava.
+   */
+  const enquadre = useRef({ w: 0, h: 0, larg: 0, prof: 0, feito: false });
+  useEffect(() => {
+    if (!size.w || !size.h) return;
+    const e = enquadre.current;
+    const mudouSala = e.larg !== sala.largura_cm || e.prof !== sala.profundidade_cm;
+    if (e.feito && !mudouSala) {
+      setCam((c) => ({ ...c, x: c.x + (size.w - e.w) / 2, y: c.y + (size.h - e.h) / 2 }));
+    } else {
+      enquadrar(size.w, size.h);
+    }
+    enquadre.current = { w: size.w, h: size.h, larg: sala.largura_cm, prof: sala.profundidade_cm, feito: true };
+  }, [sala.largura_cm, sala.profundidade_cm, size.w, size.h, enquadrar]);
 
   const toWorld = (sx: number, sy: number) => ({ x: (sx - cam.x) / cam.zoom, y: (sy - cam.y) / cam.zoom });
 
@@ -279,7 +317,10 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoE
     tolCm: tolCmPorZoom(8, cam.zoom),
     ignorarId,
   });
-  const cotasAuto = useMemo(() => (lamina ? gerarCotasAutomaticas(cena) : []), [lamina, cena]);
+  const cotasAuto = useMemo(
+    () => ((LAM ? LAM.afastamentos : lamina) ? gerarCotasAutomaticas(cena) : []),
+    [LAM, lamina, cena],
+  );
 
   function onWheel(e: Konva.KonvaEventObject<WheelEvent>) {
     e.evt.preventDefault();
@@ -594,12 +635,12 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoE
           <Rect name="bg bg-externo" x={-2000} y={-2000} width={sala.largura_cm + 4000} height={sala.profundidade_cm + 4000} fill={TOKENS.canvas} />
 
           {/* faixas de piso */}
-          {(cfg.pisos || []).map((f) => (
+          {ver("acabamento") && (cfg.pisos || []).map((f) => (
             <Rect key={f.nome} name="bg" x={0} y={f.y0} width={sala.largura_cm} height={f.y1 - f.y0} fill={f.cor} />
           ))}
 
           {/* planta baixa (fundo em escala real) */}
-          {planta && plantaImg && (
+          {planta && plantaImg && ver("plantaFundo") && (
             <KImage image={plantaImg} x={planta.x_cm} y={planta.y_cm} rotation={planta.rotacao || 0}
               width={planta.larguraPx * planta.cmPorPx} height={planta.alturaPx * planta.cmPorPx}
               opacity={planta.opacidade} listening={modoMoverPlanta && !planta.bloqueada} draggable={modoMoverPlanta && !planta.bloqueada}
@@ -607,7 +648,7 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoE
           )}
 
           {/* planta VETORIAL (desenho separado do texto) */}
-          {pv && (
+          {pv && ver("plantaFundo") && (
             <Group x={pv.x_cm} y={pv.y_cm} rotation={pv.rotacao || 0} scaleX={pv.escala || 1} scaleY={pv.escala || 1} opacity={pv.opacidade}
               listening={modoMoverPlanta && !pv.bloqueada} draggable={modoMoverPlanta && !pv.bloqueada}
               onDragEnd={(e) => updatePlantaVetorial({ x_cm: e.target.x(), y_cm: e.target.y() })}>
@@ -623,14 +664,16 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoE
           )}
 
           {/* grade */}
-          {!apresentacao && gridLines.map((l, i) => <Line key={i} points={l} stroke="#ffffff" strokeWidth={0.6 / cam.zoom} opacity={0.05} listening={false} />)}
+          {!apresentacao && ver("grade") && gridLines.map((l, i) => <Line key={i} points={l} stroke="#ffffff" strokeWidth={0.6 / cam.zoom} opacity={0.05} listening={false} />)}
 
           {/* corredor */}
-          {cfg.corredor && <Rect name="bg" x={cfg.corredor.x} y={0} width={cfg.corredor.w} height={sala.profundidade_cm} fill={CANVAS.selecao} opacity={0.06} listening={false} />}
+          {cfg.corredor && ver("areas") && <Rect name="bg" x={cfg.corredor.x} y={0} width={cfg.corredor.w} height={sala.profundidade_cm} fill={CANVAS.selecao} opacity={0.06} listening={false} />}
 
           {/* contorno da sala — só uma GUIA de referência (dimensões do projeto);
               some quando existem paredes reais desenhadas na Etapa 1 */}
-          {!(cena.estrutura?.paredes.length) && (
+          {/* A guia tracejada é andaime de edição: numa lâmina de apresentação
+              ela seria uma parede que não existe. */}
+          {!(cena.estrutura?.paredes.length) && !LAM && (
             <>
               <Rect x={0} y={0} width={sala.largura_cm} height={sala.profundidade_cm} stroke="#3A3A3C" strokeWidth={4 / cam.zoom}
                 dash={[18 / cam.zoom, 12 / cam.zoom]} listening={false} />
@@ -642,10 +685,10 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoE
           )}
 
           {/* pilar (config legado) */}
-          {cfg.pilar && !cena.estrutura && <Rect name="bg" x={cfg.pilar.x} y={cfg.pilar.y} width={cfg.pilar.w} height={cfg.pilar.h} fill="#2B2B2E" stroke="#8A8A8F" strokeWidth={2 / cam.zoom} listening={false} />}
+          {cfg.pilar && !cena.estrutura && ver("estrutura") && <Rect name="bg" x={cfg.pilar.x} y={cfg.pilar.y} width={cfg.pilar.w} height={cfg.pilar.h} fill="#2B2B2E" stroke="#8A8A8F" strokeWidth={2 / cam.zoom} listening={false} />}
 
           {/* ── Etapa 1: estrutura (pilares, paredes, portas/janelas) ── */}
-          {cena.estrutura && (() => {
+          {cena.estrutura && ver("estrutura") && (() => {
             const est = cena.estrutura!;
             const pmap = new Map(est.paredes.map((p) => [p.id, p]));
             const ctx = etapaAtual === "planta" ? 1 : 0.5; // esmaece fora da Etapa 1
@@ -790,7 +833,7 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoE
           })()}
 
           {/* áreas de acabamento (piso/parede pintados) */}
-          {(cena.acabamentos ?? []).map((a) => {
+          {ver("acabamento") && (cena.acabamentos ?? []).map((a) => {
             const sel = selectedAcabId === a.id;
             const pts = a.pontos ?? [];
             if (pts.length < 3) return null;
@@ -856,7 +899,7 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoE
               Ganha o mesmo tratamento das áreas de acabamento, mais o m² e a
               contagem de equipamentos contidos — que é o que transforma a
               região desenhada em análise. */}
-          {(cena.areas ?? []).map((a) => {
+          {ver("areas") && (cena.areas ?? []).map((a) => {
             const def = TIPOS_AREA[a.tipo] ?? TIPOS_AREA.apoio;
             const sel = selAreaFuncId === a.id;
             const naEtapa = etapaAtual === "areas";
@@ -912,7 +955,7 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoE
           })}
 
           {/* cotas fixadas na planta */}
-          {!apresentacao && (cena.cotas ?? []).map((c) => {
+          {!apresentacao && ver("cotas") && (cena.cotas ?? []).map((c) => {
             const len = Math.hypot(c.x2 - c.x1, c.y2 - c.y1);
             const mx = (c.x1 + c.x2) / 2, my = (c.y1 + c.y2) / 2;
             const ux = (c.x2 - c.x1) / (len || 1), uy = (c.y2 - c.y1) / (len || 1);
@@ -932,7 +975,7 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoE
           })}
 
           {/* ── Etapa 2: mobiliário / infraestrutura ── */}
-          {(cena.infra ?? []).map((it) => {
+          {ver("mobiliario") && (cena.infra ?? []).map((it) => {
             const sel = selInfraId === it.id;
             const escuta = areasEscutam;
             const podeMexer = areasAtivas && !it.bloqueado;
@@ -956,7 +999,7 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoE
           })}
 
           {/* ── Etapa 2: elementos de parede (espelho, TV, elétrica…) ── */}
-          {(() => {
+          {ver("mobiliario") && (() => {
             const pmap = new Map((cena.estrutura?.paredes ?? []).map((p) => [p.id, p]));
             return (cena.elementosParede ?? []).map((el) => {
               const w = pmap.get(el.paredeId); if (!w) return null;
@@ -1011,7 +1054,7 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoE
           })()}
 
           {/* Lâmina do Arquiteto: cotas de afastamento automáticas */}
-          {lamina && cotasAuto.map((c, i) => {
+          {(LAM ? LAM.afastamentos : lamina) && cotasAuto.map((c, i) => {
             const len = c.valor;
             const mx = (c.x1 + c.x2) / 2, my = (c.y1 + c.y2) / 2;
             const ux = (c.x2 - c.x1) / (len || 1), uy = (c.y2 - c.y1) / (len || 1);
@@ -1029,8 +1072,14 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoE
           })}
 
           {/* equipamentos */}
-          {cena.itens.map((it, idx) => (
-            <ItemView key={it.id} it={it} numero={etapaAtual === "fichas" ? idx + 1 : undefined} zoom={cam.zoom} selected={!apresentacao && selectedId === it.id} problema={apresentacao ? null : problemas[it.id]} listening={itensAtivos && !apresentacao} camadas={apresentacao || lamina ? "nada" : (camadas ?? "tudo")} lamina={lamina}
+          {ver("equipamentos") && cena.itens.map((it, idx) => (
+            <ItemView key={it.id} it={it} numero={etapaAtual === "fichas" && !LAM ? idx + 1 : undefined} zoom={cam.zoom}
+              selected={!apresentacao && !LAM && selectedId === it.id}
+              problema={apresentacao || LAM ? null : problemas[it.id]}
+              listening={itensAtivos && !apresentacao && !LAM}
+              camadas={LAM ? (LAM.areasUso ? "tudo" : "nada") : apresentacao || lamina ? "nada" : (camadas ?? "tudo")}
+              lamina={LAM ? LAM.medidas : lamina}
+              rotulos={!LAM || LAM.rotulos} medidas={!LAM || LAM.medidas} orientacao={!LAM || LAM.orientacao}
               onSelect={() => selecionar(it.id)}
               onDragStart={() => { origemArraste.current = { x: it.x_cm, y: it.y_cm, w: it.w_cm, h: it.h_cm }; }}
               /**
@@ -1104,6 +1153,25 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoE
           <PreviewFX {...previewAtual} ponteiroRef={ponteiroRef} zoom={cam.zoom} />
         </Layer>
       </Stage>
+
+      {/* ── ZOOM ──────────────────────────────────────────────────────────
+          Até aqui só havia roda do mouse e pinça. No iPad a pinça exige dois
+          dedos sobre o desenho — o mesmo lugar onde se desenha —, e quem está
+          com a Apple Pencil na mão não tem como fazê-la. Três botões no canto,
+          ao alcance do polegar, resolvem: −, o próprio percentual (que
+          reenquadra) e +. */}
+      {!apresentacao && (
+        <div className="zoombar" role="group" aria-label="Zoom">
+          <button type="button" className="zb-b" aria-label="Afastar"
+            onClick={() => zoomAt(size.w / 2, size.h / 2, 1 / 1.3)}>−</button>
+          <button type="button" className="zb-pct" title="Enquadrar a sala inteira"
+            onClick={() => enquadrar()}>{Math.round(cam.zoom * 100)}%</button>
+          <button type="button" className="zb-b" aria-label="Aproximar"
+            onClick={() => zoomAt(size.w / 2, size.h / 2, 1.3)}>+</button>
+          <button type="button" className="zb-b" aria-label="Enquadrar a sala"
+            title="Enquadrar a sala inteira" onClick={() => enquadrar()}>⤢</button>
+        </div>
+      )}
     </div>
   );
 }
@@ -1188,12 +1256,16 @@ function ArrasteFX({ origemRef, guiasRef, folgasRef, zoom, circulacaoMin }: {
   );
 }
 
-function ItemView({ it, zoom, selected, problema, listening, camadas, lamina, numero, onSelect, onDrag, onDragStart, onDragBound }: {
+function ItemView({ it, zoom, selected, problema, listening, camadas, lamina, numero, rotulos = true, medidas = true, orientacao = true, onSelect, onDrag, onDragStart, onDragBound }: {
   it: ItemPosicionado; zoom: number; selected: boolean;
   /** Importado de `validation`, nunca reescrito à mão: a cópia literal desta
    *  união já deixou passar um tipo de problema que nunca chegou à tela. */
   problema: Problema; listening?: boolean;
   camadas?: "tudo" | "uso" | "nada"; lamina?: boolean; numero?: number;
+  /** Camadas de TEXTO do aparelho. Uma lâmina de apresentação normalmente as
+   *  desliga: nome e medida em cima do desenho são ruído para quem só quer
+   *  entender a sala. */
+  rotulos?: boolean; medidas?: boolean; orientacao?: boolean;
   onSelect: () => void; onDrag: (x: number, y: number, commit: boolean) => void;
   onDragStart?: () => void;
   /** Posição corrigida pelo encaixe — recebe e devolve o canto superior-esquerdo. */
@@ -1274,7 +1346,7 @@ function ItemView({ it, zoom, selected, problema, listening, camadas, lamina, nu
       )}
       {/* faixas de orientação: banda suave em cada lado (entrada/frente/costas/
           lateral), com a cor do papel — aparecem também na planta do Dossiê */}
-      {camadas !== "nada" && (Object.keys(geomLado) as LadoRect[]).map((k) => {
+      {orientacao && camadas !== "nada" && (Object.keys(geomLado) as LadoRect[]).map((k) => {
         const g = geomLado[k], papel = lados[k], info = PAPEL_LADO[papel];
         const horiz = g.ny !== 0; // topo/base → banda deitada
         const esp = Math.max(4, Math.min(10, (horiz ? it.h_cm : it.w_cm) * 0.09));
@@ -1288,7 +1360,7 @@ function ItemView({ it, zoom, selected, problema, listening, camadas, lamina, nu
         );
       })}
       {/* letras dos lados (E/F/C/L) — giram junto com o equipamento */}
-      {(Object.keys(geomLado) as LadoRect[]).map((k) => {
+      {orientacao && (Object.keys(geomLado) as LadoRect[]).map((k) => {
         const g = geomLado[k], papel = lados[k], info = PAPEL_LADO[papel];
         if (papel === "lateral" && !selected) return null; // laterais só quando selecionado
         const fs = 12 / zoom;
@@ -1339,9 +1411,9 @@ function ItemView({ it, zoom, selected, problema, listening, camadas, lamina, nu
         );
         return (
           <>
-            {!temDesenho && rotulo("nome", it.h_cm / 2 - (vert ? 0 : 4), vert ? it.h_cm : it.w_cm, it.nome, fsNome, "#F2F2F0", "600", vert ? -90 : 0)}
-            {temDesenho && rotulo("nomeD", it.h_cm - 10, it.w_cm, it.nome, 12, "#F2F2F0", "600", 0)}
-            {rotulo("medidas", it.h_cm / 2 + 16, it.w_cm, `${formatLength(it.w_cm)} × ${formatLength(it.h_cm)}`, 12,
+            {rotulos && !temDesenho && rotulo("nome", it.h_cm / 2 - (vert ? 0 : 4), vert ? it.h_cm : it.w_cm, it.nome, fsNome, "#F2F2F0", "600", vert ? -90 : 0)}
+            {rotulos && temDesenho && rotulo("nomeD", it.h_cm - 10, it.w_cm, it.nome, 12, "#F2F2F0", "600", 0)}
+            {medidas && rotulo("medidas", it.h_cm / 2 + 16, it.w_cm, `${formatLength(it.w_cm)} × ${formatLength(it.h_cm)}`, 12,
               lamina ? "#E9E9E6" : "#9A9AA0", lamina ? "700" : "400", 0, lamina || (!vert && !temDesenho))}
           </>
         );

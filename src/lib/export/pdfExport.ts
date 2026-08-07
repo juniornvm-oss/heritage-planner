@@ -11,8 +11,23 @@ import {
 } from "../curadoria";
 import { MUSCULOS, REGIOES } from "../musculatura";
 import { analisarEspaco } from "../analiseEspaco";
-import { agruparMarcas, marcasDaCena, presencaDaMarca } from "../marcas";
+import { agruparMarcas, marcasDaCena, presencaDaMarca, refDaMarca } from "../marcas";
 import { medidaEsquadria, quadroDeEsquadrias } from "../esquadrias";
+
+/**
+ * Uma lâmina já capturada do canvas, pronta para o papel.
+ *
+ * O PDF não escolhe camadas nem redesenha nada: ele recebe a imagem que o
+ * consultor aprovou na prévia. Qualquer decisão de desenho tomada aqui seria
+ * uma segunda verdade sobre a mesma planta.
+ */
+export interface LaminaRender {
+  png: string;
+  /** Legenda impressa sob a imagem. Vazia = lâmina muda, só o desenho. */
+  legenda?: string | null;
+  /** Imprime a lista numerada de equipamentos ao lado. */
+  indice?: boolean;
+}
 import { PAPEL_LADO, PAPEIS_CONTATO, enderecoEmLinha, formatarTelefone } from "../types";
 
 // Paleta do dossiê
@@ -54,7 +69,8 @@ const CW = A4.w - M * 2;
  */
 export async function montarDossie(
   projeto: Projeto,
-  plantaPng?: string | null,
+  /** Uma string ainda é aceita: é a planta única, como sempre foi. */
+  laminasEntrada?: LaminaRender[] | string | null,
   catalogo?: Equipamento[],
   config?: ConfigConsultor | null,
   /** Biblioteca de marcas (planner.marcas) — dá logo, grupo e garantia à
@@ -346,6 +362,13 @@ export async function montarDossie(
   // ── Inventário do condomínio: o que já existe e o que fica ──
   const inventario = cena.inventario ?? [];
 
+  // ── Lâminas da apresentação ──
+  // Compatível com o chamador antigo (uma string = a planta única de sempre,
+  // com o índice numerado ao lado).
+  const laminas: LaminaRender[] = typeof laminasEntrada === "string"
+    ? [{ png: laminasEntrada, indice: true }]
+    : (laminasEntrada ?? []).filter((l) => l && l.png);
+
   // ── Quadro de esquadrias: portas e janelas, agrupadas por tipo ──
   const esquadrias = quadroDeEsquadrias(cena.estrutura);
 
@@ -368,36 +391,63 @@ export async function montarDossie(
   // reescreve a abertura (`intro:<id>`) e reordena (`cena.dossieOrdem`).
   // A numeração impressa segue a ordem real de saída, sempre.
   const SECOES: Partial<Record<SecaoDossie, () => Promise<void> | void>> = {
+    /**
+     * AS LÂMINAS. Uma por página, na ordem montada no editor.
+     *
+     * A primeira herda o formato clássico quando pede índice: desenho à
+     * esquerda, lista numerada dos equipamentos à direita. As demais saem em
+     * largura cheia e MUDAS — sem nome, sem medida, sem legenda automática:
+     * numa lâmina de apresentação o desenho é o argumento, e texto por cima
+     * dele é ruído. O que aparece é o que foi ligado na prévia, e só.
+     */
     planta: async () => {
-      // Planta com a legenda numerada AO LADO: o síndico lê o número na planta e
-      // encontra o equipamento na hora, sem folhear.
-      if (plantaPng) {
-        try {
-          const png = await doc.embedPng(plantaPng);
-          const legW = 168;
-          const maxW = CW - legW - 14, maxH = 430;
-          const sc = Math.min(maxW / png.width, maxH / png.height);
-          const iw = png.width * sc, ih = png.height * sc;
-          const altLegenda = cena.itens.length * 12.5 + 16;
+      if (!laminas.length) return;
+      let primeira = true;
+      for (const lam of laminas) {
+        let png;
+        try { png = await doc.embedPng(lam.png); } catch { continue; }
+        const comIndice = !!lam.indice && cena.itens.length > 0;
+        const legW = comIndice ? 168 : 0;
+        const maxW = CW - legW - (comIndice ? 14 : 0);
+        const maxH = 430;
+        const sc = Math.min(maxW / png.width, maxH / png.height);
+        const iw = png.width * sc, ih = png.height * sc;
+        const altLegenda = comIndice ? cena.itens.length * 12.5 + 16 : 0;
+
+        if (primeira) {
           ensure(Math.max(ih, altLegenda) + 56);
           secN("planta");
-          const topo = y;
-          page.drawRectangle({ x: M, y: y - ih - 8, width: iw + 8, height: ih + 8, borderColor: LINE, borderWidth: 1 });
-          page.drawImage(png, { x: M + 4, y: y - ih - 4, width: iw, height: ih });
+          intro("planta", "");
+        } else {
+          // Cada lâmina seguinte começa em página limpa: é assim que ela vira
+          // uma prancha, e não uma ilustração espremida no pé da anterior.
+          novaPagina();
+        }
 
-          // Legenda numerada
+        const topo = y;
+        page.drawRectangle({ x: M, y: y - ih - 8, width: iw + 8, height: ih + 8, borderColor: LINE, borderWidth: 1 });
+        page.drawImage(png, { x: M + 4, y: y - ih - 4, width: iw, height: ih });
+
+        let ly = topo - 2;
+        if (comIndice) {
           const lx = M + iw + 22;
-          let ly = topo - 2;
           at("EQUIPAMENTOS", lx, ly, 7, bold, GOLD);
           ly -= 14;
           for (const it of cena.itens) {
-            if (ly < 80) break; // não invade o rodapé (salas gigantes: sobra fica na lista técnica)
+            if (ly < 80) break; // não invade o rodapé (a sobra fica na lista técnica)
             at(String(numeroDe.get(it.id)).padStart(2, "0"), lx, ly, 8, bold, GOLD);
             at(trunc(it.nome, legW - 24, 8), lx + 18, ly, 8, font, rgb(0.25, 0.25, 0.25));
             ly -= 12.5;
           }
+        }
 
-          y -= Math.max(ih + 16, topo - ly + 6);
+        y -= Math.max(ih + 16, comIndice ? topo - ly + 6 : 0);
+
+        if (lam.legenda?.trim()) {
+          for (const linha of linhasDe(lam.legenda.trim(), CW, 9)) { at(linha, M, y, 9, font, MUTED); y -= 12; }
+          y -= 4;
+        }
+        if (primeira) {
           at(`Sala ${formatLength(cena.sala.largura_cm)} × ${formatLength(cena.sala.profundidade_cm)}  ·  Ocupação ${r.ocupacao}%  ·  ${cena.itens.length} equipamentos`, M, y, 9, font, MUTED);
           y -= 16;
           // Legenda das faixas de orientação desenhadas em cada equipamento.
@@ -410,242 +460,9 @@ export async function montarDossie(
             lgx += 13 + w(info.label, 8, font) + 16;
           }
           y -= 18;
-        } catch { /* imagem inválida */ }
-      }
-    },
-
-    parecer: async () => {
-      // ── Parecer técnico: a defesa do layout, nas palavras do consultor ──────
-      if (cena.parecer && cena.parecer.trim()) {
-        secN("parecer", 40);
-        for (const par of cena.parecer.split(/\n+/).map((t) => t.trim()).filter(Boolean)) {
-          paragrafo(par, 10, rgb(0.22, 0.22, 0.22));
-          y -= 5;
         }
-        const quem = [config?.consultor, config?.registro].filter(Boolean).join(" · ");
-        if (quem) { y -= 2; at(quem, M, y, 9, bold, MUTED); y -= 16; }
-        y -= 4;
+        primeira = false;
       }
-    },
-
-    diagnostico: async () => {
-      secN("diagnostico", 60);
-      cartoes([
-        ["Padrão do condomínio", perfil.padrao ?? ""],
-        ["Moradores", perfil.moradores ?? ""],
-        ["Faixa etária", perfil.faixa_etaria ?? ""],
-        ["Frequência esperada", perfil.frequencia ?? ""],
-        ["Uso", perfil.uso ?? ""],
-        ["Objetivo predominante", perfil.objetivo ?? ""],
-      ]);
-      if (perfil.investimento_perfil) {
-        ensure(16);
-        at("ORÇAMENTO FRENTE AO PADRÃO", M, y, 7, bold, GOLD);
-        at(perfil.investimento_perfil, M + 160, y, 9.5, bold, DARK);
-        y -= 18;
-      }
-      if (prioridades.length) {
-        ensure(18);
-        at("A ACADEMIA É PRIORIDADE PARA", M, y, 7, bold, GOLD);
-        y -= 15;
-        // Chips numerados, na ordem definida na leitura.
-        let px = M;
-        prioridades.forEach((pr, i) => {
-          const txt = `${i + 1}º  ${pr}`;
-          const larg = w(txt, 8.5, bold) + 18;
-          if (px + larg > A4.w - M) { px = M; y -= 22; ensure(22); }
-          page.drawRectangle({ x: px, y: y - 5, width: larg, height: 19, borderColor: GOLD, borderWidth: 0.9 });
-          at(txt, px + 9, y, 8.5, bold, GOLD);
-          px += larg + 8;
-        });
-        y -= 26;
-      }
-      y -= 4;
-    },
-
-    infraestrutura: async () => {
-      secN("infraestrutura", 50);
-      cartoes([
-        ["Elétrica", projeto.infraestrutura?.eletrica ?? ""],
-        ["Climatização", projeto.infraestrutura?.climatizacao ?? ""],
-        ["Piso / contrapiso", projeto.infraestrutura?.piso ?? ""],
-        ["Acesso", projeto.infraestrutura?.acesso ?? ""],
-      ], 2);
-      if (projeto.observacoes) { y -= 4; at("Observações", M, y, 10, bold, DARK); y -= 14; paragrafo(String(projeto.observacoes), 10, rgb(0.25, 0.25, 0.25)); }
-      y -= 6;
-    },
-
-    financeiro: async () => {
-      secN("financeiro", 84);
-      const fin: [string, string, RGB][] = [];
-      if (teto) fin.push(["Orçamento-teto", BRL(teto), DARK]);
-      fin.push(["Investimento total", BRL(investimentoTotal), DARK]);
-      if (teto) fin.push([`Honorário ${taxaLabel(taxa)}`, BRL(Math.round(teto * taxa)), GOLD]);
-      if (teto) fin.push(["Saldo", BRL(teto - investimentoTotal), teto - investimentoTotal >= 0 ? GREEN : RED]);
-      const fgap = 12, fw = (CW - fgap * (fin.length - 1)) / fin.length, fy = y;
-      fin.forEach(([rot, val, cor], i) => {
-        const x = M + i * (fw + fgap);
-        page.drawRectangle({ x, y: fy - 52, width: fw, height: 52, borderColor: LINE, borderWidth: 1 });
-        at(trunc(rot.toUpperCase(), fw - 20, 7.5, bold), x + 10, fy - 18, 7.5, bold, MUTED);
-        at(trunc(val, fw - 20, 13, bold), x + 10, fy - 40, 13, bold, cor);
-      });
-      y = fy - 64;
-      const compFin = [
-        ["Equipamentos", totalEquip], ["Acessórios", totalAcess],
-        ["Revestimentos", totalRevest], ["Espelhos, parede & mobiliário", totalParede],
-      ].filter(([, v]) => (v as number) > 0) as [string, number][];
-      at(compFin.map(([n, v]) => `${n} ${BRL(Math.round(v))}`).join("   ·   "), M, y, 9, font, MUTED);
-      y -= 24;
-    },
-
-    cenarios: async () => {
-      if (mostrar.cenarios && investimentoTotal > 0) {
-        secN("cenarios", 150);
-        intro("cenarios",
-          "Como o investimento total se distribui: o núcleo indispensável (Essencial), o nível recomendado (Balanceado), os itens de acabamento do projeto (Premium) e os complementos orçados.");
-        y -= 8;
-
-        // O único número da seção.
-        ensure(54);
-        page.drawRectangle({ x: M, y: y - 44, width: CW, height: 48, borderColor: LINE, borderWidth: 1, color: CREAM });
-        at("INVESTIMENTO TOTAL", M + 14, y - 14, 8, bold, MUTED);
-        at(BRL(investimentoTotal), M + 14, y - 38, 19, bold, DARK);
-        y -= 60;
-
-        // Fatias do total (os incrementos de cada nível + complementos).
-        const fatias = [
-          ...niveis.map((n) => ({ rotulo: `${n.label} — ${n.nNivel} equip.`, valor: n.incremento, cor: hexToRgb(n.cor) })),
-          { rotulo: "Acessórios", valor: totalAcess, cor: hexToRgb("#C07A3E") },
-          { rotulo: "Revestimentos, espelhos & mobiliário", valor: totalRevest + totalParede, cor: hexToRgb("#8A8A8F") },
-        ].filter((f) => f.valor > 0);
-        const pctDe = (v: number) => Math.round((v / investimentoTotal) * 100);
-
-        // Barra empilhada
-        ensure(30);
-        const barH = 16;
-        let bx = M;
-        for (const f of fatias) {
-          const bw = (f.valor / investimentoTotal) * CW;
-          page.drawRectangle({ x: bx, y: y - barH, width: bw, height: barH, color: f.cor });
-          bx += bw;
-        }
-        page.drawRectangle({ x: M, y: y - barH, width: CW, height: barH, borderColor: LINE, borderWidth: 0.8 });
-        y -= barH + 14;
-
-        // Legenda: quadradinho, percentual grande, rótulo — sem mais nenhum R$.
-        for (const f of fatias) {
-          ensure(17);
-          page.drawRectangle({ x: M, y: y - 1, width: 9, height: 9, color: f.cor });
-          at(`${pctDe(f.valor)}%`, M + 16, y, 10.5, bold, DARK);
-          at(f.rotulo, M + 52, y, 9.5, font, rgb(0.28, 0.28, 0.28));
-          y -= 16;
-        }
-        y -= 6;
-        if (classificacaoPendente(cena)) {
-          ensure(24);
-          paragrafo(
-            "Todos os equipamentos ainda estão no nível Balanceado — classifique-os na Curadoria para os percentuais refletirem o projeto.",
-            8.5, hexToRgb("#E09A45"),
-          );
-          y -= 6;
-        }
-      }
-    },
-
-    categorias: async () => {
-      // ── 03 · Categorias: especificação + lista técnica de cada uma ──
-      secN("categorias");
-      intro("categorias",
-        "À esquerda, os equipamentos da categoria com o cenário e o valor. À direita, o que aquele conjunto é, o que entrega e como foi dimensionado — mais a observação do consultor sobre este condomínio.");
-      y -= 12;
-
-      // Duas colunas: à esquerda a tabela (equipamento · cenário · valor), à
-      // direita a especificação do conjunto e a observação do consultor. Cada
-      // categoria é um bloco fechado — nunca começa no pé de uma página.
-      const GAP = 18;
-      const LARG_ESQ = Math.round(CW * 0.56);
-      const X_DIR = M + LARG_ESQ + GAP;
-      const LARG_DIR = A4.w - M - X_DIR;
-      const colCen = M + LARG_ESQ - 118, colVal = M + LARG_ESQ;
-
-      for (const c of comp) {
-        const esp = especificacaoDaZona(c.zona, cena);
-        // Altura das duas colunas, para reservar a página inteira do bloco.
-        const altEsq = 21 + c.itens.length * 16 + 22;
-        const textosDir: [string, string][] = [
-          ["O que é", esp.oque], ["O que entrega", esp.entrega],
-          ["Dimensionamento", esp.criterio], ["Obra & operação", esp.operacao],
-        ];
-        if (esp.nota) textosDir.push(["Observação", esp.nota]);
-        const altDir = textosDir.reduce((t, [, txt]) => t + linhasDe(txt, LARG_DIR, 8).length * 11 + 13, 0);
-        ensure(Math.min(560, 30 + Math.max(altEsq, altDir)) + 10);
-
-        // Faixa da categoria (largura total)
-        page.drawRectangle({ x: M, y: y - 4, width: CW, height: 20, color: DARKBG });
-        at(c.label.toUpperCase(), M + 9, y, 10, bold, hexToRgb(c.cor));
-        rightAt(
-          `${c.n} ${c.n === 1 ? "equipamento" : "equipamentos"}    ${BRL(c.subtotal)}`,
-          A4.w - M - 9, y, 8.5, bold, rgb(0.88, 0.88, 0.88),
-        );
-        y -= 28;
-        const topo = y;
-
-        // ── Coluna esquerda: tabela ──
-        let ye = topo;
-        page.drawRectangle({ x: M, y: ye - 4, width: LARG_ESQ, height: 16, color: CREAM });
-        at("EQUIPAMENTO", M + 6, ye, 7, bold, MUTED);
-        at("CENÁRIO", colCen, ye, 7, bold, MUTED);
-        rightAt("VALOR", colVal - 6, ye, 7, bold, MUTED);
-        ye -= 19;
-        for (const it of c.itens) {
-          const marca = marcaDe(it);
-          const num = String(numeroDe.get(it.id) ?? 0).padStart(2, "0");
-          at(trunc(`${num} · ${it.nome}${marca ? ` · ${marca}` : ""}`, colCen - (M + 6) - 6, 9), M + 6, ye, 9, font, DARK);
-          at(CENARIOS[it.cenario].label, colCen, ye, 7.5, bold, hexToRgb(CENARIOS[it.cenario].cor));
-          rightAt(it.preco ? BRL(it.preco) : "incluso", colVal - 6, ye, 9, font, it.preco ? DARK : MUTED);
-          page.drawLine({ start: { x: M, y: ye - 5 }, end: { x: M + LARG_ESQ, y: ye - 5 }, thickness: 0.35, color: LINE });
-          ye -= 16;
-        }
-        at(`Subtotal ${c.label}`, M + 6, ye - 1, 8.5, bold, DARK);
-        rightAt(BRL(c.subtotal), colVal - 6, ye - 1, 9, bold, DARK);
-        ye -= 18;
-        // Composição por cenário, no pé da tabela
-        let cx = M + 6;
-        for (const k of ["essencial", "balanceado", "premium"] as Cenario[]) {
-          const d = c.porCenario[k];
-          if (!d.n) continue;
-          const txt = `${CENARIOS[k].label} ${d.n}`;
-          at(txt, cx, ye, 7.5, bold, hexToRgb(CENARIOS[k].cor));
-          cx += w(txt, 7.5, bold) + 14;
-        }
-        ye -= 14;
-
-        // ── Coluna direita: o que é este conjunto + observação ──
-        let yd = topo;
-        const campoDir = (rotulo: string, texto: string, destaque = false) => {
-          const linhas = linhasDe(texto, LARG_DIR, 8);
-          at(rotulo.toUpperCase(), X_DIR, yd, 6.5, bold, destaque ? hexToRgb(c.cor) : GOLD);
-          yd -= 10;
-          linhas.forEach((l, i) => at(l, X_DIR, yd - i * 11, 8, font, destaque ? DARK : rgb(0.28, 0.28, 0.28)));
-          yd -= linhas.length * 11 + 3;
-        };
-        campoDir("O que é", esp.oque);
-        campoDir("O que entrega", esp.entrega);
-        campoDir("Dimensionamento", esp.criterio);
-        campoDir("Obra & operação", esp.operacao);
-        if (esp.nota) campoDir("Observação", esp.nota, true);
-
-        // Filete separando as colunas, do topo ao fim do bloco
-        const base = Math.min(ye, yd);
-        page.drawLine({ start: { x: X_DIR - GAP / 2, y: topo + 10 }, end: { x: X_DIR - GAP / 2, y: base + 6 }, thickness: 0.5, color: LINE });
-        y = base - 12;
-      }
-
-      ensure(20);
-      page.drawRectangle({ x: M, y: y - 5, width: CW, height: 20, color: CREAM });
-      at("INVESTIMENTO TOTAL (PREMIUM)", M + 9, y, 9, bold, GOLD);
-      rightAt(BRL(r.cenarios.premium), A4.w - M - 9, y, 10.5, bold, GOLD);
-      y -= 28;
     },
 
     /**
@@ -773,6 +590,29 @@ export async function montarDossie(
             m.assistencia && `Assistência: ${m.assistencia}`,
           ].filter(Boolean).join("   ·   ");
           if (rodape) { at(rodape, M, y, 8, font, MUTED); y -= 13; }
+
+          // A PRANCHA DA LINHA. O logo diz de quem é o aparelho; esta imagem
+          // mostra o que o condomínio vai receber. Vem do override do projeto
+          // (`cena.marcas[].imagem`), não da biblioteca: a linha especificada
+          // muda de projeto para projeto.
+          const ovm = (cena.marcas ?? []).find((x) => x.ref === refDaMarca(m.nome));
+          if (ovm?.imagem) {
+            try {
+              const im = /^data:image\/png/i.test(ovm.imagem) ? await doc.embedPng(ovm.imagem) : await doc.embedJpg(ovm.imagem);
+              const iw = Math.min(CW, im.width);
+              const ih = (im.height / im.width) * iw;
+              const alt = Math.min(ih, 250);
+              const larg = (alt / ih) * iw;
+              ensure(alt + (ovm.imagemLegenda ? 26 : 14));
+              page.drawImage(im, { x: M + (CW - larg) / 2, y: y - alt, width: larg, height: alt });
+              y -= alt + 6;
+              if (ovm.imagemLegenda?.trim()) {
+                const leg = ovm.imagemLegenda.trim();
+                at(leg, M + (CW - w(leg, 8, font)) / 2, y, 8, font, MUTED);
+                y -= 12;
+              }
+            } catch { /* imagem inválida: a marca sai sem a prancha */ }
+          }
           y -= 8;
         }
       }
@@ -1223,10 +1063,10 @@ export async function montarDossie(
 
 /** Gera o Dossiê e dispara o download no navegador. */
 export async function exportarPdf(
-  projeto: Projeto, plantaPng?: string | null, catalogo?: Equipamento[], config?: ConfigConsultor | null,
+  projeto: Projeto, laminas?: LaminaRender[] | string | null, catalogo?: Equipamento[], config?: ConfigConsultor | null,
   biblioteca?: Marca[] | null, acabCatalogo?: Acabamento[],
 ) {
-  const bytes = await montarDossie(projeto, plantaPng, catalogo, config, biblioteca, acabCatalogo);
+  const bytes = await montarDossie(projeto, laminas, catalogo, config, biblioteca, acabCatalogo);
   const blob = new Blob([bytes as unknown as BlobPart], { type: "application/pdf" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");

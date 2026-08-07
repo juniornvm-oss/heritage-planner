@@ -8,6 +8,7 @@ import { BarraPropriedades } from "../editor/BarraPropriedades";
 import { PosicaoPonteiro } from "../editor/BarraStatus";
 import { ferramentasDaEtapa, type IdFerramenta } from "../editor/ferramentas";
 import { ElevacaoEsquadria } from "../editor/PreviaEsquadria";
+import { EditorLaminas, LaminasPanel } from "../editor/LaminasDossie";
 import {
   JANELAS, PAREDES, PORTAS, defParede, fichaAbertura, medidaEsquadria, modeloDaAbertura, quadroDeEsquadrias,
   type FormaPilar, type MaterialParede, type ModeloJanela, type ModeloPorta,
@@ -20,12 +21,13 @@ import { useLibrary } from "../store/libraryStore";
 import { obterProjeto, criarProjeto } from "../lib/supabase";
 import { heritageProjeto } from "../lib/seed";
 import { lerPlanta } from "../lib/planta";
+import { reduzirImagem } from "../lib/imagem";
 import { lerPlantaVetorial } from "../lib/plantaVetorial";
-import { exportarPdf } from "../lib/export/pdfExport";
+import { exportarPdf, type LaminaRender } from "../lib/export/pdfExport";
 import { resumo, type Problema } from "../lib/validation";
 import { snapCm } from "../lib/canvas";
 import { BRL, formatLength, parseLength } from "../lib/units";
-import { ZONAS, CENARIOS, DESTINOS_INVENTARIO, OPCOES_DOSSIE_PADRAO, ROTULO_SECAO_DOSSIE, ORDEM_DOSSIE_PADRAO, SECAO_EXIGE_DADO, CIRCULACAO_PADRAO, TIPOS_AREA, taxaDe, MATERIAIS_PISO, ELEMENTOS_PAREDE, MOBILIARIO_CATALOGO, ACESSORIOS_CATALOGO, LADOS_PADRAO, type AcessorioProjeto, type LadoRect, type AreaFuncional, type TipoArea, type DestinoInventario, type ItemInventario, type OpcoesDossie, type SecaoDossie, type Cena, type MaterialPiso, type TipoElementoParede, type Zona, type Cenario, type ItemPosicionado, type Equipamento, type AreaAcabamento, type ElementoParede, type ItemInfraestrutura } from "../lib/types";
+import { ZONAS, CENARIOS, DESTINOS_INVENTARIO, OPCOES_DOSSIE_PADRAO, ROTULO_SECAO_DOSSIE, ORDEM_DOSSIE_PADRAO, SECAO_EXIGE_DADO, CIRCULACAO_PADRAO, TIPOS_AREA, taxaDe, MATERIAIS_PISO, ELEMENTOS_PAREDE, MOBILIARIO_CATALOGO, ACESSORIOS_CATALOGO, LADOS_PADRAO, type AcessorioProjeto, type LadoRect, type AreaFuncional, type TipoArea, type DestinoInventario, type ItemInventario, type OpcoesDossie, type SecaoDossie, type CamadasLamina, type LaminaDossie, type Cena, type MaterialPiso, type TipoElementoParede, type Zona, type Cenario, type ItemPosicionado, type Equipamento, type AreaAcabamento, type ElementoParede, type ItemInfraestrutura } from "../lib/types";
 import { areaPoligonoM2, perimetroCm, bboxPoligono, ehRetangulo, retanguloParaPontos, transladar, m2 } from "../lib/geometria";
 import { CAMPOS_ESPEC, CENARIO_DEF, ESPEC_ZONA, analisarCobertura, cenarioSugerido, composicaoZonas, detalheCenarios, explicarItem, normalizarExercicios } from "../lib/curadoria";
 import { MUSCULOS, PADROES, REGIOES, type RegiaoCorpo } from "../lib/musculatura";
@@ -82,6 +84,8 @@ export default function EditorScreen() {
   const setPadroes = (p: Partial<PadroesPlanta>) => setPadroesState((a) => ({ ...a, ...p }));
   /** Espelho do ponteiro e do zoom, lido por rAF só pela barra de status. */
   const ponteiroRef = useRef<EstadoPonteiro>({ x: 0, y: 0, zoom: 1, dentro: false });
+  /** Camadas aplicadas ao canvas durante a captura das lâminas do Dossiê. */
+  const [laminaCaptura, setLaminaCaptura] = useState<CamadasLamina | null>(null);
 
   // Desliga todos os modos/ferramentas (usado ao trocar de etapa).
   function limparModos() {
@@ -513,11 +517,26 @@ export default function EditorScreen() {
         irParaEtapa("layout");
         for (let i = 0; i < 20 && !stageRef.current; i++) await new Promise((r) => setTimeout(r, 100));
       }
-      // A planta do Dossiê sai em FUNDO BRANCO: o editor trabalha no escuro,
-      // mas no papel o fundo preto come tinta e some com os traços finos.
-      // Troca só na hora do print e devolve o tema do editor em seguida.
-      const png = stageRef.current ? capturarPlantaBranca(stageRef.current) : null;
-      if (!png) setAviso("A planta não pôde ser capturada — o Dossiê saiu sem ela. Abra a Etapa 3 (Layout) e exporte de novo.");
+      // ── As LÂMINAS ────────────────────────────────────────────────────
+      // Uma captura por lâmina, do MESMO canvas: aplica as camadas, espera o
+      // Konva redesenhar e fotografa. É por isso que a prévia do editor de
+      // lâminas e o papel não podem divergir — é literalmente o mesmo desenho.
+      // Sem lâminas configuradas, sai a planta completa de sempre.
+      const laminas = (cena.laminas ?? []).filter((l) => l.ativa);
+      const paraCapturar: (LaminaDossie | null)[] = laminas.length ? laminas : [null];
+      const render: LaminaRender[] = [];
+      for (const lam of paraCapturar) {
+        setLaminaCaptura(lam ? lam.camadas : null);
+        // Dois quadros: um para o React aplicar as camadas, outro para o Konva
+        // redesenhar antes de fotografar.
+        await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+        // A planta do Dossiê sai em FUNDO BRANCO: o editor trabalha no escuro,
+        // mas no papel o fundo preto come tinta e some com os traços finos.
+        const png = stageRef.current ? capturarPlantaBranca(stageRef.current) : null;
+        if (png) render.push({ png, legenda: lam?.legenda ?? null, indice: lam ? !!lam.indice : true });
+      }
+      setLaminaCaptura(null);
+      if (!render.length) setAviso("A planta não pôde ser capturada — o Dossiê saiu sem ela. Abra a etapa Layout e exporte de novo.");
       // Acessórios: se a cena ainda não tem, busca as cotações do projeto e usa
       // as linhas de acessório ESCOLHIDAS (ou todas, se nada foi marcado) —
       // sem isso o Dossiê saía sem a tabela quando o orçamento veio por PDF.
@@ -543,8 +562,8 @@ export default function EditorScreen() {
           if (acess.length) cenaPdf = { ...cena, acessorios: acess };
         } catch { /* sem rede: o Dossiê sai com o que a cena tiver */ }
       }
-      await exportarPdf({ ...projeto, cena: cenaPdf }, png, equipamentos, config, marcasBiblioteca, acabamentos);
-    } catch (e) { setAviso(`Falha ao gerar o PDF: ${(e as Error).message}`); } finally { setBusy(null); }
+      await exportarPdf({ ...projeto, cena: cenaPdf }, render, equipamentos, config, marcasBiblioteca, acabamentos);
+    } catch (e) { setAviso(`Falha ao gerar o PDF: ${(e as Error).message}`); } finally { setLaminaCaptura(null); setBusy(null); }
   }
 
   if (erro) return <Centro><p style={{ color: "var(--red)" }}>{erro}</p><button className="btn" onClick={() => nav("/")}>Voltar</button></Centro>;
@@ -824,7 +843,7 @@ export default function EditorScreen() {
             modoRecorte={modoRecorte} onRecorte={(rect) => { recortarVetorial(rect); setModoRecorte(false); }}
             modoParede={modoParede} onParede={onParede} modoMoverPlanta={modoMoverPlanta}
             etapa={etapa} ferrEstrutura={ferrEstrutura}
-            padroes={padroes} ponteiroExternoRef={ponteiroRef}
+            padroes={padroes} ponteiroExternoRef={ponteiroRef} camadasLamina={laminaCaptura}
             stageRef={stageRef} somenteLeitura={somenteLeitura} />
 
           {/* HUD do modo, no topo-centro do canvas — onde o olho já está. */}
@@ -1671,6 +1690,8 @@ function FichaEquipamento({ item, numero }: { item: ItemPosicionado; numero: num
 // Premium e escreve a nota de cada categoria. É o que dá conteúdo às seções
 // 03, 04 e 06 do Dossiê.
 function CuradoriaPanel() {
+  // Qual lâmina está com o editor de camadas aberto.
+  const [laminaEditando, setLaminaEditando] = useState<string | null>(null);
   const cena = useProjeto((s) => s.cena);
   const updateItem = useProjeto((s) => s.updateItem);
   const sincronizarComCatalogo = useProjeto((s) => s.sincronizarComCatalogo);
@@ -1820,7 +1841,11 @@ function CuradoriaPanel() {
       <MarcasPanel />
       <ParecerPanel />
       <InventarioPanel />
+      <LaminasPanel onEditar={setLaminaEditando} />
       <SecoesDossiePanel />
+      {laminaEditando && (
+        <EditorLaminas id={laminaEditando} onTrocar={setLaminaEditando} onFechar={() => setLaminaEditando(null)} />
+      )}
     </div>
   );
 }
@@ -1968,6 +1993,7 @@ function CoberturaPanel() {
  */
 function MarcasPanel() {
   const cena = useProjeto((s) => s.cena);
+  const [erroImg, setErroImg] = useState<string | null>(null);
   const setMarcaProjeto = useProjeto((s) => s.setMarcaProjeto);
   const setMarcasIntro = useProjeto((s) => s.setMarcasIntro);
   const catalogo = useLibrary((s) => s.equipamentos);
@@ -2061,6 +2087,44 @@ function MarcasPanel() {
                       placeholder="Ex.: representante local, entrega em 20 dias, assistência técnica na cidade."
                       onSet={(v) => setMarcaProjeto(ref, { nota: v || null })} />
                   </div>
+                  {/* A IMAGEM DA LINHA. O logo diz de quem é o aparelho; esta
+                      prancha mostra O QUE o condomínio vai receber — a família
+                      especificada, do jeito que o fabricante a apresenta. É a
+                      página que o síndico olha primeiro. */}
+                  <div>
+                    <span className="microlabel">IMAGEM DA LINHA (sai no Dossiê)</span>
+                    <div style={{ display: "flex", gap: 10, alignItems: "flex-start", marginTop: 5, flexWrap: "wrap" }}>
+                      {ov?.imagem && (
+                        <img src={ov.imagem} alt="" style={{ height: 74, maxWidth: 200, objectFit: "contain", background: "#fff", borderRadius: 6, padding: 3 }} />
+                      )}
+                      <div style={{ display: "grid", gap: 5, flex: 1, minWidth: 180 }}>
+                        <label className="btn btn--xs" style={{ justifyContent: "center", cursor: "pointer" }}>
+                          {ov?.imagem ? "⭱ Trocar imagem" : "⭱ Subir imagem da linha"}
+                          <input type="file" accept="image/png,image/jpeg,image/webp" hidden
+                            onChange={async (e) => {
+                              const f = e.target.files?.[0];
+                              e.currentTarget.value = "";
+                              if (!f) return;
+                              try {
+                                // Larga o suficiente para uma prancha em A4 sem
+                                // inchar a cena: a cena inteira trafega em cada
+                                // gravação do projeto.
+                                setMarcaProjeto(ref, { imagem: await reduzirImagem(f, 1400, 0.82), nome: m.nome });
+                              } catch (err) { setErroImg((err as Error).message); }
+                            }} />
+                        </label>
+                        {ov?.imagem && (
+                          <>
+                            <input className="fld" style={{ padding: "6px 9px", fontSize: 12 }} value={ov.imagemLegenda ?? ""}
+                              placeholder="Legenda (ex.: Linha EDGE — musculação)"
+                              onChange={(ev) => setMarcaProjeto(ref, { imagemLegenda: ev.target.value || null })} />
+                            <button className="btn btn--xs" data-tom="perigo" onClick={() => setMarcaProjeto(ref, { imagem: null, imagemLegenda: null })}>✕ Remover imagem</button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  {erroImg && <div style={{ fontSize: 11, color: "var(--red)" }}>Não consegui ler a imagem: {erroImg}</div>}
                   {m.fonte && <div style={{ fontSize: 10, color: "var(--text-4)" }}>Fonte do texto da biblioteca: {m.fonte}</div>}
                 </div>
               )}
@@ -2107,7 +2171,7 @@ function AreasInspector({ sel, tipoAtual, onTipoAtual, onUpdate, onRemover, onSe
       <div>
         <div className="brandface" style={{ fontSize: 15, color: "var(--gold)" }}>LAYOUT DE ÁREA</div>
         <div style={{ fontSize: 11.5, color: "var(--muted)", lineHeight: 1.5, marginTop: 3 }}>
-          Antes dos equipamentos: onde fica a circulação, o cardio, o peso livre, o alongamento. Escolha o tipo na barra e desenhe a região na planta.
+          Com os aparelhos já postos: delimite a circulação, o cardio, o peso livre, o alongamento. Escolha o tipo na barra e desenhe a região em volta do que existe.
         </div>
       </div>
 

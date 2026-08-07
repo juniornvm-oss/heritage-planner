@@ -22,9 +22,16 @@ export interface DefEtapa {
 }
 
 /**
- * ORDEM DE TRABALHO — levantar a sala, zonear, posicionar, revestir,
- * documentar, precificar. Acabamento vem DEPOIS do layout porque só se sabe
- * onde vai o piso de borracha quando se sabe onde caem os halteres.
+ * ORDEM DE TRABALHO — levantar a sala, revestir, posicionar, zonear,
+ * documentar, orçar, decidir.
+ *
+ * A ordem mudou por um motivo prático de apresentação: o Dossiê é a ÚLTIMA
+ * coisa a ser montada, e ele só fica completo se acessórios já estiverem
+ * orçados. Acabamento subiu para antes do Layout porque o piso é decisão de
+ * obra — define nível, ralo e onde a borracha entra — e o equipamento se
+ * acomoda ao piso, não o contrário. Áreas desceu para depois do Layout porque
+ * na prática o zoneamento é lido a partir dos aparelhos já postos: o consultor
+ * desenha a região em volta do que existe, em vez de adivinhar antes.
  */
 export const ETAPAS: DefEtapa[] = [
   {
@@ -34,10 +41,10 @@ export const ETAPAS: DefEtapa[] = [
     ajuda: "Importe a planta baixa, calibre a escala e desenhe paredes, portas, janelas e pilares.",
   },
   {
-    id: "areas",
-    titulo: "Áreas",
-    entrega: "o zoneamento",
-    ajuda: "Antes dos equipamentos: onde fica a circulação e que região recebe cada família de aparelho.",
+    id: "acabamento",
+    titulo: "Acabamento",
+    entrega: "pisos, espelhos e mobiliário",
+    ajuda: "Antes do equipamento: pinte as áreas de piso e parede, fixe espelhos e pontos elétricos, posicione o mobiliário.",
   },
   {
     id: "layout",
@@ -46,10 +53,10 @@ export const ETAPAS: DefEtapa[] = [
     ajuda: "Arraste os equipamentos da biblioteca. As guias mostram alinhamento e folga em centímetros.",
   },
   {
-    id: "acabamento",
-    titulo: "Acabamento",
-    entrega: "pisos, espelhos e mobiliário",
-    ajuda: "Pinte as áreas de piso e parede, fixe espelhos e pontos elétricos, posicione o mobiliário.",
+    id: "areas",
+    titulo: "Áreas",
+    entrega: "o zoneamento",
+    ajuda: "Com os aparelhos postos: delimite a circulação e a região de cada família de equipamento.",
   },
   {
     id: "fichas",
@@ -58,17 +65,17 @@ export const ETAPAS: DefEtapa[] = [
     ajuda: "Para cada equipamento: função no projeto, restrições e detalhes de instalação.",
   },
   {
-    id: "curadoria",
-    titulo: "Cenários & Dossiê",
-    entrega: "a decisão e o documento",
-    ajuda: "Classifique em Essencial · Balanceado · Premium, escreva o parecer e monte o Dossiê.",
-    telaCheia: true,
-  },
-  {
     id: "acessorios",
     titulo: "Acessórios",
     entrega: "o orçamento dos complementos",
     ajuda: "Anilhas, barras, colchonetes e puxadores — o que é orçado sem ocupar posição na planta.",
+    telaCheia: true,
+  },
+  {
+    id: "curadoria",
+    titulo: "Cenários & Dossiê",
+    entrega: "a decisão e o documento",
+    ajuda: "Classifique em Essencial · Balanceado · Premium, escreva o parecer, monte as lâminas e feche o Dossiê.",
     telaCheia: true,
   },
 ];

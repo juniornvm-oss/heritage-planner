@@ -61,29 +61,29 @@ export default function CadastrarEquipamentoScreen() {
     preenchido.current = true;
     setF({
       nome: existente.nome ?? "", marca: existente.marca ?? "", modelo: existente.modelo ?? "",
-      zona: existente.zona ?? "livre", preco: existente.preco ? String(existente.preco) : "",
+      zona: existente.zona ?? "livre", preco: existente.preco != null ? String(existente.preco) : "",
       largura: String(existente.largura_cm ?? 100), profundidade: String(existente.profundidade_cm ?? 100),
     });
     if (existente.imagem) { setImagem(existente.imagem); setImagemOriginal(existente.imagem); }
     if (existente.contorno) setContorno(existente.contorno);
     setT({
       categoria: existente.categoria ?? "", subcategoria: existente.subcategoria ?? "",
-      altura: existente.altura_cm ? String(existente.altura_cm) : "", peso: existente.peso_kg ? String(existente.peso_kg) : "",
+      altura: existente.altura_cm != null ? String(existente.altura_cm) : "", peso: existente.peso_kg != null ? String(existente.peso_kg) : "",
       fornecedor: existente.fornecedor ?? "", codigo: existente.codigo ?? "",
       precisa_tomada: !!existente.precisa_tomada, voltagem: (existente.voltagem ?? "") as "" | "127" | "220" | "bivolt",
       ponto_internet: !!existente.ponto_internet,
-      dist_parede: existente.dist_parede_cm ? String(existente.dist_parede_cm) : "",
-      dist_lateral: existente.dist_lateral_cm ? String(existente.dist_lateral_cm) : "",
-      dist_frontal: existente.dist_frontal_cm ? String(existente.dist_frontal_cm) : "",
-      uso_frontal: existente.uso_frontal_cm ? String(existente.uso_frontal_cm) : "",
-      uso_lateral: existente.uso_lateral_cm ? String(existente.uso_lateral_cm) : "",
-      seguranca: existente.seguranca_cm ? String(existente.seguranca_cm) : "",
+      dist_parede: existente.dist_parede_cm != null ? String(existente.dist_parede_cm) : "",
+      dist_lateral: existente.dist_lateral_cm != null ? String(existente.dist_lateral_cm) : "",
+      dist_frontal: existente.dist_frontal_cm != null ? String(existente.dist_frontal_cm) : "",
+      uso_frontal: existente.uso_frontal_cm != null ? String(existente.uso_frontal_cm) : "",
+      uso_lateral: existente.uso_lateral_cm != null ? String(existente.uso_lateral_cm) : "",
+      seguranca: existente.seguranca_cm != null ? String(existente.seguranca_cm) : "",
       obs: existente.obs ?? "", ativo: existente.ativo !== false,
       descricao: existente.descricao ?? "", cenario_padrao: (existente.cenario_padrao ?? "") as "" | Cenario,
       exercicios: (existente.exercicios ?? []).join("\n"),
     });
     setLados({ ...LADOS_PADRAO, ...(existente.lados ?? {}) });
-    setDistEntrada(existente.dist_entrada_cm ? String(existente.dist_entrada_cm) : "");
+    setDistEntrada(existente.dist_entrada_cm != null ? String(existente.dist_entrada_cm) : "");
   }, [editando, existente]);
 
   const set = (k: keyof typeof f) => (v: string) => setF((x) => ({ ...x, [k]: v }));
@@ -159,7 +159,12 @@ export default function CadastrarEquipamentoScreen() {
   async function salvar() {
     if (!f.nome.trim()) { setErro("Informe o nome."); return; }
     setBusy("Salvando…"); setErro(null);
-    const num = (v: string) => (v.trim() === "" ? null : Number(v) || null);
+    // `Number(v) || null` engolia o 0 digitado (0 é um valor válido de margem).
+    const num = (v: string) => {
+      if (v.trim() === "") return null;
+      const n = Number(v.replace(",", "."));
+      return Number.isFinite(n) ? n : null;
+    };
     const eq: Equipamento = {
       ...(existente?.id ? { id: existente.id } : {}),
       nome: f.nome.trim(), marca: f.marca || null, modelo: f.modelo || null,

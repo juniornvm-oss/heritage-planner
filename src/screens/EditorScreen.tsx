@@ -94,6 +94,12 @@ export default function EditorScreen() {
   }
   function irParaEtapa(e: Etapa) { limparModos(); selecionar(null); setEtapa(e); }
 
+  // Salvar com feedback: uma falha de rede/RLS não pode morrer em silêncio
+  // enquanto o botão volta a dizer "Salvar" sem explicação.
+  function salvarComAviso() {
+    return salvar().catch((e: unknown) => setAviso(`Não consegui salvar: ${e instanceof Error ? e.message : String(e)}`));
+  }
+
   // Apaga o que estiver selecionado (estrutura, equipamento ou área de acabamento).
   function apagarSelecionado() {
     const s = useProjeto.getState();
@@ -104,6 +110,7 @@ export default function EditorScreen() {
     else if (s.selectedAcabId) removerArea(s.selectedAcabId);
     else if (s.selElemParedeId) removerElemParede(s.selElemParedeId);
     else if (s.selInfraId) removerInfra(s.selInfraId);
+    else if (s.selAreaFuncId) removerAreaFuncional(s.selAreaFuncId);
   }
 
   // ── Atalhos de teclado ────────────────────────────────────────────────
@@ -135,7 +142,7 @@ export default function EditorScreen() {
         if (ev.shiftKey) redo(); else undo();
         return;
       }
-      if (mod && ev.key.toLowerCase() === "s") { ev.preventDefault(); void salvar(); return; }
+      if (mod && ev.key.toLowerCase() === "s") { ev.preventDefault(); void salvarComAviso(); return; }
       if (ev.key === "Delete" || ev.key === "Backspace") { ev.preventDefault(); apagarSelecionado(); return; }
 
       // Setas empurram o item selecionado pelo passo de nudge (Shift = 10×).
@@ -168,18 +175,23 @@ export default function EditorScreen() {
   const stageRef = useRef<Konva.Stage>(null);
 
   useEffect(() => {
+    // Guarda contra corrida: se o usuário trocar de projeto antes de a resposta
+    // chegar, a resposta antiga (mais lenta) não pode sobrescrever a nova.
+    let cancelado = false;
     (async () => {
       if (!id) return;
       if (id === "heritage") { abrir(heritageProjeto()); return; }
       try {
         const p = await obterProjeto(id);
+        if (cancelado) return;
         if (!p) { setErro("Projeto não encontrado."); return; }
         abrir(p);
       } catch {
         // offline / sem Supabase → abre o modelo Heritage como demonstração
-        abrir(heritageProjeto());
+        if (!cancelado) abrir(heritageProjeto());
       }
     })();
+    return () => { cancelado = true; };
   }, [id, abrir]);
 
   // Cadastro → layout, sem passo manual: sempre que o projeto abre (ou a
@@ -593,7 +605,7 @@ export default function EditorScreen() {
           )}
           {somenteLeitura
             ? <button className="btn btn-gold btn--sm" onClick={() => nav("/novo")}>＋ Começar meu Heritage</button>
-            : <button className="btn btn-gold btn--sm" disabled={salvando} onClick={() => void salvar()}>{salvando ? "Salvando…" : dirty ? "💾 Salvar" : "✓ Salvo"}</button>}
+            : <button className="btn btn-gold btn--sm" disabled={salvando} onClick={() => void salvarComAviso()}>{salvando ? "Salvando…" : dirty ? "💾 Salvar" : "✓ Salvo"}</button>}
           <button className="btn btn-blue btn--sm" onClick={exportar}>⤓ Dossiê</button>
         </div>
       </div>

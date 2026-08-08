@@ -76,9 +76,13 @@ function useHtmlImage(src?: string) {
   const [img, setImg] = useState<HTMLImageElement | undefined>();
   useEffect(() => {
     if (!src) { setImg(undefined); return; }
+    // Sem o flag, um decode lento (planta grande em dataURL) dispara setState
+    // depois do unmount / da troca de src — e a imagem antiga vence a nova.
+    let vivo = true;
     const i = new Image();
-    i.onload = () => setImg(i);
+    i.onload = () => { if (vivo) setImg(i); };
     i.src = src;
+    return () => { vivo = false; i.onload = null; };
   }, [src]);
   return img;
 }

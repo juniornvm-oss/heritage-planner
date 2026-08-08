@@ -7,13 +7,22 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: "autoUpdate",
-      includeAssets: ["config.js"],
       workbox: {
         // Parsers de planta (pdf.js worker, wasm do DWG) são chunks grandes e
         // sob demanda — não faz sentido pré-cachear. Ficam fora do precache e
         // são buscados na 1ª importação (mesma origem do app, sem CDN).
-        globIgnores: ["**/*.wasm"],
+        // config.js é CONFIG DE DEPLOY (chave/URL do Supabase trocáveis sem
+        // rebuild): pré-cacheá-lo congelava a chave antiga no SW instalado.
+        globIgnores: ["**/*.wasm", "**/config.js"],
         maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
+        runtimeCaching: [
+          {
+            urlPattern: /\/config\.js$/,
+            // Rede primeiro; o cache só serve para abrir o app offline.
+            handler: "NetworkFirst",
+            options: { cacheName: "config-runtime" },
+          },
+        ],
       },
       manifest: {
         name: "Heritage GymBuilder",

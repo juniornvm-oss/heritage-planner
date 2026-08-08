@@ -78,6 +78,12 @@ const COLS_OPCIONAIS = ["contatos", "endereco_det"] as const;
 const faltaColuna = (e: unknown) =>
   /column .* does not exist|could not find the '.*' column/i.test((e as { message?: string })?.message ?? "");
 
+/** Tabela ainda não criada (migração pendente) — SÓ nesse caso a lista vazia é
+ *  a resposta certa. Engolir qualquer erro fazia falha de RLS/rede parecer
+ *  "nenhum orçamento ainda", com dados existentes no banco. */
+const faltaTabela = (e: unknown) =>
+  /relation .* does not exist|could not find the table/i.test((e as { message?: string })?.message ?? "");
+
 export async function atualizarProjeto(id: string, patch: Partial<Projeto>): Promise<Projeto> {
   if (!sb) throw new Error("Supabase não configurado");
   const { taxa_assessoria: _omit, id: _id, criado_em: _c, ...limpo } = patch;
@@ -94,9 +100,18 @@ export async function atualizarProjeto(id: string, patch: Partial<Projeto>): Pro
 // ── Bibliotecas ──────────────────────────────────────────────────────────────
 export async function listarEquipamentos(): Promise<Equipamento[]> {
   if (!sb) return [];
-  const { data, error } = await sb.from("equipamentos").select("*").order("nome");
-  if (error) throw error;
-  return ((data as any[]) || []).map((e) => ({
+  // Pagina em blocos: o PostgREST corta em 1000 linhas SEM erro — um catálogo
+  // grande perderia o final em silêncio. `id` desempata nomes repetidos para a
+  // paginação ser estável.
+  const PAGINA = 1000;
+  const linhas: any[] = [];
+  for (let de = 0; ; de += PAGINA) {
+    const { data, error } = await sb.from("equipamentos").select("*").order("nome").order("id").range(de, de + PAGINA - 1);
+    if (error) throw error;
+    linhas.push(...((data as any[]) || []));
+    if (!data || data.length < PAGINA) break;
+  }
+  return linhas.map((e) => ({
     id: e.id, nome: e.nome, marca: e.marca, modelo: e.modelo,
     largura_cm: e.largura_cm, profundidade_cm: e.profundidade_cm,
     zona: (e.zona || "livre"), preco: e.preco || 0,
@@ -128,7 +143,7 @@ export async function removerEquipamento(id: string): Promise<void> {
 export async function listarAcabamentos(): Promise<Acabamento[]> {
   if (!sb) return [];
   const { data, error } = await sb.from("acabamentos").select("*").order("nome");
-  if (error) return []; // tabela pode não existir ainda
+  if (error) { if (faltaTabela(error)) return []; throw error; }
   return (data as Acabamento[]) || [];
 }
 
@@ -144,7 +159,7 @@ export async function inserirAcabamento(a: Acabamento): Promise<void> {
 export async function listarMarcas(): Promise<Marca[]> {
   if (!sb) return [];
   const { data, error } = await sb.from("marcas").select("*").order("ordem", { nullsFirst: false }).order("nome");
-  if (error) return []; // tabela pode não existir ainda
+  if (error) { if (faltaTabela(error)) return []; throw error; }
   return (data as Marca[]) || [];
 }
 
@@ -173,7 +188,7 @@ export async function removerMarca(id: string): Promise<void> {
 export async function listarFornecedores(): Promise<Fornecedor[]> {
   if (!sb) return [];
   const { data, error } = await sb.from("fornecedores").select("*").order("nome");
-  if (error) return []; // tabela pode não existir ainda
+  if (error) { if (faltaTabela(error)) return []; throw error; }
   return (data as Fornecedor[]) || [];
 }
 
@@ -193,7 +208,7 @@ export async function removerFornecedor(id: string): Promise<void> {
 export async function listarCotacoes(projetoId: string): Promise<Cotacao[]> {
   if (!sb) return [];
   const { data, error } = await sb.from("cotacoes").select("*").eq("projeto_id", projetoId).order("criado_em");
-  if (error) return [];
+  if (error) { if (faltaTabela(error)) return []; throw error; }
   return (data as Cotacao[]) || [];
 }
 
@@ -223,7 +238,7 @@ export async function removerCotacao(id: string): Promise<void> {
 export async function listarOrcamentos(projetoId: string): Promise<Orcamento[]> {
   if (!sb) return [];
   const { data, error } = await sb.from("orcamentos").select("*").eq("projeto_id", projetoId).order("criado_em");
-  if (error) return [];
+  if (error) { if (faltaTabela(error)) return []; throw error; }
   return (data as Orcamento[]) || [];
 }
 

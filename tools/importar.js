@@ -181,7 +181,18 @@ function importDxf(file, opts) {
 
 // ── CSV em lote ─────────────────────────────────────────────────────────────
 // Cabeçalho esperado: nome,marca,largura,profundidade,zona,preco
-function splitCsvLine(line) {
+function detectarDelimitador(linha) {
+  let v = 0, pv = 0, tab = 0, q = false;
+  for (const ch of linha) {
+    if (ch === '"') q = !q;
+    else if (!q) { if (ch === ";") pv++; else if (ch === ",") v++; else if (ch === "\t") tab++; }
+  }
+  if (pv >= v && pv >= tab && pv > 0) return ";";
+  if (tab > v && tab > 0) return "\t";
+  return ",";
+}
+
+function splitCsvLine(line, delim = ",") {
   const out = [];
   let cur = "", inQ = false;
   for (let i = 0; i < line.length; i++) {
@@ -191,11 +202,28 @@ function splitCsvLine(line) {
       else if (ch === '"') inQ = false;
       else cur += ch;
     } else if (ch === '"') inQ = true;
-    else if (ch === ",") { out.push(cur); cur = ""; }
+    else if (ch === delim) { out.push(cur); cur = ""; }
     else cur += ch;
   }
   out.push(cur);
   return out.map((s) => s.trim());
+}
+
+// Números pt-BR/US: 40600 · 40.600 · 40.600,00 · 40,600.00 · "R$ 8.200,00" · "90,5"
+function parseNumBr(v) {
+  if (v == null || v === "") return null;
+  if (typeof v === "number") return Number.isFinite(v) ? v : null;
+  let s = String(v).replace(/[^\d.,-]/g, "");
+  if (!s) return null;
+  const hasC = s.includes(","), hasD = s.includes(".");
+  if (hasC && hasD) s = s.lastIndexOf(",") > s.lastIndexOf(".") ? s.replace(/\./g, "").replace(",", ".") : s.replace(/,/g, "");
+  else if (hasC) {
+    const partes = s.split(",");
+    const dec = partes[partes.length - 1];
+    s = partes.length === 2 && /^\d{1,2}$/.test(dec) ? partes[0] + "." + dec : s.replace(/,/g, "");
+  } else if (hasD && /^\d{1,3}(\.\d{3})+$/.test(s)) s = s.replace(/\./g, "");
+  const n = Number(s);
+  return Number.isFinite(n) ? n : null;
 }
 
 function importCsv(file, opts) {
@@ -205,7 +233,8 @@ function importCsv(file, opts) {
     console.error("Erro: CSV vazio ou sem linhas de dados.");
     process.exit(1);
   }
-  const header = splitCsvLine(lines[0]).map((h) => h.toLowerCase());
+  const delim = detectarDelimitador(lines[0]);
+  const header = splitCsvLine(lines[0], delim).map((h) => h.toLowerCase());
   const idx = (name) => header.indexOf(name);
   const iNome = idx("nome"), iMarca = idx("marca"), iLarg = idx("largura"),
     iProf = idx("profundidade"), iZona = idx("zona"), iPreco = idx("preco");
@@ -215,7 +244,7 @@ function importCsv(file, opts) {
   }
   const rows = [];
   for (let l = 1; l < lines.length; l++) {
-    const c = splitCsvLine(lines[l]);
+    const c = splitCsvLine(lines[l], delim);
     rows.push(normalizeRow({
       nome: c[iNome],
       marca: iMarca >= 0 ? c[iMarca] : opts.marca,
@@ -235,10 +264,10 @@ function normalizeRow(r) {
     nome: (r.nome || "").toString().trim(),
     marca: r.marca != null && r.marca !== "" ? r.marca.toString().trim() : null,
     modelo: r.modelo != null && r.modelo !== "" ? r.modelo.toString().trim() : null,
-    largura_cm: r.largura_cm != null && r.largura_cm !== "" ? Math.round(Number(r.largura_cm)) : null,
-    profundidade_cm: r.profundidade_cm != null && r.profundidade_cm !== "" ? Math.round(Number(r.profundidade_cm)) : null,
+    largura_cm: parseNumBr(r.largura_cm) != null ? Math.round(parseNumBr(r.largura_cm)) : null,
+    profundidade_cm: parseNumBr(r.profundidade_cm) != null ? Math.round(parseNumBr(r.profundidade_cm)) : null,
     zona: r.zona != null && r.zona !== "" ? r.zona.toString().trim() : null,
-    preco: r.preco != null && r.preco !== "" ? Number(r.preco) : 0,
+    preco: parseNumBr(r.preco) ?? 0,
     fonte_arquivo: r.fonte_arquivo || null,
   };
   if (row.zona && !ZONAS_VALIDAS.includes(row.zona)) {
@@ -298,7 +327,7 @@ function main() {
 // Helpers reutilizados por tools/ler.js (leitor unificado).
 module.exports = {
   parseArgs, computeBounds, unitToCm, importDxf, importCsv,
-  splitCsvLine, normalizeRow, toInsertSql, sqlLiteral, ZONAS_VALIDAS,
+  splitCsvLine, detectarDelimitador, parseNumBr, normalizeRow, toInsertSql, sqlLiteral, ZONAS_VALIDAS,
 };
 
 if (require.main === module) main();

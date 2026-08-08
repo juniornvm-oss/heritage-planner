@@ -48,7 +48,10 @@ function parseNum(v) {
   if (hasC && hasD) {
     s = s.lastIndexOf(",") > s.lastIndexOf(".") ? s.replace(/\./g, "").replace(",", ".") : s.replace(/,/g, "");
   } else if (hasC) {
-    s = /,\d{2}$/.test(s) ? s.replace(",", ".") : s.replace(/,/g, "");
+    // vírgula decimal com 1–2 dígitos ("12,5" / "12,50"); 3+ dígitos = milhar ("1,234,567")
+    const partes = s.split(",");
+    const dec = partes[partes.length - 1];
+    s = partes.length === 2 && /^\d{1,2}$/.test(dec) ? partes[0] + "." + dec : s.replace(/,/g, "");
   } else if (hasD && /^\d{1,3}(\.\d{3})+$/.test(s)) {
     s = s.replace(/\./g, ""); // separador de milhar: 23.200 → 23200
   }
@@ -65,9 +68,10 @@ function lerCsv(file) {
   const raw = fs.readFileSync(file, "utf8").replace(/^﻿/, "");
   const linhas = raw.split(/\r?\n/).filter((l) => l.trim() !== "");
   if (linhas.length < 2) return [];
-  const header = imp.splitCsvLine(linhas[0]);
+  const delim = imp.detectarDelimitador(linhas[0]);
+  const header = imp.splitCsvLine(linhas[0], delim);
   return linhas.slice(1).map((l) => {
-    const c = imp.splitCsvLine(l);
+    const c = imp.splitCsvLine(l, delim);
     const o = {};
     header.forEach((h, i) => { o[h] = c[i] != null ? c[i] : ""; });
     return o;

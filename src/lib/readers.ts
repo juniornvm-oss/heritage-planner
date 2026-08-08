@@ -23,7 +23,13 @@ export function parseNum(v: unknown): number | null {
   if (!s) return null;
   const hasC = s.includes(","), hasD = s.includes(".");
   if (hasC && hasD) s = s.lastIndexOf(",") > s.lastIndexOf(".") ? s.replace(/\./g, "").replace(",", ".") : s.replace(/,/g, "");
-  else if (hasC) s = /,\d{2}$/.test(s) ? s.replace(",", ".") : s.replace(/,/g, "");
+  else if (hasC) {
+    // Última vírgula é decimal quando o trecho final tem 1–2 dígitos ("12,5" / "12,50");
+    // com 3+ dígitos trata como separador de milhar ("1,234,567").
+    const partes = s.split(",");
+    const dec = partes[partes.length - 1];
+    s = partes.length === 2 && /^\d{1,2}$/.test(dec) ? partes[0] + "." + dec : s.replace(/,/g, "");
+  }
   else if (hasD && /^\d{1,3}(\.\d{3})+$/.test(s)) s = s.replace(/\./g, "");
   const n = Number(s);
   return Number.isFinite(n) ? n : null;
@@ -51,15 +57,28 @@ export function mapEquipamento(o: Record<string, unknown>): Equipamento | null {
   };
 }
 
+/** Detecta o delimitador do CSV pelo cabeçalho (Excel pt-BR exporta com ";"). */
+export function detectarDelimitador(linha: string): string {
+  let v = 0, pv = 0, tab = 0, q = false;
+  for (const ch of linha) {
+    if (ch === '"') q = !q;
+    else if (!q) { if (ch === ";") pv++; else if (ch === ",") v++; else if (ch === "\t") tab++; }
+  }
+  if (pv >= v && pv >= tab && pv > 0) return ";";
+  if (tab > v && tab > 0) return "\t";
+  return ",";
+}
+
 function csvParaObjetos(txt: string): Record<string, unknown>[] {
   const linhas = txt.replace(/^﻿/, "").split(/\r?\n/).filter((l) => l.trim() !== "");
   if (linhas.length < 2) return [];
+  const delim = detectarDelimitador(linhas[0]);
   const split = (l: string): string[] => {
     const out: string[] = []; let c = "", q = false;
     for (let i = 0; i < l.length; i++) {
       const ch = l[i];
       if (q) { if (ch === '"' && l[i + 1] === '"') { c += '"'; i++; } else if (ch === '"') q = false; else c += ch; }
-      else if (ch === '"') q = true; else if (ch === ",") { out.push(c); c = ""; } else c += ch;
+      else if (ch === '"') q = true; else if (ch === delim) { out.push(c); c = ""; } else c += ch;
     }
     out.push(c); return out.map((s) => s.trim());
   };

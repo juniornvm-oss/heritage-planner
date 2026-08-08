@@ -12,7 +12,7 @@ export interface CotaAuto {
 interface Caixa { x0: number; y0: number; x1: number; y1: number; parede: boolean }
 
 /** AABB do item considerando rotação (mesma aproximação da validação). */
-function aabb(a: ItemPosicionado): Caixa {
+function aabb(a: Pick<ItemPosicionado, "x_cm" | "y_cm" | "w_cm" | "h_cm"> & { rotacao?: number }): Caixa {
   const th = ((a.rotacao || 0) * Math.PI) / 180;
   const c = Math.abs(Math.cos(th)), s = Math.abs(Math.sin(th));
   const w = a.w_cm * c + a.h_cm * s, h = a.w_cm * s + a.h_cm * c;
@@ -35,7 +35,10 @@ export function gerarCotasAutomaticas(cena: Cena): CotaAuto[] {
   const caixas: Caixa[] = itens.map(aabb);
 
   const obstaculos: Caixa[] = [...caixas];
-  for (const i of cena.infra ?? []) obstaculos.push({ x0: i.x_cm, y0: i.y_cm, x1: i.x_cm + i.w_cm, y1: i.y_cm + i.h_cm, parede: false });
+  for (const i of cena.infra ?? []) {
+    // Mobiliário gira na tela — cota a borda que o consultor vê, não a crua.
+    obstaculos.push({ ...aabb(i), parede: false });
+  }
   for (const p of cena.estrutura?.pilares ?? []) obstaculos.push({ x0: p.x_cm, y0: p.y_cm, x1: p.x_cm + p.w_cm, y1: p.y_cm + p.h_cm, parede: false });
   for (const w of cena.estrutura?.paredes ?? []) {
     if (Math.abs(w.x1 - w.x2) > 0.5 && Math.abs(w.y1 - w.y2) > 0.5) continue; // só ortogonais
@@ -55,7 +58,11 @@ export function gerarCotasAutomaticas(cena: Cena): CotaAuto[] {
   const põe = (x1: number, y1: number, x2: number, y2: number) => {
     const valor = Math.hypot(x2 - x1, y2 - y1);
     if (valor < 2 || valor > LIMITE_CM) return;
-    const chave = [x1, y1, x2, y2].map((v) => Math.round(v / 4)).sort().join(",");
+    // Dedup por PARES de pontos ordenados (A→B ≡ B→A). Ordenar os 4 números
+    // soltos fazia uma cota horizontal e uma vertical de mesmo vão colidirem
+    // na mesma chave — e a segunda sumia da lâmina.
+    const p1 = `${Math.round(x1 / 4)},${Math.round(y1 / 4)}`, p2 = `${Math.round(x2 / 4)},${Math.round(y2 / 4)}`;
+    const chave = p1 <= p2 ? `${p1}:${p2}` : `${p2}:${p1}`;
     if (vistas.has(chave)) return;
     vistas.add(chave);
     cotas.push({ x1, y1, x2, y2, valor });

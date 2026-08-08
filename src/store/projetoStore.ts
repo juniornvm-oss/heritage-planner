@@ -277,7 +277,7 @@ export const useProjeto = create<ProjetoState>((set, get) => ({
 
   abrir(projeto) {
     const cena = normalizarCena(projeto.cena);
-    set({ projeto, cena, selectedId: null, selectedAcabId: null, selElemParedeId: null, selInfraId: null, selEstrutura: null, dirty: false, past: [], future: [] });
+    set({ projeto, cena, ...SEM_SELECAO, dirty: false, past: [], future: [] });
   },
 
   selecionar(id) {
@@ -859,12 +859,17 @@ export const useProjeto = create<ProjetoState>((set, get) => ({
   },
 
   async salvar() {
-    const { projeto, cena } = get();
+    const { projeto, cena, salvando } = get();
+    if (salvando) return; // já há um save em voo com uma cena mais antiga
     if (!projeto?.id || projeto.id === "heritage") { set({ dirty: false }); return; }
     set({ salvando: true });
     try {
       await salvarCena(projeto.id, cena);
-      set({ dirty: false });
+      // Só limpa o `dirty` se nada mudou durante o await — cada edição cria
+      // uma cena nova, então a comparação por referência detecta edições feitas
+      // enquanto o save estava em voo (senão o "✓ Salvo" mentiria).
+      const agora = get();
+      if (agora.cena === cena && agora.projeto?.id === projeto.id) set({ dirty: false });
     } finally {
       set({ salvando: false });
     }

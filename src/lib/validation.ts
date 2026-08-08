@@ -1,26 +1,25 @@
 import type { Cena, ItemPosicionado, Cenario } from "./types";
 import { CENARIOS } from "./types";
 import { analisarEspaco, type AnaliseEspaco } from "./analiseEspaco";
+import { aabbGirado } from "./snap";
 
 interface RectCm { x_cm: number; y_cm: number; w_cm: number; h_cm: number }
 const overlapR = (a: RectCm, b: RectCm) =>
   a.x_cm < b.x_cm + b.w_cm && a.x_cm + a.w_cm > b.x_cm && a.y_cm < b.y_cm + b.h_cm && a.y_cm + a.h_cm > b.y_cm;
 /** AABB do item considerando a rotação em torno do centro (aproximação
  *  conservadora para colisão — o retângulo envolvente do corpo girado). */
-const aabbItem = (a: ItemPosicionado): RectCm => {
-  const th = ((a.rotacao || 0) * Math.PI) / 180;
-  const c = Math.abs(Math.cos(th)), s = Math.abs(Math.sin(th));
-  const w = a.w_cm * c + a.h_cm * s, h = a.w_cm * s + a.h_cm * c;
-  const cx = a.x_cm + a.w_cm / 2, cy = a.y_cm + a.h_cm / 2;
-  return { x_cm: cx - w / 2, y_cm: cy - h / 2, w_cm: w, h_cm: h };
-};
+const aabbItem = (a: ItemPosicionado): RectCm => aabbGirado(a.x_cm, a.y_cm, a.w_cm, a.h_cm, a.rotacao || 0);
 const overlap = (a: ItemPosicionado, b: RectCm) => overlapR(aabbItem(a), b);
 
-/** Retângulo da ÁREA DE USO do item (AABB do corpo girado + margens). */
+/** Retângulo da ÁREA DE USO do item: margens aplicadas no EIXO LOCAL (lateral
+ *  na largura, frontal na profundidade) e só então girado — a mesma conta de
+ *  `usoDe` em analiseEspaco. Inflar o AABB já girado colocava a folga frontal
+ *  de uma esteira a 90° no eixo errado. */
 const usoRect = (a: ItemPosicionado): RectCm => {
   const uF = a.uso_frontal_cm || 0, uL = a.uso_lateral_cm || 0;
-  const bb = aabbItem(a);
-  return { x_cm: bb.x_cm - uL, y_cm: bb.y_cm - uF, w_cm: bb.w_cm + 2 * uL, h_cm: bb.h_cm + 2 * uF };
+  const cx = a.x_cm + a.w_cm / 2, cy = a.y_cm + a.h_cm / 2;
+  const w = a.w_cm + 2 * uL, h = a.h_cm + 2 * uF;
+  return aabbGirado(cx - w / 2, cy - h / 2, w, h, a.rotacao || 0);
 };
 
 /**
@@ -63,7 +62,8 @@ export function problemasDaCena(cena: Cena, espaco: AnaliseEspaco = analisarEspa
         w_cm: Math.abs(w.x2 - w.x1) + 2 * e, h_cm: Math.abs(w.y2 - w.y1) + 2 * e,
       };
     });
-  const infraRects: RectCm[] = (cena.infra ?? []).map((i) => ({ x_cm: i.x_cm, y_cm: i.y_cm, w_cm: i.w_cm, h_cm: i.h_cm }));
+  // Mobiliário também gira na tela — o AABB girado acompanha o que se vê.
+  const infraRects: RectCm[] = (cena.infra ?? []).map((i) => aabbGirado(i.x_cm, i.y_cm, i.w_cm, i.h_cm, i.rotacao || 0));
   const corredor = sala.config?.corredor;
   // Varredura das folhas de porta. Vem de `analisarEspaco`, que já resolveu o
   // "para dentro" pelo centro das paredes e já descartou os modelos que não
@@ -78,7 +78,9 @@ export function problemasDaCena(cena: Cena, espaco: AnaliseEspaco = analisarEspa
     const parede = paredesRect.some((r) => overlap(a, r));
     const mob = infraRects.some((r) => overlap(a, r));
     const outro = itens.some((b) => b.id !== a.id && overlap(a, aabbItem(b)));
-    const corr = corredor ? a.x_cm < corredor.x + corredor.w && a.x_cm + a.w_cm > corredor.x : false;
+    // Usa o AABB girado (bb) — o corpo cru colocaria um item a 90° num corredor
+    // que ele não atravessa (ou deixaria passar um que atravessa).
+    const corr = corredor ? bb.x_cm < corredor.x + corredor.w && bb.x_cm + bb.w_cm > corredor.x : false;
     // Área de uso invadida por OUTRO equipamento (aviso amarelo, não bloqueio).
     const uso = !fora && !pil && !outro && itens.some((b) => b.id !== a.id && overlapR(usoRect(a), usoRect(b)));
     res[a.id] = fora || pil || parede || mob || outro ? "colisao"

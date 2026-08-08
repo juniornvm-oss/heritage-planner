@@ -63,7 +63,11 @@ function paredesInternas(cena: Cena, bbox: { x: number; y: number; w: number; h:
       const noPerim = (horiz && (Math.abs(Y1 - bbox.y) < margem || Math.abs(Y1 - (bbox.y + bbox.h)) < margem))
         || (vert && (Math.abs(X1 - bbox.x) < margem || Math.abs(X1 - (bbox.x + bbox.w)) < margem));
       if (noPerim) continue;
-      const key = [X1, Y1, X2, Y2].map((n) => Math.round(n / 10)).sort().join(",");
+      // Chave por PARES de pontos ordenados (A→B ≡ B→A). Ordenar os 4 números
+      // soltos fazia paredes perpendiculares distintas ("0,0→100,0" e
+      // "0,0→0,100") colidirem na mesma chave — e uma delas sumia do auto.
+      const p1 = `${Math.round(X1 / 10)},${Math.round(Y1 / 10)}`, p2 = `${Math.round(X2 / 10)},${Math.round(Y2 / 10)}`;
+      const key = p1 <= p2 ? `${p1}|${p2}` : `${p2}|${p1}`;
       if (seen.has(key)) continue; seen.add(key);
       out.push({ id: uid(), x1: X1, y1: Y1, x2: X2, y2: Y2, espessura_cm: 10 });
       if (out.length >= 40) return out; // teto de segurança

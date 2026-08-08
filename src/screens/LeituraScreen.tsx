@@ -203,7 +203,10 @@ export default function LeituraScreen() {
       .map((c) => ({ ...c, nome: t(c.nome), whatsapp: (c.whatsapp ?? "").replace(/\D/g, "") || null, email: t(c.email ?? "") || null }));
     const oSindico = contatosLimpos.find((c) => c.papel === "sindico") ?? contatosLimpos[0];
     const oAdmin = contatosLimpos.find((c) => c.papel === "administrador");
+    // Preserva tudo que o editor já gravou na cena (estrutura, acabamentos,
+    // lâminas, dossiê…) — a Leitura só atualiza sala, planta e mantém os itens.
     const cena: Cena = {
+      ...(cenaExistente ?? {}),
       sala: { largura_cm: Number(f.largura) || 1000, profundidade_cm: Number(f.profundidade) || 800, config: cenaExistente?.sala.config },
       planta, itens: cenaExistente?.itens ?? [],
     };

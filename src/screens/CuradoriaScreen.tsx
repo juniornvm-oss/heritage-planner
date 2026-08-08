@@ -72,11 +72,15 @@ export default function CuradoriaScreen() {
         const p = ehHeritage ? heritageProjeto() : (await obterProjeto(id)) || heritageProjeto();
         setProjeto(p);
       } catch { setProjeto(heritageProjeto()); }
-      setFornecedores(await listarFornecedores());
-      if (podeCotar) {
-        setCotacoes(await listarCotacoes(id));
-        setOrcamentos(await listarOrcamentos(id));
-      }
+      // Erros de carga aparecem na tela — antes viravam lista vazia e a tela
+      // dizia "nenhum orçamento ainda" com dados existentes no banco.
+      try {
+        setFornecedores(await listarFornecedores());
+        if (podeCotar) {
+          setCotacoes(await listarCotacoes(id));
+          setOrcamentos(await listarOrcamentos(id));
+        }
+      } catch (e) { setErro(`Falha ao carregar cotações: ${(e as Error).message}`); }
     })();
   }, [id, ehHeritage, podeCotar]);
 

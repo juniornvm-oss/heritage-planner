@@ -12,7 +12,9 @@ const TEXTO = new Set(["TEXT", "MTEXT", "DIMENSION", "ATTRIB", "ATTDEF"]);
 
 /** $INSUNITS → fator para cm (mm por padrão, como no importar.js). */
 export function unitToCm(insunits: number): number {
-  return ({ 1: 2.54, 4: 0.1, 5: 1, 6: 100 } as Record<number, number>)[insunits] ?? 0.1;
+  // Tabela AutoCAD: 1=pol 2=pés 3=milhas 4=mm 5=cm 6=m 7=km 10=jardas 14=dm 15=dam 16=hm
+  const map: Record<number, number> = { 1: 2.54, 2: 30.48, 3: 160934.4, 4: 0.1, 5: 1, 6: 100, 7: 100000, 10: 91.44, 14: 10, 15: 1000, 16: 10000 };
+  return map[insunits] ?? 0.1;
 }
 
 function limparTexto(s: unknown): string {
@@ -74,7 +76,8 @@ export function dxfEntidadesParaVetorial(entities: Ent[], blocks: Record<string,
         addTraco(pts, camada);
       } else if (t === "INSERT" && blocks && blocks[e.name]?.entities) {
         const p = e.position || { x: 0, y: 0 }, xs = e.xScale || 1, ys = e.yScale || 1;
-        const r = -((e.rotation || 0) * Math.PI) / 180, s = Math.sin(r), c = Math.cos(r);
+        // rotação segue a mesma convenção dos ARCs: DXF em graus, DWG (libredwg) já em radianos
+        const r = -grau(e.rotation || 0), s = Math.sin(r), c = Math.cos(r);
         walk(blocks[e.name].entities, (bx, by) => tf(p.x + bx * xs * c - by * ys * s, p.y + bx * xs * s + by * ys * c), depth + 1);
       } else if (TEXTO.has(t)) {
         const pt = e.startPoint || e.position || e.textMidPoint || e.anchorPoint;

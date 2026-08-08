@@ -29,14 +29,18 @@ async function lerPdf(file: File): Promise<PlantaBitmap> {
   return { dataUrl: canvas.toDataURL("image/jpeg", 0.85), larguraPx: canvas.width, alturaPx: canvas.height };
 }
 
-function desenharEntidades(entities: any[], blocks: Record<string, any>): PlantaBitmap {
+function desenharEntidades(entities: any[], blocks: Record<string, any>, angulosRad = false): PlantaBitmap {
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   const segs: [number, number, number, number][] = [];
   const hit = (x: number, y: number) => { if (x < minX) minX = x; if (x > maxX) maxX = x; if (y < minY) minY = y; if (y > maxY) maxY = y; };
   const push = (ents: any[], tf: (x: number, y: number) => [number, number]) => {
     for (const e of ents || []) {
       const t = (e.type || "").toUpperCase();
-      if (t === "LINE" || t === "LWPOLYLINE" || t === "POLYLINE") {
+      if (t === "LINE" && e.startPoint && e.endPoint) {
+        // libredwg expõe LINE como startPoint/endPoint (sem vertices)
+        const a = tf(e.startPoint.x, e.startPoint.y), b = tf(e.endPoint.x, e.endPoint.y);
+        segs.push([a[0], a[1], b[0], b[1]]); hit(a[0], a[1]); hit(b[0], b[1]);
+      } else if (t === "LINE" || t === "LWPOLYLINE" || t === "POLYLINE") {
         const vs = (e.vertices || []).map((v: any) => tf(v.x, v.y));
         for (let i = 0; i + 1 < vs.length; i++) { segs.push([vs[i][0], vs[i][1], vs[i + 1][0], vs[i + 1][1]]); hit(vs[i][0], vs[i][1]); hit(vs[i + 1][0], vs[i + 1][1]); }
       } else if (t === "CIRCLE" && e.center) {
@@ -44,7 +48,8 @@ function desenharEntidades(entities: any[], blocks: Record<string, any>): Planta
         for (let i = 1; i <= n; i++) { const a = (i / n) * 2 * Math.PI; const p = tf(e.center.x + e.radius * Math.cos(a), e.center.y + e.radius * Math.sin(a)); segs.push([prev[0], prev[1], p[0], p[1]]); hit(p[0], p[1]); prev = p; }
       } else if (t === "INSERT" && blocks && blocks[e.name]?.entities) {
         const p = e.position || { x: 0, y: 0 }, xs = e.xScale || 1, ys = e.yScale || 1;
-        const r = -((e.rotation || 0) * Math.PI) / 180, s = Math.sin(r), c = Math.cos(r);
+        // DXF traz rotação em graus; DWG (libredwg) já em radianos
+        const r = angulosRad ? -(e.rotation || 0) : -((e.rotation || 0) * Math.PI) / 180, s = Math.sin(r), c = Math.cos(r);
         push(blocks[e.name].entities, (bx, by) => { const [wx, wy] = tf(p.x + bx * xs * c - by * ys * s, p.y + bx * xs * s + by * ys * c); return [wx, wy]; });
       }
     }
@@ -82,7 +87,7 @@ async function lerDwg(file: File): Promise<PlantaBitmap> {
   const blocks: Record<string, any> = {};
   (db.blocks || []).forEach((b: any) => { if (b?.name) blocks[b.name] = { entities: b.entities || [] }; });
   const ents = db.entities || (db.blocks && db.blocks.model_space) || [];
-  const out = desenharEntidades(ents, blocks);
+  const out = desenharEntidades(ents, blocks, true);
   try { lib.dwg_free(dwg); } catch { /* ignore */ }
   return out;
 }

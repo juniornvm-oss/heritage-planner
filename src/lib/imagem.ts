@@ -65,10 +65,14 @@ export async function limparDesenho(dataUrl: string, limiar = 135, corHex = "#C9
  */
 export async function recortarImagem(dataUrl: string, rect: { x: number; y: number; w: number; h: number }): Promise<string> {
   const img = await carregar(dataUrl);
-  const sx = Math.max(0, Math.min(1, rect.x)) * img.width;
-  const sy = Math.max(0, Math.min(1, rect.y)) * img.height;
-  const sw = Math.max(1, Math.min(1 - rect.x, rect.w) * img.width);
-  const sh = Math.max(1, Math.min(1 - rect.y, rect.h) * img.height);
+  // Clampa as QUATRO bordas em 0..1 antes de medir — usar o rect.x cru no
+  // cálculo da largura recortava área errada quando a seleção passava da borda.
+  const x0 = Math.max(0, Math.min(1, rect.x)), y0 = Math.max(0, Math.min(1, rect.y));
+  const x1 = Math.max(x0, Math.min(1, rect.x + rect.w)), y1 = Math.max(y0, Math.min(1, rect.y + rect.h));
+  const sx = x0 * img.width;
+  const sy = y0 * img.height;
+  const sw = Math.max(1, (x1 - x0) * img.width);
+  const sh = Math.max(1, (y1 - y0) * img.height);
   const c = document.createElement("canvas");
   c.width = Math.round(sw); c.height = Math.round(sh);
   c.getContext("2d")!.drawImage(img, sx, sy, sw, sh, 0, 0, c.width, c.height);

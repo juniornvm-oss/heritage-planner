@@ -308,7 +308,12 @@ function obstaculosDe(cena: Cena): Ret[] {
   }
   for (const i of cena.infra ?? []) {
     if (INFRA_TRANSPONIVEL.includes(i.tipo)) continue;
-    rets.push({ x0: i.x_cm, y0: i.y_cm, x1: i.x_cm + i.w_cm, y1: i.y_cm + i.h_cm });
+    // Mobiliário gira na tela: o AABB do corpo girado é o piso que ele tira.
+    const th = ((i.rotacao || 0) * Math.PI) / 180;
+    const c = Math.abs(Math.cos(th)), s = Math.abs(Math.sin(th));
+    const w = i.w_cm * c + i.h_cm * s, h = i.w_cm * s + i.h_cm * c;
+    const cx = i.x_cm + i.w_cm / 2, cy = i.y_cm + i.h_cm / 2;
+    rets.push({ x0: cx - w / 2, y0: cy - h / 2, x1: cx + w / 2, y1: cy + h / 2 });
   }
   return rets;
 }
@@ -507,8 +512,16 @@ export function analisarEspaco(cena: Cena): AnaliseEspaco {
     // entrada é o caso clássico, e ela mora em `cena.infra`, não em `itens`.
     const dentro = setores.length ? itens.filter((i) => toca(corpoDe(i))) : [];
     const dentroInfra = setores.length
-      ? (cena.infra ?? []).filter((i) => !INFRA_TRANSPONIVEL.includes(i.tipo)
-          && toca({ x0: i.x_cm, y0: i.y_cm, x1: i.x_cm + i.w_cm, y1: i.y_cm + i.h_cm }))
+      ? (cena.infra ?? []).filter((i) => {
+          if (INFRA_TRANSPONIVEL.includes(i.tipo)) return false;
+          // AABB do mobiliário girado — a catraca a 45° bloqueia a folha
+          // exatamente como aparece na tela.
+          const th = ((i.rotacao || 0) * Math.PI) / 180;
+          const c = Math.abs(Math.cos(th)), s = Math.abs(Math.sin(th));
+          const w2 = (i.w_cm * c + i.h_cm * s) / 2, h2 = (i.w_cm * s + i.h_cm * c) / 2;
+          const cx = i.x_cm + i.w_cm / 2, cy = i.y_cm + i.h_cm / 2;
+          return toca({ x0: cx - w2, y0: cy - h2, x1: cx + w2, y1: cy + h2 });
+        })
       : [];
     aberturas.push({
       id: ab.id,

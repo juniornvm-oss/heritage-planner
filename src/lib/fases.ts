@@ -92,7 +92,8 @@ function temValor(o?: object | null): boolean {
 export function statusDaFase(fase: Fase, projeto?: Projeto | null): StatusFase {
   if (!projeto) return "a-iniciar";
   const itens = projeto.cena?.itens ?? [];
-  const temPlanta = !!projeto.cena?.planta;
+  // DXF/DWG importados como vetor gravam `plantaVetorial` (e zeram `planta`).
+  const temPlanta = !!(projeto.cena?.planta || projeto.cena?.plantaVetorial);
 
   switch (fase.id) {
     case "leitura": {

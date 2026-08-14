@@ -108,6 +108,9 @@ export function statusDaFase(fase: Fase, projeto?: Projeto | null): StatusFase {
       return cenarios.size >= 2 ? "concluida" : itens.length > 0 ? "andamento" : "a-iniciar";
     }
     case "dossie":
+      // Emitido = tem data de emissão (o carimbo do documento). Com equipamentos
+      // mas sem emissão, ainda está em montagem.
+      if (projeto.cena?.dossieEmissao) return "concluida";
       return itens.length > 0 ? "andamento" : "a-iniciar";
   }
 }

@@ -89,7 +89,7 @@ function useHtmlImage(src?: string) {
 
 interface Cam { zoom: number; x: number; y: number } // x,y = posição da layer em px
 
-export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoElemParede, snapPasso, camadas, apresentacao, lamina, modoVista, onVista, onArea, modoRecorte, onRecorte, modoParede, onParede, modoMoverPlanta, stageRef, somenteLeitura, etapa, ferrEstrutura, padroes, ponteiroExternoRef, camadasLamina }: {
+export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoElemParede, snapPasso, camadas, apresentacao, lamina, modoVista, onVista, onArea, modoRecorte, onRecorte, modoParede, onParede, modoMoverPlanta, stageRef, somenteLeitura, etapa, ferrEstrutura, padroes, ponteiroExternoRef, camadasLamina, enquadrarRef }: {
   modoCalibrar: boolean;
   onCalibrar: (distanciaMundoCm: number) => void;
   ferrAcab?: FerramentaAcab; // ferramentas da Etapa 2 (área/polígono/cota/apagar)
@@ -125,6 +125,8 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoE
    * e sem nada que não esteja ligado.
    */
   camadasLamina?: CamadasLamina | null;
+  /** O export do Dossiê chama antes de fotografar: a sala inteira no quadro. */
+  enquadrarRef?: React.MutableRefObject<(() => void) | null>;
 }) {
   const etapaAtual: Etapa = etapa ?? "layout";
   const pad = padroes ?? PADROES_PLANTA;
@@ -208,6 +210,14 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoE
     const z = Number.isFinite(zoom) && zoom > 0 ? zoom : 0.4;
     setCam({ zoom: z, x: w / 2 - (sala.largura_cm / 2) * z, y: h / 2 - (sala.profundidade_cm / 2) * z });
   }, [sala.largura_cm, sala.profundidade_cm, size.w, size.h]);
+
+  // Export do Dossiê: enquadra a sala inteira sem o consultor ter que
+  // lembrar do zoom que deixou no meio do trabalho.
+  useEffect(() => {
+    if (!enquadrarRef) return;
+    enquadrarRef.current = () => enquadrar();
+    return () => { enquadrarRef.current = null; };
+  }, [enquadrar, enquadrarRef]);
 
   /**
    * ENQUADRAMENTO: só na primeira medida real e quando a SALA muda de tamanho.

@@ -229,6 +229,75 @@ describe("curadoria — especificação e explicação", () => {
     // Memorial + especificações fazem o documento crescer bem acima da versão só-tabela.
     expect(bytes.length).toBeGreaterThan(20000);
   });
+
+  it("imprime a espinha comercial (parecer, financeiro, cenários, categorias)", async () => {
+    // Regressão: essas seis seções sumiram no commit das lâminas e a Central
+    // ainda as listava — o PDF saía sem a defesa do layout nem o dinheiro.
+    const p = heritageProjeto();
+    p.orcamento_teto = 350000;
+    p.cena!.parecer = "A ergometria ocupa a face da vidraça; a força guiada forma o circuito no fundo da sala.";
+    p.perfil = { padrao: "Alto padrão", moradores: "180", faixa_etaria: "30–50", frequencia: "alta", uso: "autônomo", objetivo: "saúde" };
+    p.infraestrutura = { eletrica: "Trifásico", climatizacao: "VRV", piso: "Contrapiso nivelado", acesso: "Elevador social" };
+
+    const comEspinha = await montarDossie(p);
+    const semEspinha = await montarDossie({
+      ...p,
+      cena: {
+        ...p.cena!,
+        dossie: {
+          parecer: false, diagnostico: false, infraestrutura: false,
+          financeiro: false, cenarios: false, categorias: false,
+        },
+      },
+    });
+
+    const paginas = (b: Uint8Array) => {
+      // pdf-lib grava /Type /Page no dicionário do objeto (fora do stream).
+      const s = new TextDecoder("latin1").decode(b);
+      return (s.match(/\/Type\s*\/Page\b/g) || []).length;
+    };
+
+    // As seções restauradas incham o documento mesmo quando o contador de
+    // páginas falha em alguma versão do pdf-lib — o tamanho em bytes é a
+    // prova estável de que a espinha comercial voltou a ser impressa.
+    expect(comEspinha.length).toBeGreaterThan(semEspinha.length + 1500);
+    const pCom = paginas(comEspinha);
+    const pSem = paginas(semEspinha);
+    if (pCom > 0 && pSem > 0) expect(pCom).toBeGreaterThanOrEqual(pSem);
+  });
+});
+
+describe("prontidão do dossiê", () => {
+  it("marca bloqueios quando falta parecer ou classificação", async () => {
+    const { checarProntidaoDossie } = await import("./prontidaoDossie");
+    const p = heritageProjeto();
+    p.cena!.parecer = "";
+    p.cena!.itens = p.cena!.itens.map((i) => ({ ...i, cenario: "balanceado" as const }));
+    const r = checarProntidaoDossie(p, p.cena!);
+    expect(r.pronto).toBe(false);
+    expect(r.bloqueios.map((b) => b.id)).toEqual(expect.arrayContaining(["parecer", "cenarios"]));
+  });
+
+  it("fica pronto no modelo Heritage classificado com parecer", async () => {
+    const { checarProntidaoDossie } = await import("./prontidaoDossie");
+    const p = heritageProjeto();
+    p.cena!.parecer = "Layout organizado por zonas de uso, com circulação central de 1 m.";
+    p.cena!.dossieEmissao = "2026-08-14";
+    const r = checarProntidaoDossie(p, p.cena!);
+    expect(r.bloqueios).toEqual([]);
+    expect(r.pronto).toBe(true);
+  });
+});
+
+describe("fase dossiê", () => {
+  it("só conclui quando há data de emissão", async () => {
+    const { FASES, statusDaFase } = await import("./fases");
+    const fase = FASES.find((f) => f.id === "dossie")!;
+    const p = heritageProjeto();
+    expect(statusDaFase(fase, p)).toBe("andamento");
+    p.cena!.dossieEmissao = "2026-08-14";
+    expect(statusDaFase(fase, p)).toBe("concluida");
+  });
 });
 
 describe("curadoria — exercícios de musculação por equipamento", () => {

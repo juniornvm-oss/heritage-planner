@@ -23,11 +23,12 @@ import { heritageProjeto } from "../lib/seed";
 import { lerPlanta } from "../lib/planta";
 import { reduzirImagem } from "../lib/imagem";
 import { lerPlantaVetorial } from "../lib/plantaVetorial";
-import { exportarPdf, type LaminaRender } from "../lib/export/pdfExport";
+import { montarDossie, baixarPdf, type LaminaRender } from "../lib/export/pdfExport";
+import { checarProntidaoDossie } from "../lib/prontidaoDossie";
 import { resumo, type Problema } from "../lib/validation";
 import { snapCm } from "../lib/canvas";
 import { BRL, formatLength, parseLength } from "../lib/units";
-import { ZONAS, CENARIOS, DESTINOS_INVENTARIO, OPCOES_DOSSIE_PADRAO, ROTULO_SECAO_DOSSIE, ORDEM_DOSSIE_PADRAO, SECAO_EXIGE_DADO, CIRCULACAO_PADRAO, TIPOS_AREA, taxaDe, MATERIAIS_PISO, ELEMENTOS_PAREDE, MOBILIARIO_CATALOGO, ACESSORIOS_CATALOGO, LADOS_PADRAO, type AcessorioProjeto, type LadoRect, type AreaFuncional, type TipoArea, type DestinoInventario, type ItemInventario, type OpcoesDossie, type SecaoDossie, type CamadasLamina, type LaminaDossie, type Cena, type MaterialPiso, type TipoElementoParede, type Zona, type Cenario, type ItemPosicionado, type Equipamento, type AreaAcabamento, type ElementoParede, type ItemInfraestrutura } from "../lib/types";
+import { ZONAS, CENARIOS, DESTINOS_INVENTARIO, OPCOES_DOSSIE_PADRAO, ROTULO_SECAO_DOSSIE, ORDEM_DOSSIE_PADRAO, SECAO_EXIGE_DADO, CIRCULACAO_PADRAO, TIPOS_AREA, taxaDe, MATERIAIS_PISO, ELEMENTOS_PAREDE, MOBILIARIO_CATALOGO, ACESSORIOS_CATALOGO, LADOS_PADRAO, type AcessorioProjeto, type LadoRect, type AreaFuncional, type TipoArea, type DestinoInventario, type ItemInventario, type OpcoesDossie, type SecaoDossie, type CamadasLamina, type LaminaDossie, type Cena, type MaterialPiso, type TipoElementoParede, type Zona, type Cenario, type ItemPosicionado, type Equipamento, type AreaAcabamento, type ElementoParede, type ItemInfraestrutura, type Projeto } from "../lib/types";
 import { areaPoligonoM2, perimetroCm, bboxPoligono, ehRetangulo, retanguloParaPontos, transladar, m2 } from "../lib/geometria";
 import { CAMPOS_ESPEC, CENARIO_DEF, ESPEC_ZONA, analisarCobertura, cenarioSugerido, composicaoZonas, detalheCenarios, explicarItem, normalizarExercicios } from "../lib/curadoria";
 import { MUSCULOS, PADROES, REGIOES, type RegiaoCorpo } from "../lib/musculatura";
@@ -86,6 +87,10 @@ export default function EditorScreen() {
   const ponteiroRef = useRef<EstadoPonteiro>({ x: 0, y: 0, zoom: 1, dentro: false });
   /** Camadas aplicadas ao canvas durante a captura das lâminas do Dossiê. */
   const [laminaCaptura, setLaminaCaptura] = useState<CamadasLamina | null>(null);
+  /** Enquadramento da sala — o export chama antes de fotografar. */
+  const enquadrarRef = useRef<(() => void) | null>(null);
+  /** Prévia do PDF gerado (blob URL + bytes para baixar). */
+  const [previaPdf, setPreviaPdf] = useState<{ url: string; bytes: Uint8Array } | null>(null);
 
   // Desliga todos os modos/ferramentas (usado ao trocar de etapa).
   function limparModos() {
@@ -520,45 +525,46 @@ export default function EditorScreen() {
 
   async function exportar() {
     if (!projeto) return;
-    setBusy("Gerando PDF…");
+    const etapaAntes = etapa;
+    const voltarDepois = etapaAntes === "curadoria" || etapaAntes === "acessorios";
+    setBusy("Preparando lâminas…");
     try {
-      // Nas etapas Curadoria/Acessórios o canvas não está montado — e sem ele
-      // o Dossiê saía SEM a planta (a parte mais importante). Volta para o
-      // Layout, espera o canvas montar e só então captura.
-      if (!stageRef.current) {
+      // Nas etapas de tela cheia o canvas não está montado. Vai ao Layout só
+      // para capturar, enquadra a sala inteira e DEVOLVE o consultor à etapa
+      // em que estava — antes o export teletransportava e deixava lá.
+      if (!stageRef.current || voltarDepois) {
         irParaEtapa("layout");
-        for (let i = 0; i < 20 && !stageRef.current; i++) await new Promise((r) => setTimeout(r, 100));
+        for (let i = 0; i < 30 && !stageRef.current; i++) await new Promise((r) => setTimeout(r, 100));
       }
-      // ── As LÂMINAS ────────────────────────────────────────────────────
-      // Uma captura por lâmina, do MESMO canvas: aplica as camadas, espera o
-      // Konva redesenhar e fotografa. É por isso que a prévia do editor de
-      // lâminas e o papel não podem divergir — é literalmente o mesmo desenho.
-      // Sem lâminas configuradas, sai a planta completa de sempre.
+      enquadrarRef.current?.();
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+
+      setBusy("Capturando lâminas…");
       const laminas = (cena.laminas ?? []).filter((l) => l.ativa);
       const paraCapturar: (LaminaDossie | null)[] = laminas.length ? laminas : [null];
       const render: LaminaRender[] = [];
       for (const lam of paraCapturar) {
         setLaminaCaptura(lam ? lam.camadas : null);
-        // Dois quadros: um para o React aplicar as camadas, outro para o Konva
-        // redesenhar antes de fotografar.
         await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-        // A planta do Dossiê sai em FUNDO BRANCO: o editor trabalha no escuro,
-        // mas no papel o fundo preto come tinta e some com os traços finos.
         const png = stageRef.current ? capturarPlantaBranca(stageRef.current) : null;
-        if (png) render.push({ png, legenda: lam?.legenda ?? null, indice: lam ? !!lam.indice : true });
+        if (png) {
+          render.push({
+            png,
+            legenda: lam?.legenda ?? null,
+            indice: lam ? !!lam.indice : true,
+            titulo: lam && !lam.indice ? lam.nome : null,
+          });
+        }
       }
       setLaminaCaptura(null);
       if (!render.length) setAviso("A planta não pôde ser capturada — o Dossiê saiu sem ela. Abra a etapa Layout e exporte de novo.");
-      // Acessórios: se a cena ainda não tem, busca as cotações do projeto e usa
-      // as linhas de acessório ESCOLHIDAS (ou todas, se nada foi marcado) —
-      // sem isso o Dossiê saía sem a tabela quando o orçamento veio por PDF.
+
       let cenaPdf = cena;
       if (!(cena.acessorios?.length) && online && projeto.id && projeto.id !== "heritage") {
         try {
           const cots = await listarCotacoes(projeto.id);
           const doTipo = cots.filter((c) => c.tipo === "acessorio" && c.equipamento);
           const fonte = doTipo.some((c) => c.escolhida) ? doTipo.filter((c) => c.escolhida) : doTipo;
-          // Dedup por nome: prevalece a escolhida; entre iguais, o menor unitário.
           const porNome = new Map<string, (typeof fonte)[number]>();
           for (const c of fonte) {
             const k = c.equipamento!.trim().toLowerCase();
@@ -574,8 +580,29 @@ export default function EditorScreen() {
           if (acess.length) cenaPdf = { ...cena, acessorios: acess };
         } catch { /* sem rede: o Dossiê sai com o que a cena tiver */ }
       }
-      await exportarPdf({ ...projeto, cena: cenaPdf }, render, equipamentos, config, marcasBiblioteca, acabamentos);
-    } catch (e) { setAviso(`Falha ao gerar o PDF: ${(e as Error).message}`); } finally { setLaminaCaptura(null); setBusy(null); }
+
+      // Data de emissão: se ainda não há, carimba hoje — o documento precisa
+      // de data, e a fase 04 só fecha com ela.
+      if (!cenaPdf.dossieEmissao) {
+        const hoje = new Date();
+        const iso = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, "0")}-${String(hoje.getDate()).padStart(2, "0")}`;
+        cenaPdf = { ...cenaPdf, dossieEmissao: iso };
+        useProjeto.getState().setDossieEmissao(iso);
+      }
+
+      setBusy("Montando Dossiê…");
+      const bytes = await montarDossie({ ...projeto, cena: cenaPdf }, render, equipamentos, config, marcasBiblioteca, acabamentos);
+      const blob = new Blob([bytes as unknown as BlobPart], { type: "application/pdf" });
+      const url = URL.createObjectURL(blob);
+      if (previaPdf?.url) URL.revokeObjectURL(previaPdf.url);
+      setPreviaPdf({ url, bytes });
+    } catch (e) {
+      setAviso(`Falha ao gerar o PDF: ${(e as Error).message}`);
+    } finally {
+      setLaminaCaptura(null);
+      setBusy(null);
+      if (voltarDepois) irParaEtapa(etapaAntes);
+    }
   }
 
   if (erro) return <Centro><p style={{ color: "var(--red)" }}>{erro}</p><button className="btn" onClick={() => nav("/")}>Voltar</button></Centro>;
@@ -606,9 +633,31 @@ export default function EditorScreen() {
           {somenteLeitura
             ? <button className="btn btn-gold btn--sm" onClick={() => nav("/novo")}>＋ Começar meu Heritage</button>
             : <button className="btn btn-gold btn--sm" disabled={salvando} onClick={() => void salvarComAviso()}>{salvando ? "Salvando…" : dirty ? "💾 Salvar" : "✓ Salvo"}</button>}
-          <button className="btn btn-blue btn--sm" onClick={exportar}>⤓ Dossiê</button>
+          <button className="btn btn-blue btn--sm" onClick={exportar} disabled={!!busy}>
+            {busy ? "…" : "⤓ Dossiê"}
+          </button>
         </div>
       </div>
+
+      {/* Prévia do PDF: revisar antes de baixar — o consultor vê o documento
+          completo sem sair do app e sem mandar a primeira versão errada. */}
+      {previaPdf && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 80, background: "rgba(0,0,0,.72)", display: "grid", placeItems: "center", padding: 16 }}
+          onClick={() => { URL.revokeObjectURL(previaPdf.url); setPreviaPdf(null); }}>
+          <div className="mo-pop" style={{
+            width: "min(920px, 96vw)", height: "min(92vh, 1100px)",
+            background: "var(--panel)", border: "1px solid var(--line)", borderRadius: 12,
+            display: "flex", flexDirection: "column", overflow: "hidden",
+          }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderBottom: "1px solid var(--line)" }}>
+              <span className="brandface" style={{ fontSize: 16, color: "var(--gold)", flex: 1 }}>PRÉVIA DO DOSSIÊ</span>
+              <button className="btn btn-gold btn--sm" onClick={() => baixarPdf(previaPdf.bytes, projeto.nome)}>⤓ Baixar PDF</button>
+              <button className="btn btn--sm" onClick={() => { URL.revokeObjectURL(previaPdf.url); setPreviaPdf(null); }}>Fechar</button>
+            </div>
+            <iframe title="Prévia do Dossiê" src={previaPdf.url} style={{ flex: 1, border: 0, background: "#525659" }} />
+          </div>
+        </div>
+      )}
 
       {/* ── Faixa 2: a trilha das etapas, com o que cada uma já entregou ── */}
       {!somenteLeitura && !apresentacao && (
@@ -843,7 +892,7 @@ export default function EditorScreen() {
 
         {/* Etapas 5 e 6: painéis de tela cheia (substituem canvas + inspetor) */}
         {etapa === "curadoria" && !somenteLeitura ? (
-          <CuradoriaPanel />
+          <CuradoriaPanel onEmitir={exportar} />
         ) : etapa === "acessorios" && !somenteLeitura ? (
           <AcessoriosPanel />
         ) : (<>
@@ -856,7 +905,7 @@ export default function EditorScreen() {
             modoParede={modoParede} onParede={onParede} modoMoverPlanta={modoMoverPlanta}
             etapa={etapa} ferrEstrutura={ferrEstrutura}
             padroes={padroes} ponteiroExternoRef={ponteiroRef} camadasLamina={laminaCaptura}
-            stageRef={stageRef} somenteLeitura={somenteLeitura} />
+            stageRef={stageRef} enquadrarRef={enquadrarRef} somenteLeitura={somenteLeitura} />
 
           {/* HUD do modo, no topo-centro do canvas — onde o olho já está. */}
           {modoAtivo && !apresentacao && <ModoHUD modo={modoAtivo} onCancelar={limparModos} />}
@@ -1701,10 +1750,11 @@ function FichaEquipamento({ item, numero }: { item: ItemPosicionado; numero: num
 // Etapa 5 — Curadoria: classifica cada equipamento em Essencial · Balanceado ·
 // Premium e escreve a nota de cada categoria. É o que dá conteúdo às seções
 // 03, 04 e 06 do Dossiê.
-function CuradoriaPanel() {
+function CuradoriaPanel({ onEmitir }: { onEmitir: () => void }) {
   // Qual lâmina está com o editor de camadas aberto.
   const [laminaEditando, setLaminaEditando] = useState<string | null>(null);
   const cena = useProjeto((s) => s.cena);
+  const projeto = useProjeto((s) => s.projeto);
   const updateItem = useProjeto((s) => s.updateItem);
   const sincronizarComCatalogo = useProjeto((s) => s.sincronizarComCatalogo);
   const equipamentosCat = useLibrary((s) => s.equipamentos);
@@ -1753,6 +1803,8 @@ function CuradoriaPanel() {
       {naoClassificados === 0 && cena.itens.length > 0 && (
         <div style={{ fontSize: 11.5, color: "var(--muted)", marginBottom: 8 }}>Classificação idêntica à sugestão técnica em todos os {cena.itens.length} equipamentos.</div>
       )}
+
+      {projeto && <EmisaoDossiePanel projeto={projeto} cena={cena} onEmitir={onEmitir} />}
 
       {/* Uma seção por categoria */}
       {comp.map((c) => {
@@ -1855,10 +1907,75 @@ function CuradoriaPanel() {
       <InventarioPanel />
       <LaminasPanel onEditar={setLaminaEditando} />
       <SecoesDossiePanel />
+      {projeto && <EmisaoDossiePanel projeto={projeto} cena={cena} onEmitir={onEmitir} compacto />}
       {laminaEditando && (
         <EditorLaminas id={laminaEditando} onTrocar={setLaminaEditando} onFechar={() => setLaminaEditando(null)} />
       )}
     </div>
+  );
+}
+
+/**
+ * Checklist de emissão — o consultor vê o que falta para um dossiê de alto
+ * padrão e dispara a prévia sem subir a tela até o botão da barra.
+ */
+function EmisaoDossiePanel({
+  projeto, cena, onEmitir, compacto,
+}: {
+  projeto: Projeto;
+  cena: Cena;
+  onEmitir: () => void;
+  compacto?: boolean;
+}) {
+  const pront = useMemo(() => checarProntidaoDossie(projeto, cena), [projeto, cena]);
+  if (compacto) {
+    return (
+      <section className="card" style={{ padding: 14, marginTop: 12, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+        <div style={{ flex: 1, minWidth: 220 }}>
+          <span className="brandface" style={{ fontSize: 15, color: "var(--gold)" }}>EMITIR DOSSIÊ</span>
+          <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 2, lineHeight: 1.45 }}>
+            {pront.pronto
+              ? `${pront.avisos.length ? `${pront.avisos.length} recomendação(ões) em aberto · ` : ""}Gera a prévia, carimba a data e baixa quando aprovar.`
+              : `${pront.bloqueios.length} item(ns) obrigatório(s) faltando — a prévia ainda pode ser gerada.`}
+          </div>
+        </div>
+        <button className="btn btn-gold" onClick={onEmitir}>👁 Prévia & emitir</button>
+      </section>
+    );
+  }
+  return (
+    <section className="card" style={{ padding: 14, marginTop: 12, display: "grid", gap: 10 }}>
+      <div style={{ display: "flex", alignItems: "flex-end", gap: 12, flexWrap: "wrap" }}>
+        <div style={{ flex: 1, minWidth: 240 }}>
+          <span className="brandface" style={{ fontSize: 16, color: "var(--gold)" }}>PRONTIDÃO DO DOSSIÊ</span>
+          <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 2, lineHeight: 1.5 }}>
+            O que falta para um documento de alto padrão. Itens obrigatórios abrem o PDF incompleto; os recomendados elevam a apresentação.
+          </div>
+        </div>
+        <button className="btn btn-gold" onClick={onEmitir}>👁 Prévia & emitir</button>
+      </div>
+      <div style={{ display: "grid", gap: 5 }}>
+        {pront.itens.map((it) => (
+          <div key={it.id} style={{
+            display: "flex", alignItems: "baseline", gap: 9, flexWrap: "wrap",
+            background: "var(--panel-2)", border: "1px solid var(--line)", borderRadius: 8, padding: "7px 10px",
+          }}>
+            <span style={{
+              font: "700 12px 'DM Sans'",
+              color: it.ok ? "var(--green)" : it.severidade === "obrigatorio" ? "var(--red)" : "var(--warn)",
+              width: 16,
+            }}>{it.ok ? "✓" : it.severidade === "obrigatorio" ? "!" : "◦"}</span>
+            <span style={{ flex: 1, fontSize: 12.5, fontWeight: 600, color: "var(--text-2)" }}>{it.label}</span>
+            {it.detalhe && <span style={{ fontSize: 11, color: "var(--muted)", lineHeight: 1.4 }}>{it.detalhe}</span>}
+            {!it.ok && (
+              <span style={{ fontSize: 10, letterSpacing: ".04em", color: it.severidade === "obrigatorio" ? "var(--red)" : "var(--warn)" }}>
+                {it.severidade === "obrigatorio" ? "OBRIGATÓRIO" : "RECOMENDADO"}
+              </span>
+            )}
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 

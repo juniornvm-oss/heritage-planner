@@ -27,6 +27,8 @@ export interface LaminaRender {
   legenda?: string | null;
   /** Imprime a lista numerada de equipamentos ao lado. */
   indice?: boolean;
+  /** Título da prancha (lâminas após a primeira). Ausente = só o desenho. */
+  titulo?: string | null;
 }
 import { PAPEL_LADO, PAPEIS_CONTATO, enderecoEmLinha, formatarTelefone } from "../types";
 
@@ -422,6 +424,12 @@ export async function montarDossie(
           // Cada lâmina seguinte começa em página limpa: é assim que ela vira
           // uma prancha, e não uma ilustração espremida no pé da anterior.
           novaPagina();
+          if (lam.titulo?.trim()) {
+            at(lam.titulo.trim().toUpperCase(), M, y, 10, bold, GOLD);
+            y -= 8;
+            page.drawLine({ start: { x: M, y }, end: { x: A4.w - M, y }, thickness: 0.8, color: LINE });
+            y -= 14;
+          }
         }
 
         const topo = y;
@@ -513,6 +521,229 @@ export async function montarDossie(
       ensure(16);
       at(`${nP} porta(s) e ${nJ} janela(s) em ${esquadrias.length} tipo(s) distinto(s).`, M + 6, y, 8.5, bold, DARK);
       y -= 24;
+    },
+
+    parecer: async () => {
+      // Parecer técnico: a defesa do layout, nas palavras do consultor.
+      if (!(cena.parecer && cena.parecer.trim())) return;
+      secN("parecer", 40);
+      for (const par of cena.parecer.split(/\n+/).map((t) => t.trim()).filter(Boolean)) {
+        paragrafo(par, 10, rgb(0.22, 0.22, 0.22));
+        y -= 5;
+      }
+      const quem = [config?.consultor, config?.registro].filter(Boolean).join(" · ");
+      if (quem) { y -= 2; at(quem, M, y, 9, bold, MUTED); y -= 16; }
+      y -= 4;
+    },
+
+    diagnostico: async () => {
+      secN("diagnostico", 60);
+      cartoes([
+        ["Padrão do condomínio", perfil.padrao ?? ""],
+        ["Moradores", perfil.moradores ?? ""],
+        ["Faixa etária", perfil.faixa_etaria ?? ""],
+        ["Frequência esperada", perfil.frequencia ?? ""],
+        ["Uso", perfil.uso ?? ""],
+        ["Objetivo predominante", perfil.objetivo ?? ""],
+      ]);
+      if (perfil.investimento_perfil) {
+        ensure(16);
+        at("ORÇAMENTO FRENTE AO PADRÃO", M, y, 7, bold, GOLD);
+        at(perfil.investimento_perfil, M + 160, y, 9.5, bold, DARK);
+        y -= 18;
+      }
+      if (prioridades.length) {
+        ensure(18);
+        at("A ACADEMIA É PRIORIDADE PARA", M, y, 7, bold, GOLD);
+        y -= 15;
+        let px = M;
+        prioridades.forEach((pr, i) => {
+          const rotulo = `${i + 1}º  ${pr}`;
+          const larg = w(rotulo, 8.5, bold) + 18;
+          if (px + larg > A4.w - M) { px = M; y -= 22; ensure(22); }
+          page.drawRectangle({ x: px, y: y - 5, width: larg, height: 19, borderColor: GOLD, borderWidth: 0.9 });
+          at(rotulo, px + 9, y, 8.5, bold, GOLD);
+          px += larg + 8;
+        });
+        y -= 26;
+      }
+      y -= 4;
+    },
+
+    infraestrutura: async () => {
+      secN("infraestrutura", 50);
+      cartoes([
+        ["Elétrica", projeto.infraestrutura?.eletrica ?? ""],
+        ["Climatização", projeto.infraestrutura?.climatizacao ?? ""],
+        ["Piso / contrapiso", projeto.infraestrutura?.piso ?? ""],
+        ["Acesso", projeto.infraestrutura?.acesso ?? ""],
+      ], 2);
+      if (projeto.observacoes) {
+        y -= 4;
+        at("Observações", M, y, 10, bold, DARK);
+        y -= 14;
+        paragrafo(String(projeto.observacoes), 10, rgb(0.25, 0.25, 0.25));
+      }
+      y -= 6;
+    },
+
+    financeiro: async () => {
+      secN("financeiro", 84);
+      const fin: [string, string, RGB][] = [];
+      if (teto) fin.push(["Orçamento-teto", BRL(teto), DARK]);
+      fin.push(["Investimento total", BRL(investimentoTotal), DARK]);
+      if (teto) fin.push([`Honorário ${taxaLabel(taxa)}`, BRL(Math.round(teto * taxa)), GOLD]);
+      if (teto) fin.push(["Saldo", BRL(teto - investimentoTotal), teto - investimentoTotal >= 0 ? GREEN : RED]);
+      const fgap = 12, fw = (CW - fgap * (fin.length - 1)) / fin.length, fy = y;
+      fin.forEach(([rot, val, cor], i) => {
+        const x = M + i * (fw + fgap);
+        page.drawRectangle({ x, y: fy - 52, width: fw, height: 52, borderColor: LINE, borderWidth: 1 });
+        at(trunc(rot.toUpperCase(), fw - 20, 7.5, bold), x + 10, fy - 18, 7.5, bold, MUTED);
+        at(trunc(val, fw - 20, 13, bold), x + 10, fy - 40, 13, bold, cor);
+      });
+      y = fy - 64;
+      const compFin = [
+        ["Equipamentos", totalEquip], ["Acessórios", totalAcess],
+        ["Revestimentos", totalRevest], ["Espelhos, parede & mobiliário", totalParede],
+      ].filter(([, v]) => (v as number) > 0) as [string, number][];
+      at(compFin.map(([n, v]) => `${n} ${BRL(Math.round(v))}`).join("   ·   "), M, y, 9, font, MUTED);
+      y -= 24;
+    },
+
+    cenarios: async () => {
+      if (investimentoTotal <= 0) return;
+      secN("cenarios", 150);
+      intro("cenarios",
+        "Como o investimento total se distribui: o núcleo indispensável (Essencial), o nível recomendado (Balanceado), os itens de acabamento do projeto (Premium) e os complementos orçados.");
+      y -= 8;
+
+      ensure(54);
+      page.drawRectangle({ x: M, y: y - 44, width: CW, height: 48, borderColor: LINE, borderWidth: 1, color: CREAM });
+      at("INVESTIMENTO TOTAL", M + 14, y - 14, 8, bold, MUTED);
+      at(BRL(investimentoTotal), M + 14, y - 38, 19, bold, DARK);
+      y -= 60;
+
+      const fatias = [
+        ...niveis.map((n) => ({ rotulo: `${n.label} — ${n.nNivel} equip.`, valor: n.incremento, cor: hexToRgb(n.cor) })),
+        { rotulo: "Acessórios", valor: totalAcess, cor: hexToRgb("#C07A3E") },
+        { rotulo: "Revestimentos, espelhos & mobiliário", valor: totalRevest + totalParede, cor: hexToRgb("#8A8A8F") },
+      ].filter((f) => f.valor > 0);
+      const pctDe = (v: number) => Math.round((v / investimentoTotal) * 100);
+
+      ensure(30);
+      const barH = 16;
+      let bx = M;
+      for (const f of fatias) {
+        const bw = (f.valor / investimentoTotal) * CW;
+        page.drawRectangle({ x: bx, y: y - barH, width: bw, height: barH, color: f.cor });
+        bx += bw;
+      }
+      page.drawRectangle({ x: M, y: y - barH, width: CW, height: barH, borderColor: LINE, borderWidth: 0.8 });
+      y -= barH + 14;
+
+      for (const f of fatias) {
+        ensure(17);
+        page.drawRectangle({ x: M, y: y - 1, width: 9, height: 9, color: f.cor });
+        at(`${pctDe(f.valor)}%`, M + 16, y, 10.5, bold, DARK);
+        at(f.rotulo, M + 52, y, 9.5, font, rgb(0.28, 0.28, 0.28));
+        y -= 16;
+      }
+      y -= 6;
+      if (classificacaoPendente(cena)) {
+        ensure(24);
+        paragrafo(
+          "Todos os equipamentos ainda estão no nível Balanceado — classifique-os na Curadoria para os percentuais refletirem o projeto.",
+          8.5, hexToRgb("#E09A45"),
+        );
+        y -= 6;
+      }
+    },
+
+    categorias: async () => {
+      if (!comp.length) return;
+      secN("categorias");
+      intro("categorias",
+        "À esquerda, os equipamentos da categoria com o cenário e o valor. À direita, o que aquele conjunto é, o que entrega e como foi dimensionado — mais a observação do consultor sobre este condomínio.");
+      y -= 12;
+
+      const GAP = 18;
+      const LARG_ESQ = Math.round(CW * 0.56);
+      const X_DIR = M + LARG_ESQ + GAP;
+      const LARG_DIR = A4.w - M - X_DIR;
+      const colCen = M + LARG_ESQ - 118, colVal = M + LARG_ESQ;
+
+      for (const c of comp) {
+        const espec = especificacaoDaZona(c.zona, cena);
+        const altEsq = 21 + c.itens.length * 16 + 22;
+        const textosDir: [string, string][] = [
+          ["O que é", espec.oque], ["O que entrega", espec.entrega],
+          ["Dimensionamento", espec.criterio], ["Obra & operação", espec.operacao],
+        ];
+        if (espec.nota) textosDir.push(["Observação", espec.nota]);
+        const altDir = textosDir.reduce((t, [, tx]) => t + linhasDe(tx, LARG_DIR, 8).length * 11 + 13, 0);
+        ensure(Math.min(560, 30 + Math.max(altEsq, altDir)) + 10);
+
+        page.drawRectangle({ x: M, y: y - 4, width: CW, height: 20, color: DARKBG });
+        at(c.label.toUpperCase(), M + 9, y, 10, bold, hexToRgb(c.cor));
+        rightAt(
+          `${c.n} ${c.n === 1 ? "equipamento" : "equipamentos"}    ${BRL(c.subtotal)}`,
+          A4.w - M - 9, y, 8.5, bold, rgb(0.88, 0.88, 0.88),
+        );
+        y -= 28;
+        const topo = y;
+
+        let ye = topo;
+        page.drawRectangle({ x: M, y: ye - 4, width: LARG_ESQ, height: 16, color: CREAM });
+        at("EQUIPAMENTO", M + 6, ye, 7, bold, MUTED);
+        at("CENÁRIO", colCen, ye, 7, bold, MUTED);
+        rightAt("VALOR", colVal - 6, ye, 7, bold, MUTED);
+        ye -= 19;
+        for (const it of c.itens) {
+          const marca = marcaDe(it);
+          const num = String(numeroDe.get(it.id) ?? 0).padStart(2, "0");
+          at(trunc(`${num} · ${it.nome}${marca ? ` · ${marca}` : ""}`, colCen - (M + 6) - 6, 9), M + 6, ye, 9, font, DARK);
+          at(CENARIOS[it.cenario].label, colCen, ye, 7.5, bold, hexToRgb(CENARIOS[it.cenario].cor));
+          rightAt(it.preco ? BRL(it.preco) : "incluso", colVal - 6, ye, 9, font, it.preco ? DARK : MUTED);
+          page.drawLine({ start: { x: M, y: ye - 5 }, end: { x: M + LARG_ESQ, y: ye - 5 }, thickness: 0.35, color: LINE });
+          ye -= 16;
+        }
+        at(`Subtotal ${c.label}`, M + 6, ye - 1, 8.5, bold, DARK);
+        rightAt(BRL(c.subtotal), colVal - 6, ye - 1, 9, bold, DARK);
+        ye -= 18;
+        let cx = M + 6;
+        for (const k of ["essencial", "balanceado", "premium"] as Cenario[]) {
+          const d = c.porCenario[k];
+          if (!d.n) continue;
+          const rotulo = `${CENARIOS[k].label} ${d.n}`;
+          at(rotulo, cx, ye, 7.5, bold, hexToRgb(CENARIOS[k].cor));
+          cx += w(rotulo, 7.5, bold) + 14;
+        }
+        ye -= 14;
+
+        let yd = topo;
+        const campoDir = (rotulo: string, texto: string, destaque = false) => {
+          const linhas = linhasDe(texto, LARG_DIR, 8);
+          at(rotulo.toUpperCase(), X_DIR, yd, 6.5, bold, destaque ? hexToRgb(c.cor) : GOLD);
+          yd -= 10;
+          linhas.forEach((l, i) => at(l, X_DIR, yd - i * 11, 8, font, destaque ? DARK : rgb(0.28, 0.28, 0.28)));
+          yd -= linhas.length * 11 + 3;
+        };
+        campoDir("O que é", espec.oque);
+        campoDir("O que entrega", espec.entrega);
+        campoDir("Dimensionamento", espec.criterio);
+        campoDir("Obra & operação", espec.operacao);
+        if (espec.nota) campoDir("Observação", espec.nota, true);
+
+        const base = Math.min(ye, yd);
+        page.drawLine({ start: { x: X_DIR - GAP / 2, y: topo + 10 }, end: { x: X_DIR - GAP / 2, y: base + 6 }, thickness: 0.5, color: LINE });
+        y = base - 12;
+      }
+
+      ensure(20);
+      page.drawRectangle({ x: M, y: y - 5, width: CW, height: 20, color: CREAM });
+      at("INVESTIMENTO TOTAL (PREMIUM)", M + 9, y, 9, bold, GOLD);
+      rightAt(BRL(r.cenarios.premium), A4.w - M - 9, y, 10.5, bold, GOLD);
+      y -= 28;
     },
 
     acessorios: async () => {
@@ -1067,11 +1298,16 @@ export async function exportarPdf(
   biblioteca?: Marca[] | null, acabCatalogo?: Acabamento[],
 ) {
   const bytes = await montarDossie(projeto, laminas, catalogo, config, biblioteca, acabCatalogo);
+  baixarPdf(bytes, projeto.nome);
+}
+
+/** Dispara o download de bytes já montados (prévia → baixar). */
+export function baixarPdf(bytes: Uint8Array, nomeProjeto: string) {
   const blob = new Blob([bytes as unknown as BlobPart], { type: "application/pdf" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `Dossie_${projeto.nome.replace(/[^\w\-]+/g, "_")}.pdf`;
+  a.download = `Dossie_${nomeProjeto.replace(/[^\w\-]+/g, "_")}.pdf`;
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 5000);
 }

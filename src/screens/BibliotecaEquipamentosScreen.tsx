@@ -1,22 +1,52 @@
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import Shell from "../ui/Shell";
 import { useLibrary } from "../store/libraryStore";
-import { inserirEquipamentos, online } from "../lib/supabase";
+import { inserirEquipamentos, atualizarEquipamento, online } from "../lib/supabase";
 import { lerEquipamentos } from "../lib/readers";
 import { ZONAS, type Equipamento } from "../lib/types";
 import { BRL } from "../lib/units";
+import {
+  BIBLIOTECA_MAQUINAS, MARCAS_MAQUINAS, csvDaBiblioteca, maquinasFaltando, silhuetasFaltando,
+} from "../lib/catalogoMaquinas";
 
 export default function BibliotecaEquipamentosScreen() {
   const equipamentos = useLibrary((s) => s.equipamentos);
   const addEquipamentos = useLibrary((s) => s.addEquipamentos);
+  const updateEquipamento = useLibrary((s) => s.updateEquipamento);
+  const recarregar = useLibrary((s) => s.recarregar);
   const fileRef = useRef<HTMLInputElement>(null);
   const [status, setStatus] = useState<string | null>(null);
+  const [ocupado, setOcupado] = useState(false);
+  const [filtroMarca, setFiltroMarca] = useState<string>("");
+  const [busca, setBusca] = useState("");
+
+  const faltando = useMemo(() => maquinasFaltando(equipamentos), [equipamentos]);
+  const semSilhueta = useMemo(() => silhuetasFaltando(equipamentos), [equipamentos]);
+
+  const visiveis = useMemo(() => {
+    const q = busca.trim().toLowerCase();
+    return equipamentos.filter((e) => {
+      if (e.ativo === false) return false;
+      if (filtroMarca && (e.marca || "") !== filtroMarca) return false;
+      if (!q) return true;
+      return `${e.nome} ${e.marca ?? ""} ${e.modelo ?? ""}`.toLowerCase().includes(q);
+    });
+  }, [equipamentos, filtroMarca, busca]);
+
+  const marcasNaLista = useMemo(() => {
+    const s = new Set<string>();
+    for (const e of equipamentos) if (e.marca && e.ativo !== false) s.add(e.marca);
+    return [...s].sort((a, b) => a.localeCompare(b, "pt-BR"));
+  }, [equipamentos]);
 
   async function persistir(rows: Equipamento[]) {
     addEquipamentos(rows);
     if (online) {
-      try { await inserirEquipamentos(rows); } catch (e) { setStatus("Salvo localmente (erro no Supabase: " + (e as Error).message + ")"); return; }
+      try {
+        await inserirEquipamentos(rows);
+        await recarregar();
+      } catch (e) { setStatus("Salvo localmente (erro no Supabase: " + (e as Error).message + ")"); return; }
     }
     setStatus(`${rows.length} equipamento(s) adicionados.`);
   }
@@ -31,32 +61,136 @@ export default function BibliotecaEquipamentosScreen() {
     } catch (e) { setStatus((e as Error).message); }
   }
 
+  async function carregarBiblioteca() {
+    if (!faltando.length) { setStatus("A biblioteca internacional já está neste cadastro."); return; }
+    setOcupado(true);
+    try { await persistir(faltando); }
+    finally { setOcupado(false); }
+  }
+
+  async function aplicarSilhuetas() {
+    if (!semSilhueta.length) { setStatus("Todas as peças da biblioteca já têm silhueta de planta."); return; }
+    setOcupado(true);
+    try {
+      for (const eq of semSilhueta) {
+        updateEquipamento(eq.id || eq.nome, eq);
+      }
+      if (online) {
+        const comId = semSilhueta.filter((e) => e.id);
+        try {
+          await Promise.all(comId.map((eq) => atualizarEquipamento(eq)));
+          await recarregar();
+        } catch (e) {
+          setStatus("Silhuetas no aparelho (erro no Supabase: " + (e as Error).message + ")");
+          return;
+        }
+      }
+      setStatus(`${semSilhueta.length} silhueta(s) de planta aplicadas. Não são DWG de fabricante — são a cópia do footprint em cm.`);
+    } finally {
+      setOcupado(false);
+    }
+  }
+
+  function baixarCsv() {
+    const blob = new Blob([csvDaBiblioteca()], { type: "text/csv;charset=utf-8" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "biblioteca-maquinas.csv";
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
   return (
     <Shell actions={
       <>
         <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls" style={{ display: "none" }}
           onChange={(e) => onImport(e.target.files?.[0])} />
-        <button className="btn btn-blue" onClick={() => fileRef.current?.click()}>⭱ Importar planilha</button>
+        <button className="btn" onClick={baixarCsv} title="Planilha da biblioteca Nautilus, Life Fitness, Hammer Strength, Matrix e Technogym">
+          ↧ CSV da biblioteca
+        </button>
+        <button className="btn btn-blue" onClick={() => fileRef.current?.click()}>↥ Importar planilha</button>
         <Link to="/equipamentos/novo" className="btn btn-gold">＋ Cadastrar</Link>
       </>
     }>
       <h1 className="brandface" style={{ fontSize: 28, color: "var(--gold)", marginBottom: 4 }}>BIBLIOTECA DE EQUIPAMENTOS</h1>
-      <p style={{ color: "var(--muted)", fontSize: 13, marginBottom: 18 }}>{equipamentos.length} itens {status ? "· " + status : ""}</p>
+      <p style={{ color: "var(--muted)", fontSize: 13, marginBottom: 14 }}>
+        {equipamentos.length} itens {status ? "· " + status : ""}
+      </p>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 10 }}>
-        {equipamentos.map((m, i) => (
+      {faltando.length > 0 && (
+        <div style={{
+          display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap",
+          background: "var(--panel-2)", border: "1px solid var(--line)", borderRadius: 10,
+          padding: "12px 14px", marginBottom: 16,
+        }}>
+          <div style={{ flex: 1, minWidth: 240 }}>
+            <div className="brandface" style={{ fontSize: 15, color: "var(--gold)", marginBottom: 4 }}>MAQUINÁRIO COMERCIAL</div>
+            <div style={{ fontSize: 12.5, color: "#b6b6b1", lineHeight: 1.5 }}>
+              {faltando.length} peças de {MARCAS_MAQUINAS.join(", ")} ainda não estão neste cadastro — medidas de ocupação em planta a partir das fichas técnicas. Preço entra pela cotação do projeto. Cada peça traz a silhueta de planta (cópia do footprint, não o DWG do fabricante).
+            </div>
+          </div>
+          <button className="btn btn-gold" disabled={ocupado} onClick={() => void carregarBiblioteca()}>
+            {ocupado ? "Incluindo…" : `＋ Incluir ${faltando.length} máquinas`}
+          </button>
+        </div>
+      )}
+
+      {faltando.length === 0 && semSilhueta.length > 0 && (
+        <div style={{
+          display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap",
+          background: "var(--panel-2)", border: "1px solid var(--line)", borderRadius: 10,
+          padding: "12px 14px", marginBottom: 16,
+        }}>
+          <div style={{ flex: 1, minWidth: 240 }}>
+            <div className="brandface" style={{ fontSize: 15, color: "var(--gold)", marginBottom: 4 }}>SILHUETAS DE PLANTA</div>
+            <div style={{ fontSize: 12.5, color: "#b6b6b1", lineHeight: 1.5 }}>
+              {semSilhueta.length} peças já cadastradas ainda aparecem como retângulo. Aplica a cópia do footprint (vista de cima) — não substitui um desenho que você já colou na ficha.
+            </div>
+          </div>
+          <button className="btn btn-gold" disabled={ocupado} onClick={() => void aplicarSilhuetas()}>
+            {ocupado ? "Aplicando…" : `Aplicar ${semSilhueta.length} silhuetas`}
+          </button>
+        </div>
+      )}
+
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12, alignItems: "center" }}>
+        <input className="fld" placeholder="Buscar nome, marca, modelo…" value={busca}
+          onChange={(e) => setBusca(e.target.value)}
+          style={{ padding: "8px 10px", fontSize: 13, width: 260 }} />
+        <button className="btn" onClick={() => setFiltroMarca("")}
+          style={filtroMarca === "" ? { borderColor: "var(--gold)", color: "var(--gold)" } : undefined}>Todas</button>
+        {marcasNaLista.map((m) => (
+          <button key={m} className="btn" onClick={() => setFiltroMarca(filtroMarca === m ? "" : m)}
+            style={filtroMarca === m ? { borderColor: "var(--gold)", color: "var(--gold)" } : undefined}>{m}</button>
+        ))}
+        <span style={{ fontSize: 12, color: "var(--muted)" }}>{visiveis.length} visíveis</span>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 10 }}>
+        {visiveis.map((m, i) => (
           <Link key={(m.id || m.nome) + i} to={`/equipamentos/${encodeURIComponent(m.id || m.nome)}`}
-            style={{ display: "flex", alignItems: "center", gap: 10, textDecoration: "none", color: "inherit",
+            style={{ display: "grid", gap: 3, textDecoration: "none", color: "inherit",
             background: "var(--panel-2)", border: "1px solid var(--line)", borderRadius: 9, padding: "9px 12px" }}>
-            <span style={{ width: 9, height: 9, borderRadius: 2, background: ZONAS[m.zona]?.cor || "#888" }} />
-            <span style={{ flex: 1, fontWeight: 600, fontSize: 13 }}>{m.nome}</span>
-            {(m.contorno || m.imagem) && <span title="tem desenho" style={{ fontSize: 11, color: "var(--gold)" }}>◱</span>}
-            <span style={{ color: "var(--muted)", fontSize: 12 }}>{m.largura_cm}×{m.profundidade_cm}</span>
-            {m.preco ? <span style={{ color: "var(--gold)", fontSize: 12 }}>{BRL(m.preco)}</span> : null}
-            <span style={{ color: "var(--muted)", fontSize: 12, marginLeft: 2 }}>✎</span>
+            <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ width: 9, height: 9, borderRadius: 2, background: ZONAS[m.zona]?.cor || "#888", flexShrink: 0 }} />
+              <span style={{ flex: 1, fontWeight: 600, fontSize: 13 }}>{m.nome}</span>
+              {(m.contorno || m.imagem) && <span title="tem desenho" style={{ fontSize: 11, color: "var(--gold)" }}>◱</span>}
+            </span>
+            <span style={{ display: "flex", justifyContent: "space-between", color: "#6e6e73", fontSize: 11.5, gap: 8 }}>
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {[m.marca, m.modelo].filter(Boolean).join(" · ") || ZONAS[m.zona]?.label}
+              </span>
+              <span>{m.largura_cm}×{m.profundidade_cm}{m.preco ? ` · ${BRL(m.preco)}` : ""}</span>
+            </span>
           </Link>
         ))}
       </div>
+      {visiveis.length === 0 && (
+        <div style={{ color: "var(--muted)", fontSize: 13, marginTop: 12 }}>Nenhum equipamento com esse filtro.</div>
+      )}
+      <p style={{ color: "#6e6e73", fontSize: 11.5, marginTop: 18, lineHeight: 1.5 }}>
+        {BIBLIOTECA_MAQUINAS.length} peças na biblioteca internacional (Nautilus Impact, Life Fitness Integrity/Optima, Hammer Strength Iso-Lateral, Matrix Ultra/Versa, Technogym Excite/Selection). O footprint vai para a planta em cm; não incluímos DWG/3D proprietários dos fabricantes — a silhueta é a cópia de uso. O CSV baixa essa lista para conferir ou reimportar.
+      </p>
     </Shell>
   );
 }

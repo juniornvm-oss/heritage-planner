@@ -24,7 +24,8 @@ import {
   JANELAS, PAREDES, PORTAS, FORMAS_PILAR, MATERIAIS_PILAR,
   type ModeloJanela, type ModeloPorta,
 } from "../lib/esquadrias";
-import { ELEMENTOS_PAREDE, TIPOS_AREA, type TipoArea, type TipoElementoParede } from "../lib/types";
+import { ELEMENTOS_PAREDE, TIPOS_AREA, type TipoArea, type TipoElementoParede, type FamiliaAcessorio } from "../lib/types";
+import { FAMILIAS_ACESSORIO } from "../lib/acessorios";
 
 export type IdFerramenta =
   | "selecionar"
@@ -32,7 +33,8 @@ export type IdFerramenta =
   | "parede" | "porta" | "janela" | "pilar" | "apagarEstrutura"
   | "regiao" | "regiaoPoligono"
   | "areaRect" | "areaPoligono" | "cota" | "espelho" | "itemParede" | "apagarAcabamento"
-  | "vista";
+  | "vista"
+  | "sugerirAcessorios" | "organizarAcessorios" | "fixarAcessorio" | "apagarAcessorio";
 
 export interface Variante {
   id: string;
@@ -237,6 +239,38 @@ export function ferramentasDaEtapa(etapa: Etapa, ctx: ContextoFerramentas): Grup
     return [
       { titulo: "Base", ferramentas: [SELECIONAR] },
       { titulo: "Ver", ferramentas: [{ id: "vista", label: "Vista IA", glifo: "📷", dica: "Toque onde fica a câmera e depois para onde ela olha — gera um prompt de imagem." }] },
+    ];
+  }
+
+  if (etapa === "acessorios") {
+    const VARIANTES_FAMILIA: Variante[] = (Object.keys(FAMILIAS_ACESSORIO) as FamiliaAcessorio[]).map((k) => ({
+      id: k,
+      label: FAMILIAS_ACESSORIO[k].label,
+      descricao: FAMILIAS_ACESSORIO[k].descricao,
+      glifo: FAMILIAS_ACESSORIO[k].glifo,
+      cor: FAMILIAS_ACESSORIO[k].cor,
+    }));
+    return [
+      { titulo: "Base", ferramentas: [SELECIONAR] },
+      {
+        titulo: "Projeto",
+        ferramentas: [
+          { id: "sugerirAcessorios", label: "Sugerir", glifo: "✨", acao: true, dica: "Monta a lista a partir dos aparelhos e das regiões DESTE projeto — e ancora cada item no lugar." },
+          { id: "organizarAcessorios", label: "Organizar", glifo: "▦", acao: true, dica: "Ancora os acessórios que já estão na lista: rack, polia, região. Não acrescenta item novo." },
+        ],
+      },
+      {
+        titulo: "Espaço",
+        ferramentas: [
+          {
+            id: "fixarAcessorio", label: "Fixar", glifo: "⊕",
+            dica: "Toque na planta, num aparelho ou numa região para dar endereço ao acessório selecionado.",
+            tituloVariantes: "Família (filtra o catálogo)",
+            variantes: VARIANTES_FAMILIA,
+          },
+        ],
+      },
+      { titulo: "Editar", ferramentas: [{ id: "apagarAcessorio", label: "Apagar", glifo: "⌫", perigo: true, dica: "Toque no pino do acessório para tirá-lo da lista." }] },
     ];
   }
 

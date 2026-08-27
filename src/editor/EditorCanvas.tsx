@@ -22,10 +22,12 @@ import { CANVAS, TOKENS } from "../ui/tokens";
 import { CIRCULACAO_PADRAO } from "../lib/types";
 import PreviewFX, { type PreviewProps } from "./PreviewFX";
 import { halo } from "./konvaMotion";
+import { FAMILIAS_ACESSORIO, familiaDoNome, posicaoDoAcessorio } from "../lib/acessorios";
 
 export type Etapa = "planta" | "acabamento" | "areas" | "layout" | "fichas" | "curadoria" | "acessorios";
 export type FerramentaEstrutura = "parede" | "porta" | "janela" | "pilar" | "apagar" | null;
 export type FerramentaAcab = "rect" | "poligono" | "cota" | "espelho" | "itemParede" | "apagar" | null;
+export type FerramentaAcess = "fixar" | "apagar" | null;
 
 /**
  * Os PADRÕES DA FERRAMENTA — o que a próxima parede/porta/janela/pilar vai
@@ -89,7 +91,7 @@ function useHtmlImage(src?: string) {
 
 interface Cam { zoom: number; x: number; y: number } // x,y = posição da layer em px
 
-export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoElemParede, snapPasso, camadas, apresentacao, lamina, modoVista, onVista, onArea, modoRecorte, onRecorte, modoParede, onParede, modoMoverPlanta, stageRef, somenteLeitura, etapa, ferrEstrutura, padroes, ponteiroExternoRef, camadasLamina, enquadrarRef }: {
+export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoElemParede, snapPasso, camadas, apresentacao, lamina, modoVista, onVista, onArea, modoRecorte, onRecorte, modoParede, onParede, modoMoverPlanta, stageRef, somenteLeitura, etapa, ferrEstrutura, padroes, ponteiroExternoRef, camadasLamina, enquadrarRef, ferrAcess, onFixarAcessorio }: {
   modoCalibrar: boolean;
   onCalibrar: (distanciaMundoCm: number) => void;
   ferrAcab?: FerramentaAcab; // ferramentas da Etapa 2 (área/polígono/cota/apagar)
@@ -127,6 +129,9 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoE
   camadasLamina?: CamadasLamina | null;
   /** O export do Dossiê chama antes de fotografar: a sala inteira no quadro. */
   enquadrarRef?: React.MutableRefObject<(() => void) | null>;
+  ferrAcess?: FerramentaAcess;
+  /** Toque na planta com a ferramenta Fixar — o editor decide se ancora ou cria. */
+  onFixarAcessorio?: (p: Ponto) => void;
 }) {
   const etapaAtual: Etapa = etapa ?? "layout";
   const pad = padroes ?? PADROES_PLANTA;
@@ -164,6 +169,10 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoE
   const selecionarInfra = useProjeto((s) => s.selecionarInfra);
   const updateInfra = useProjeto((s) => s.updateInfra);
   const removerInfra = useProjeto((s) => s.removerInfra);
+  const selAcessorioId = useProjeto((s) => s.selAcessorioId);
+  const selecionarAcessorio = useProjeto((s) => s.selecionarAcessorio);
+  const updateAcessorio = useProjeto((s) => s.updateAcessorio);
+  const removerAcessorio = useProjeto((s) => s.removerAcessorio);
   const updatePlanta = useProjeto((s) => s.updatePlanta);
   const updatePlantaVetorial = useProjeto((s) => s.updatePlantaVetorial);
 
@@ -512,13 +521,24 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoE
       }
       return;
     }
+    if (ferrAcess === "fixar") {
+      const w = snapPonto(toWorld(p.x, p.y));
+      onFixarAcessorio?.(w);
+      return;
+    }
     const touches = (e.evt as TouchEvent).touches;
     if (touches && touches.length === 2) {
       const [a, b] = [touches[0], touches[1]];
       pinch.current = { dist: Math.hypot(b.clientX - a.clientX, b.clientY - a.clientY), cx: (a.clientX + b.clientX) / 2, cy: (a.clientY + b.clientY) / 2 };
       return;
     }
-    if (emVazio) { pan.current = { x: p.x, y: p.y }; if (!modoCalibrar) selecionar(null); }
+    if (emVazio) {
+      pan.current = { x: p.x, y: p.y };
+      if (!modoCalibrar) {
+        selecionar(null);
+        if (etapaAtual === "acessorios") selecionarAcessorio(null);
+      }
+    }
   }
 
   function stageMove(e: Konva.KonvaEventObject<MouseEvent | TouchEvent>) {
@@ -581,7 +601,7 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoE
   const pv = cena.plantaVetorial;
   const desenhandoEst = ferrEstrutura === "parede" || ferrEstrutura === "pilar" || ferrEstrutura === "porta" || ferrEstrutura === "janela";
   const desenhandoAcab = ferrAcab === "rect" || ferrAcab === "poligono" || ferrAcab === "cota" || ferrAcab === "espelho" || ferrAcab === "itemParede";
-  const drawing = modoCalibrar || desenhandoAcab || modoRecorte || modoParede || desenhandoEst || !!modoVista; // enquanto desenha, nada captura o toque
+  const drawing = modoCalibrar || desenhandoAcab || modoRecorte || modoParede || desenhandoEst || !!modoVista || ferrAcess === "fixar";
   // Interatividade por etapa: só o que pertence à etapa ativa responde ao toque.
   const itensAtivos = (etapaAtual === "layout" || etapaAtual === "fichas") && !drawing && !somenteLeitura && !modoMoverPlanta;
   const areasAtivas = etapaAtual === "acabamento" && !drawing && !somenteLeitura && !modoMoverPlanta;
@@ -1128,6 +1148,42 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoE
                 updateItem(it.id, { x_cm: x, y_cm: y }, true);
               }} />
           ))}
+
+          {/* Acessórios ancorados — pinos (e footprint de guarda) na etapa. */}
+          {etapaAtual === "acessorios" && !LAM && !apresentacao && (cena.acessorios ?? []).map((a) => {
+            const p = posicaoDoAcessorio(a, cena);
+            if (!p) return null;
+            const fam = a.familia ?? familiaDoNome(a.nome);
+            const cor = FAMILIAS_ACESSORIO[fam].cor;
+            const sel = selAcessorioId === a.id;
+            const w = a.w_cm ?? 0, h = a.h_cm ?? 0;
+            const acessAtivos = !somenteLeitura && ferrAcess !== "fixar";
+            const z = cam.zoom;
+            return (
+              <Group key={a.id} x={p.x} y={p.y}
+                listening={acessAtivos}
+                draggable={acessAtivos && ferrAcess !== "apagar"}
+                onMouseDown={() => { if (ferrAcess === "apagar") removerAcessorio(a.id); else selecionarAcessorio(a.id); }}
+                onTap={() => { if (ferrAcess === "apagar") removerAcessorio(a.id); else selecionarAcessorio(a.id); }}
+                onDragEnd={(ev) => {
+                  const n = ev.target;
+                  updateAcessorio(a.id, {
+                    x_cm: Math.round(n.x() - w / 2),
+                    y_cm: Math.round(n.y() - h / 2),
+                  });
+                }}>
+                {w > 0 && h > 0 && (
+                  <Rect x={-w / 2} y={-h / 2} width={w} height={h}
+                    fill={cor + "33"} stroke={cor} strokeWidth={(sel ? 2.5 : 1.2) / z}
+                    cornerRadius={6 / z} />
+                )}
+                <Circle radius={(sel ? 11 : 8) / z} fill={cor} stroke="#141518" strokeWidth={1.5 / z} />
+                <Text text={String(a.qtd)} x={-6 / z} y={-6 / z} fontSize={10 / z} fill="#0C0C0E" fontStyle="700" listening={false} />
+                <Text text={a.nome} x={12 / z} y={-7 / z} fontSize={12 / z} fill={sel ? cor : "#e9e9e6"}
+                  fontStyle={sel ? "700" : "600"} listening={false} />
+              </Group>
+            );
+          })}
 
           {/* ── Feedback vivo do arraste: fantasma, guias e folga em cm ──── */}
           <ArrasteFX origemRef={origemArraste} guiasRef={guiasRef} folgasRef={folgasRef} zoom={cam.zoom}

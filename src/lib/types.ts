@@ -811,7 +811,19 @@ export interface AnexoOrcamento {
   hash?: string | null;
 }
 
-// ── Etapa 5: acessórios do projeto (orçamento de itens sem posição na planta) ─
+// ── Etapa 5: acessórios do projeto (orçados E organizados no espaço) ────────
+/** Família funcional — o que decide ONDE o acessório mora na planta. */
+export type FamiliaAcessorio =
+  | "carga" | "halteres" | "puxadores" | "funcional" | "alongamento" | "guarda";
+
+/** Endereço do acessório na sala: um equipamento, uma região, ou um ponto. */
+export interface AncoraAcessorio {
+  tipo: "item" | "area" | "infra" | "ponto";
+  id?: string;
+  x_cm?: number;
+  y_cm?: number;
+}
+
 /** Acessório orçado no projeto (anilhas, barras, colchonetes…). */
 export interface AcessorioProjeto {
   id: string;
@@ -819,36 +831,51 @@ export interface AcessorioProjeto {
   qtd: number;
   preco_un: number; // R$
   obs?: string | null;
+  familia?: FamiliaAcessorio | null;
+  ancora?: AncoraAcessorio | null;
+  /** Canto superior-esquerdo quando o item (ou o suporte) ocupa piso. */
+  x_cm?: number | null;
+  y_cm?: number | null;
+  w_cm?: number | null;
+  h_cm?: number | null;
+  rotacao?: number;
+}
+
+export interface ItemCatalogoAcessorio {
+  nome: string;
+  qtd: number;
+  preco: number;
+  familia: FamiliaAcessorio;
 }
 
 /** Catálogo-base de acessórios (orçamento G2 Fitness · Maison Heritage, jul/2026). */
-export const ACESSORIOS_CATALOGO: { nome: string; qtd: number; preco: number }[] = [
-  { nome: "Espaldar alumínio", qtd: 1, preco: 2450 },
-  { nome: "Anilha olímpica BV 20 kg", qtd: 8, preco: 740 },
-  { nome: "Anilha olímpica BV 10 kg", qtd: 8, preco: 370 },
-  { nome: "Anilha olímpica BV 5 kg", qtd: 10, preco: 185 },
-  { nome: "Anilha olímpica BV 2,5 kg", qtd: 6, preco: 94.75 },
-  { nome: "Dumbbell emborrachado (par 12,5 a 25 kg)", qtd: 1, preco: 7897.5 },
-  { nome: "Suporte de dumbbell 10 pares", qtd: 1, preco: 3450 },
-  { nome: "Barra olímpica cromada 1,20 m", qtd: 1, preco: 900 },
-  { nome: "Barra olímpica cromada tipo W", qtd: 1, preco: 790 },
-  { nome: "Barra olímpica cromada 2,20 m", qtd: 3, preco: 950 },
-  { nome: "Barra olímpica cromada 1,50 m", qtd: 1, preco: 790 },
-  { nome: "Step EVA", qtd: 2, preco: 250 },
-  { nome: "Bola pilates 65 cm", qtd: 1, preco: 180 },
-  { nome: "Suporte para anilhas 8 pontas", qtd: 1, preco: 1200 },
-  { nome: "Suporte para 9 barras olímpicas", qtd: 1, preco: 950 },
-  { nome: "Colchonete emborrachado D80", qtd: 10, preco: 190 },
-  { nome: "Suporte para 10 colchonetes", qtd: 1, preco: 1990 },
-  { nome: "Conjunto halteres sextavados 1–10 kg c/ suporte", qtd: 1, preco: 3990 },
-  { nome: "Puxador corda", qtd: 1, preco: 247.5 },
-  { nome: "Puxador reto", qtd: 1, preco: 172.5 },
-  { nome: "Puxador triângulo", qtd: 1, preco: 220 },
-  { nome: "Puxador pulley 120 cm", qtd: 1, preco: 240 },
-  { nome: "Puxador tornozeleira c/ alça (par, glúteo)", qtd: 2, preco: 112.5 },
-  { nome: "Kit puxador ultra anatômico 8 pçs + suporte vertical", qtd: 1, preco: 4990 },
-  { nome: "Kettlebell (8, 12, 16, 20 kg)", qtd: 1, preco: 2450 },
-  { nome: "Kettlebell 32 kg", qtd: 1, preco: 920 },
+export const ACESSORIOS_CATALOGO: ItemCatalogoAcessorio[] = [
+  { nome: "Espaldar alumínio", qtd: 1, preco: 2450, familia: "alongamento" },
+  { nome: "Anilha olímpica BV 20 kg", qtd: 8, preco: 740, familia: "carga" },
+  { nome: "Anilha olímpica BV 10 kg", qtd: 8, preco: 370, familia: "carga" },
+  { nome: "Anilha olímpica BV 5 kg", qtd: 10, preco: 185, familia: "carga" },
+  { nome: "Anilha olímpica BV 2,5 kg", qtd: 6, preco: 94.75, familia: "carga" },
+  { nome: "Dumbbell emborrachado (par 12,5 a 25 kg)", qtd: 1, preco: 7897.5, familia: "halteres" },
+  { nome: "Suporte de dumbbell 10 pares", qtd: 1, preco: 3450, familia: "guarda" },
+  { nome: "Barra olímpica cromada 1,20 m", qtd: 1, preco: 900, familia: "carga" },
+  { nome: "Barra olímpica cromada tipo W", qtd: 1, preco: 790, familia: "carga" },
+  { nome: "Barra olímpica cromada 2,20 m", qtd: 3, preco: 950, familia: "carga" },
+  { nome: "Barra olímpica cromada 1,50 m", qtd: 1, preco: 790, familia: "carga" },
+  { nome: "Step EVA", qtd: 2, preco: 250, familia: "funcional" },
+  { nome: "Bola pilates 65 cm", qtd: 1, preco: 180, familia: "funcional" },
+  { nome: "Suporte para anilhas 8 pontas", qtd: 1, preco: 1200, familia: "guarda" },
+  { nome: "Suporte para 9 barras olímpicas", qtd: 1, preco: 950, familia: "guarda" },
+  { nome: "Colchonete emborrachado D80", qtd: 10, preco: 190, familia: "alongamento" },
+  { nome: "Suporte para 10 colchonetes", qtd: 1, preco: 1990, familia: "guarda" },
+  { nome: "Conjunto halteres sextavados 1–10 kg c/ suporte", qtd: 1, preco: 3990, familia: "halteres" },
+  { nome: "Puxador corda", qtd: 1, preco: 247.5, familia: "puxadores" },
+  { nome: "Puxador reto", qtd: 1, preco: 172.5, familia: "puxadores" },
+  { nome: "Puxador triângulo", qtd: 1, preco: 220, familia: "puxadores" },
+  { nome: "Puxador pulley 120 cm", qtd: 1, preco: 240, familia: "puxadores" },
+  { nome: "Puxador tornozeleira c/ alça (par, glúteo)", qtd: 2, preco: 112.5, familia: "puxadores" },
+  { nome: "Kit puxador ultra anatômico 8 pçs + suporte vertical", qtd: 1, preco: 4990, familia: "guarda" },
+  { nome: "Kettlebell (8, 12, 16, 20 kg)", qtd: 1, preco: 2450, familia: "funcional" },
+  { nome: "Kettlebell 32 kg", qtd: 1, preco: 920, familia: "funcional" },
 ];
 
 /** Item de mobiliário/infraestrutura posicionado na planta (cm, mundo). */
@@ -878,7 +905,7 @@ export interface Cena {
   acabamentos?: AreaAcabamento[];
   cotas?: Cota[]; // medidas fixadas na planta (Etapa 2)
   elementosParede?: ElementoParede[]; // espelhos, TVs, elétrica… (Etapa 2)
-  acessorios?: AcessorioProjeto[]; // orçamento de acessórios (Etapa 5)
+  acessorios?: AcessorioProjeto[]; // orçamento + âncora no espaço (Etapa Acessórios)
   anexos?: AnexoOrcamento[]; // PDFs de orçamento (arquivos no Storage)
   infra?: ItemInfraestrutura[]; // mobiliário e infraestrutura (Etapa 2)
   estrutura?: EstruturaPlanta | null; // Etapa 1: paredes/aberturas/pilares

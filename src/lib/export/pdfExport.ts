@@ -12,6 +12,7 @@ import {
 import { MUSCULOS, REGIOES } from "../musculatura";
 import { analisarEspaco } from "../analiseEspaco";
 import { agruparMarcas, marcasDaCena, presencaDaMarca, refDaMarca } from "../marcas";
+import { agruparPorLugar } from "../acessorios";
 import { medidaEsquadria, quadroDeEsquadrias } from "../esquadrias";
 
 /**
@@ -755,16 +756,23 @@ export async function montarDossie(
         rightAt("QTD", qCol, y, 8, bold, MUTED); rightAt("PREÇO UN.", uCol, y, 8, bold, MUTED); rightAt("TOTAL", tCol, y, 8, bold, MUTED);
         y -= 22;
         let totalAc = 0;
-        for (const a of acess) {
-          ensure(16);
-          const tot = a.qtd * a.preco_un;
-          totalAc += tot;
-          at(trunc(a.nome, qCol - 40 - M, 9.5), M + 6, y, 9.5, font, DARK);
-          rightAt(String(a.qtd), qCol, y, 9, font, MUTED);
-          rightAt(BRL(a.preco_un), uCol, y, 9, font, MUTED);
-          rightAt(BRL(Math.round(tot)), tCol, y, 9.5, font, DARK);
-          page.drawLine({ start: { x: M, y: y - 5 }, end: { x: A4.w - M, y: y - 5 }, thickness: 0.4, color: LINE });
+        const grupos = agruparPorLugar(acess, cena);
+        for (const g of grupos) {
+          ensure(18);
+          at(g.titulo.toUpperCase(), M + 6, y, 8, bold, MUTED);
           y -= 16;
+          for (const a of g.itens) {
+            ensure(16);
+            const tot = a.qtd * a.preco_un;
+            totalAc += tot;
+            at(trunc(a.nome, qCol - 40 - M, 9.5), M + 6, y, 9.5, font, DARK);
+            rightAt(String(a.qtd), qCol, y, 9, font, MUTED);
+            rightAt(BRL(a.preco_un), uCol, y, 9, font, MUTED);
+            rightAt(BRL(Math.round(tot)), tCol, y, 9.5, font, DARK);
+            page.drawLine({ start: { x: M, y: y - 5 }, end: { x: A4.w - M, y: y - 5 }, thickness: 0.4, color: LINE });
+            y -= 16;
+          }
+          y -= 4;
         }
         ensure(16);
         at("Total em acessórios", M + 6, y, 9, bold, DARK);

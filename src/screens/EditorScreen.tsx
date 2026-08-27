@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import type Konva from "konva";
-import EditorCanvas, { PADROES_PLANTA, type EstadoPonteiro, type Etapa, type FerramentaEstrutura, type FerramentaAcab, type PadroesPlanta } from "../editor/EditorCanvas";
+import EditorCanvas, { PADROES_PLANTA, type EstadoPonteiro, type Etapa, type FerramentaEstrutura, type FerramentaAcab, type FerramentaAcess, type PadroesPlanta } from "../editor/EditorCanvas";
 import { TrilhaEtapas, ModoHUD, type ModoAtivo } from "../editor/TrilhaEtapas";
 import { CaixaFerramentas } from "../editor/CaixaFerramentas";
 import { BarraPropriedades } from "../editor/BarraPropriedades";
@@ -28,13 +28,17 @@ import { checarProntidaoDossie } from "../lib/prontidaoDossie";
 import { resumo, type Problema } from "../lib/validation";
 import { snapCm } from "../lib/canvas";
 import { BRL, formatLength, parseLength } from "../lib/units";
-import { ZONAS, CENARIOS, DESTINOS_INVENTARIO, OPCOES_DOSSIE_PADRAO, ROTULO_SECAO_DOSSIE, ORDEM_DOSSIE_PADRAO, SECAO_EXIGE_DADO, CIRCULACAO_PADRAO, TIPOS_AREA, taxaDe, MATERIAIS_PISO, ELEMENTOS_PAREDE, MOBILIARIO_CATALOGO, ACESSORIOS_CATALOGO, LADOS_PADRAO, type AcessorioProjeto, type LadoRect, type AreaFuncional, type TipoArea, type DestinoInventario, type ItemInventario, type OpcoesDossie, type SecaoDossie, type CamadasLamina, type LaminaDossie, type Cena, type MaterialPiso, type TipoElementoParede, type Zona, type Cenario, type ItemPosicionado, type Equipamento, type AreaAcabamento, type ElementoParede, type ItemInfraestrutura, type Projeto } from "../lib/types";
+import { ZONAS, CENARIOS, DESTINOS_INVENTARIO, OPCOES_DOSSIE_PADRAO, ROTULO_SECAO_DOSSIE, ORDEM_DOSSIE_PADRAO, SECAO_EXIGE_DADO, CIRCULACAO_PADRAO, TIPOS_AREA, taxaDe, MATERIAIS_PISO, ELEMENTOS_PAREDE, MOBILIARIO_CATALOGO, ACESSORIOS_CATALOGO, LADOS_PADRAO, type AcessorioProjeto, type LadoRect, type AreaFuncional, type TipoArea, type DestinoInventario, type ItemInventario, type OpcoesDossie, type SecaoDossie, type CamadasLamina, type LaminaDossie, type Cena, type MaterialPiso, type TipoElementoParede, type Zona, type Cenario, type ItemPosicionado, type Equipamento, type AreaAcabamento, type ElementoParede, type ItemInfraestrutura, type Projeto, type FamiliaAcessorio } from "../lib/types";
 import { areaPoligonoM2, perimetroCm, bboxPoligono, ehRetangulo, retanguloParaPontos, transladar, m2 } from "../lib/geometria";
 import { CAMPOS_ESPEC, CENARIO_DEF, ESPEC_ZONA, analisarCobertura, cenarioSugerido, composicaoZonas, detalheCenarios, explicarItem, normalizarExercicios } from "../lib/curadoria";
 import { MUSCULOS, PADROES, REGIOES, type RegiaoCorpo } from "../lib/musculatura";
 import { marcasDaCena, presencaDaMarca, refDaMarca } from "../lib/marcas";
 import { analisarEspaco } from "../lib/analiseEspaco";
 import { gerarPromptVista } from "../lib/promptVista";
+import {
+  FAMILIAS_ACESSORIO, acessorioDoCatalogo, agruparPorLugar, ancoraNoPonto, catalogoRelevante,
+  familiaDoNome, familiaServida, rotuloDaAncora,
+} from "../lib/acessorios";
 import { uploadOrcamento, urlOrcamento, removerOrcamentoArquivo, listarCotacoes, online } from "../lib/supabase";
 
 export default function EditorScreen() {
@@ -49,6 +53,7 @@ export default function EditorScreen() {
   const { removerElemParede, removerInfra, addInfra } = useProjeto();
   const { duplicarItem, espelharItem } = useProjeto();
   const { selAreaFuncId, selecionarAreaFunc, addAreaFuncional, updateAreaFuncional, removerAreaFuncional } = useProjeto();
+  const { addAcessorio, updateAcessorio, removerAcessorio, selecionarAcessorio, sugerirAcessoriosDoProjeto, organizarAcessoriosNoEspaco, selAcessorioId } = useProjeto();
   const equipamentos = useLibrary((s) => s.equipamentos);
   const acabamentos = useLibrary((s) => s.acabamentos);
   const marcasBiblioteca = useLibrary((s) => s.marcas);
@@ -79,6 +84,8 @@ export default function EditorScreen() {
   const [etapa, setEtapa] = useState<Etapa>("planta");
   const [tipoArea, setTipoArea] = useState<TipoArea>("circulacao"); // Fase 02 · layout de área
   const [ferrEstrutura, setFerrEstrutura] = useState<FerramentaEstrutura>(null);
+  const [ferrAcess, setFerrAcess] = useState<FerramentaAcess>(null);
+  const [familiaAcess, setFamiliaAcess] = useState<FamiliaAcessorio>("carga");
   const [busy, setBusy] = useState<string | null>(null);
   /** O que a PRÓXIMA parede/porta/janela/pilar vai ser (flyout + barra de propriedades). */
   const [padroes, setPadroesState] = useState<PadroesPlanta>(PADROES_PLANTA);
@@ -96,6 +103,7 @@ export default function EditorScreen() {
   function limparModos() {
     setModoCalibrar(false); setFerrAcab(null); setModoRecorte(false);
     setModoParede(false); setModoMoverPlanta(false); setFerrEstrutura(null); setModoVista(false);
+    setFerrAcess(null);
   }
   function irParaEtapa(e: Etapa) { limparModos(); selecionar(null); setEtapa(e); }
 
@@ -116,6 +124,7 @@ export default function EditorScreen() {
     else if (s.selElemParedeId) removerElemParede(s.selElemParedeId);
     else if (s.selInfraId) removerInfra(s.selInfraId);
     else if (s.selAreaFuncId) removerAreaFuncional(s.selAreaFuncId);
+    else if (s.selAcessorioId) removerAcessorio(s.selAcessorioId);
   }
 
   // ── Atalhos de teclado ────────────────────────────────────────────────
@@ -244,6 +253,8 @@ export default function EditorScreen() {
     if (ferrAcab === "espelho") return { nome: "Espelho", cor: I, instrucao: "toque na parede onde fica o espelho" };
     if (ferrAcab === "itemParede") return { nome: ELEMENTOS_PAREDE[tipoElemParede].label, cor: G, instrucao: "toque na parede onde o item fica fixado" };
     if (ferrAcab === "apagar") return { nome: "Apagar", cor: X, instrucao: "toque no elemento para apagar" };
+    if (ferrAcess === "fixar") return { nome: `Fixar · ${FAMILIAS_ACESSORIO[familiaAcess].label}`, cor: G, instrucao: "toque no aparelho, na região ou no ponto da planta" };
+    if (ferrAcess === "apagar") return { nome: "Apagar acessório", cor: X, instrucao: "toque no pino para tirar da lista" };
     return null;
   })();
 
@@ -270,6 +281,8 @@ export default function EditorScreen() {
     : ferrAcab === "espelho" ? "espelho"
     : ferrAcab === "itemParede" ? "itemParede"
     : ferrAcab === "apagar" ? "apagarAcabamento"
+    : ferrAcess === "fixar" ? "fixarAcessorio"
+    : ferrAcess === "apagar" ? "apagarAcessorio"
     : "selecionar";
 
   /** Liga a ferramenta, sem alternar. Usado quando a variante já foi escolhida. */
@@ -289,6 +302,8 @@ export default function EditorScreen() {
       case "espelho": setFerrAcab("espelho"); break;
       case "itemParede": setFerrAcab("itemParede"); break;
       case "apagarAcabamento": setFerrAcab("apagar"); break;
+      case "fixarAcessorio": setFerrAcess("fixar"); break;
+      case "apagarAcessorio": setFerrAcess("apagar"); break;
       default: break; // "selecionar" e as ações de um toque
     }
   }
@@ -303,6 +318,21 @@ export default function EditorScreen() {
       const nEls = cena.elementosParede?.length ?? 0;
       if (nEls && !confirm(`Gerar a estrutura recria todas as paredes. Os ${nEls} ${nEls === 1 ? "item fixado nelas será removido" : "itens fixados nelas serão removidos"} (espelhos, TVs, pontos elétricos). Continuar?`)) return;
       gerarEstruturaAuto();
+      return;
+    }
+    if (id === "sugerirAcessorios") {
+      const n = sugerirAcessoriosDoProjeto();
+      setAviso(n
+        ? `${n} acessório(s) que este projeto pede — já ancorados no espaço.`
+        : (cena.acessorios?.length
+          ? "A lista já cobre o que o layout pede. Organizei de novo no espaço."
+          : "Este layout ainda não pede acessório (não há rack, polia, peso livre, funcional ou alongamento)."));
+      return;
+    }
+    if (id === "organizarAcessorios") {
+      if (!(cena.acessorios?.length)) { setAviso("A lista está vazia — use Sugerir ou o catálogo à esquerda."); return; }
+      organizarAcessoriosNoEspaco();
+      setAviso("Acessórios ancorados nos aparelhos e nas regiões deste projeto.");
       return;
     }
     // Tocar de novo na ferramenta ativa devolve o ponteiro — o mesmo idioma
@@ -330,6 +360,7 @@ export default function EditorScreen() {
       case "pilar": setPadroes({ formaPilar: v as FormaPilar }); break;
       case "regiao": case "regiaoPoligono": setTipoArea(v as TipoArea); break;
       case "itemParede": setTipoElemParede(v as TipoElementoParede); break;
+      case "fixarAcessorio": setFamiliaAcess(v as FamiliaAcessorio); break;
       default: break;
     }
     ligarFerramenta(id);
@@ -346,6 +377,7 @@ export default function EditorScreen() {
     pilar: padroes.formaPilar,
     regiao: tipoArea, regiaoPoligono: tipoArea,
     itemParede: tipoElemParede,
+    fixarAcessorio: familiaAcess,
   };
 
   // Mantém o aviso montado durante a animação de saída (sem AnimatePresence).
@@ -370,6 +402,7 @@ export default function EditorScreen() {
   const selAcab = (cena.acabamentos ?? []).find((a) => a.id === selectedAcabId) || null;
   const selElemParede = (cena.elementosParede ?? []).find((e) => e.id === selElemParedeId) || null;
   const selInfra = (cena.infra ?? []).find((i) => i.id === selInfraId) || null;
+  const selAcessorio = (cena.acessorios ?? []).find((a) => a.id === selAcessorioId) || null;
   const teto = Number(projeto?.orcamento_teto) || 0;
   const saldo = teto - r.subtotal;
 
@@ -401,6 +434,25 @@ export default function EditorScreen() {
     };
     addArea(area);
     setFerrAcab(null);
+  }
+
+  /** Toque com Fixar: ancora o selecionado, ou cria a partir do catálogo filtrado. */
+  function onFixarAcessorio(p: { x: number; y: number }) {
+    const ancora = ancoraNoPonto(cena, p);
+    const ponto = { x_cm: Math.round(p.x), y_cm: Math.round(p.y) };
+    if (selAcessorio) {
+      updateAcessorio(selAcessorio.id, { ancora, ...ponto });
+      return;
+    }
+    const doFiltro = ACESSORIOS_CATALOGO.filter((c) => (c.familia ?? familiaDoNome(c.nome)) === familiaAcess
+      || familiaServida(c.nome, c.familia) === familiaAcess);
+    const jaTem = new Set((cena.acessorios ?? []).map((a) => a.nome));
+    const candidato = doFiltro.find((c) => !jaTem.has(c.nome)) ?? doFiltro[0];
+    if (!candidato) {
+      addAcessorio({ ...acessorioDoCatalogo("Novo acessório", () => crypto.randomUUID()), ancora, ...ponto, nome: "Novo acessório", familia: familiaAcess });
+      return;
+    }
+    addAcessorio({ ...acessorioDoCatalogo(candidato.nome, () => crypto.randomUUID()), ancora, ...ponto });
   }
 
   function adicionar(m: Equipamento) {
@@ -750,6 +802,16 @@ export default function EditorScreen() {
               )}
             </>
           )}
+
+          {etapa === "acessorios" && (
+            <>
+              <span className="toolgroup">
+                <span className="tg-label">Lista</span>
+                <button className="btn btn--sm" disabled={!selAcessorio} onClick={() => selAcessorio && removerAcessorio(selAcessorio.id)}>✕ Tirar</button>
+              </span>
+              <GrupoEncaixe snapPasso={snapPasso} onSnap={setSnapPasso} />
+            </>
+          )}
         </BarraPropriedades>
       )}
 
@@ -890,11 +952,60 @@ export default function EditorScreen() {
           </aside>
         )}
 
-        {/* Etapas 5 e 6: painéis de tela cheia (substituem canvas + inspetor) */}
+        {/* Rail da etapa Acessórios: catálogo filtrado pelo que ESTE projeto pede. */}
+        {!somenteLeitura && !apresentacao && etapa === "acessorios" && (() => {
+          const relevante = catalogoRelevante(cena);
+          const idsRel = new Set(relevante.map((c) => c.nome));
+          const lista = ferrAcess === "fixar"
+            ? ACESSORIOS_CATALOGO.filter((c) => familiaServida(c.nome, c.familia) === familiaAcess || c.familia === familiaAcess)
+            : (relevante.length ? relevante : ACESSORIOS_CATALOGO);
+          const jaTem = new Set((cena.acessorios ?? []).map((a) => a.nome));
+          const vazioDeSinal = relevante.length === 0;
+          return (
+            <aside style={{ width: 240, flexShrink: 0, borderRight: "1px solid var(--line)", overflow: "auto", padding: "10px 10px 10px calc(10px + var(--sal))", display: "flex", flexDirection: "column", gap: 8 }}>
+              <div className="brandface" style={{ fontSize: 15, color: "var(--gold)" }}>CATÁLOGO</div>
+              <div style={{ fontSize: 11, color: "var(--muted)", lineHeight: 1.45 }}>
+                {vazioDeSinal
+                  ? "Layout ainda sem rack, polia, peso livre, funcional ou alongamento — a lista inteira fica disponível, mas nada é sugerido."
+                  : ferrAcess === "fixar"
+                    ? `Família ${FAMILIAS_ACESSORIO[familiaAcess].label} — toque o item e depois o lugar na planta.`
+                    : "Só o que este projeto pede. Toque para lançar; use Fixar para escolher o lugar."}
+              </div>
+              <div style={{ display: "grid", gap: 4 }}>
+                {lista.map((c) => {
+                  const tem = jaTem.has(c.nome);
+                  const cabe = idsRel.has(c.nome) || vazioDeSinal;
+                  return (
+                    <button key={c.nome} disabled={tem}
+                      onClick={() => {
+                        const novo = acessorioDoCatalogo(c.nome, () => crypto.randomUUID());
+                        limparModos();
+                        addAcessorio(novo);
+                        setFerrAcess("fixar");
+                      }}
+                      style={{
+                        display: "flex", justifyContent: "space-between", alignItems: "center", gap: 6,
+                        background: "var(--panel-2)", border: "1px solid var(--line)", borderRadius: 7, padding: "7px 9px",
+                        color: tem ? "#55565a" : cabe ? "#c9c9c4" : "#8a8a8f",
+                        font: "600 11.5px 'DM Sans'", textAlign: "left",
+                        cursor: tem ? "default" : "pointer", opacity: tem ? 0.55 : cabe ? 1 : 0.7,
+                      }}>
+                      <span style={{ flex: 1 }}>{tem ? "✓ " : "＋ "}{c.nome}</span>
+                      <span style={{ color: "#6e6e73", fontWeight: 400, fontSize: 10, whiteSpace: "nowrap" }}>{c.qtd}×</span>
+                    </button>
+                  );
+                })}
+              </div>
+              <button className="btn" onClick={() => addAcessorio(acessorioDoCatalogo("Novo acessório", () => crypto.randomUUID()))}>
+                ＋ Personalizado
+              </button>
+            </aside>
+          );
+        })()}
+
+        {/* Etapa Cenários: painel de tela cheia (substitui canvas + inspetor) */}
         {etapa === "curadoria" && !somenteLeitura ? (
           <CuradoriaPanel onEmitir={exportar} />
-        ) : etapa === "acessorios" && !somenteLeitura ? (
-          <AcessoriosPanel />
         ) : (<>
         {/* Canvas */}
         <div style={{ flex: 1, position: "relative", minWidth: 0 }}>
@@ -904,6 +1015,7 @@ export default function EditorScreen() {
             modoRecorte={modoRecorte} onRecorte={(rect) => { recortarVetorial(rect); setModoRecorte(false); }}
             modoParede={modoParede} onParede={onParede} modoMoverPlanta={modoMoverPlanta}
             etapa={etapa} ferrEstrutura={ferrEstrutura}
+            ferrAcess={ferrAcess} onFixarAcessorio={onFixarAcessorio}
             padroes={padroes} ponteiroExternoRef={ponteiroRef} camadasLamina={laminaCaptura}
             stageRef={stageRef} enquadrarRef={enquadrarRef} somenteLeitura={somenteLeitura} />
 
@@ -941,7 +1053,7 @@ export default function EditorScreen() {
         </div>
 
         {/* Inspetor direito */}
-        {!apresentacao && <aside style={{ width: etapa === "fichas" ? 340 : 220, flexShrink: 0, borderLeft: "1px solid var(--line)", overflow: "auto", padding: "12px calc(12px + var(--sar)) 12px 12px" }}>
+        {!apresentacao && <aside style={{ width: etapa === "fichas" || etapa === "acessorios" ? 340 : 220, flexShrink: 0, borderLeft: "1px solid var(--line)", overflow: "auto", padding: "12px calc(12px + var(--sar)) 12px 12px" }}>
           {somenteLeitura ? (
             <div style={{ display: "grid", gap: 12 }}>
               <div className="brandface" style={{ fontSize: 16, color: "var(--gold)" }}>Sobre este projeto</div>
@@ -968,6 +1080,8 @@ export default function EditorScreen() {
             <AreasInspector sel={(cena.areas ?? []).find((a) => a.id === selAreaFuncId) ?? null}
               tipoAtual={tipoArea} onTipoAtual={setTipoArea}
               onUpdate={updateAreaFuncional} onRemover={removerAreaFuncional} onSelecionar={selecionarAreaFunc} />
+          ) : etapa === "acessorios" ? (
+            <AcessoriosInspector sel={selAcessorio} />
           ) : etapa === "planta" ? (
             selEstrutura ? <EstruturaInspector sel={selEstrutura} /> : <PlantaEtapaInspector temPlanta={!!(cena.planta || cena.plantaVetorial)} temEstrutura={!!cena.estrutura} />
           ) : selItem ? (
@@ -2657,77 +2771,73 @@ function conteudoDaSecao(cena: Cena): (id: SecaoDossie) => boolean {
   };
 }
 
-// Etapa 6 — orçamento de acessórios do projeto (catálogo-base Heritage).
-function AcessoriosPanel() {
-  const acessorios = useProjeto((s) => s.cena.acessorios ?? []);
-  const addAcessorio = useProjeto((s) => s.addAcessorio);
+// Etapa Acessórios — lista agrupada pelo lugar na planta.
+function AcessoriosInspector({ sel }: { sel: AcessorioProjeto | null }) {
+  const cena = useProjeto((s) => s.cena);
+  const acessorios = cena.acessorios ?? [];
   const updateAcessorio = useProjeto((s) => s.updateAcessorio);
   const removerAcessorio = useProjeto((s) => s.removerAcessorio);
+  const selecionarAcessorio = useProjeto((s) => s.selecionarAcessorio);
   const total = acessorios.reduce((t, a) => t + a.qtd * a.preco_un, 0);
-  const jaTem = new Set(acessorios.map((a) => a.nome));
+  const grupos = agruparPorLugar(acessorios, cena);
   return (
-    <div style={{ flex: 1, display: "flex", minWidth: 0 }}>
-      {/* Catálogo-base (orçamento Heritage) */}
-      <aside style={{ width: 300, flexShrink: 0, borderRight: "1px solid var(--line)", overflow: "auto", padding: "10px 10px 10px calc(10px + var(--sal))" }}>
-        <div className="brandface" style={{ fontSize: 15, color: "var(--gold)", marginBottom: 4 }}>CATÁLOGO DE ACESSÓRIOS</div>
-        <div style={{ fontSize: 11, color: "var(--muted)", marginBottom: 8 }}>Base: orçamento Heritage · toque para adicionar</div>
-        <div style={{ display: "grid", gap: 4 }}>
-          {ACESSORIOS_CATALOGO.map((c) => (
-            <button key={c.nome} disabled={jaTem.has(c.nome)}
-              onClick={() => addAcessorio({ id: crypto.randomUUID(), nome: c.nome, qtd: c.qtd, preco_un: c.preco })}
-              style={{
-                display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8,
-                background: "var(--panel-2)", border: "1px solid var(--line)", borderRadius: 7, padding: "7px 9px",
-                color: jaTem.has(c.nome) ? "#55565a" : "#c9c9c4", font: "600 11.5px 'DM Sans'", textAlign: "left",
-                cursor: jaTem.has(c.nome) ? "default" : "pointer", opacity: jaTem.has(c.nome) ? 0.55 : 1,
-              }}>
-              <span style={{ flex: 1 }}>{jaTem.has(c.nome) ? "✓ " : "＋ "}{c.nome}</span>
-              <span style={{ color: "#6e6e73", fontWeight: 400, fontSize: 10.5, whiteSpace: "nowrap" }}>{c.qtd}× {BRL(c.preco)}</span>
-            </button>
-          ))}
-        </div>
-        <button className="btn" style={{ marginTop: 10, width: "100%" }}
-          onClick={() => addAcessorio({ id: crypto.randomUUID(), nome: "Novo acessório", qtd: 1, preco_un: 0 })}>
-          ＋ Acessório personalizado
-        </button>
-      </aside>
-
-      {/* Lista do projeto */}
-      <div style={{ flex: 1, overflow: "auto", padding: "14px calc(16px + var(--sar)) 14px 16px" }}>
-        <div className="brandface" style={{ fontSize: 18, color: "var(--gold)", marginBottom: 2 }}>ACESSÓRIOS DO PROJETO</div>
-        <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 12 }}>
-          {acessorios.length} item(ns) · edite quantidade e preço unitário — o total entra no Dossiê
-        </div>
-        {acessorios.length === 0 && (
-          <div style={{ color: "var(--muted)", fontSize: 13, lineHeight: 1.6, maxWidth: 420 }}>
-            Nenhum acessório ainda. Toque nos itens do catálogo à esquerda para montar o orçamento — a lista base veio do orçamento real do Heritage.
-          </div>
-        )}
-        <div style={{ display: "grid", gap: 6, maxWidth: 780 }}>
-          {acessorios.length > 0 && (
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 84px 130px 110px 40px", gap: 8, padding: "0 10px", fontSize: 10.5, color: "var(--muted)", letterSpacing: ".06em" }}>
-              <span>ITEM</span><span>QTD</span><span>PREÇO UN. (R$)</span><span style={{ textAlign: "right" }}>TOTAL</span><span />
-            </div>
-          )}
-          {acessorios.map((a) => (
-            <div key={a.id} style={{ display: "grid", gridTemplateColumns: "1fr 84px 130px 110px 40px", gap: 8, alignItems: "center", background: "var(--panel-2)", border: "1px solid var(--line)", borderRadius: 8, padding: "7px 10px" }}>
-              <CampoTexto valor={a.nome} onSet={(v) => updateAcessorio(a.id, { nome: v || a.nome })} />
-              <CampoCm valor={a.qtd} min={1} onSet={(v) => updateAcessorio(a.id, { qtd: Math.max(1, Math.round(v)) })} />
-              <CampoCm valor={a.preco_un} min={0} onSet={(v) => updateAcessorio(a.id, { preco_un: v })} />
-              <span style={{ textAlign: "right", fontSize: 13, fontWeight: 700, color: "#e9e9e6" }}>{BRL(Math.round(a.qtd * a.preco_un))}</span>
-              <button className="btn" style={{ padding: "6px 8px" }} onClick={() => removerAcessorio(a.id)}>✕</button>
-            </div>
-          ))}
-          {acessorios.length > 0 && (
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: 14, alignItems: "center", padding: "10px 10px 0" }}>
-              <span style={{ fontSize: 12, color: "var(--muted)", letterSpacing: ".06em" }}>TOTAL EM ACESSÓRIOS</span>
-              <span className="brandface" style={{ fontSize: 20, color: "var(--gold)" }}>{BRL(Math.round(total))}</span>
-            </div>
-          )}
-        </div>
-
-        <AnexosOrcamento />
+    <div style={{ display: "grid", gap: 12 }}>
+      <div className="brandface" style={{ fontSize: 16, color: "var(--gold)" }}>ACESSÓRIOS</div>
+      <div style={{ fontSize: 11.5, color: "var(--muted)", lineHeight: 1.5 }}>
+        {acessorios.length
+          ? `${acessorios.length} item(ns) agrupados pelo lugar na planta. Toque para editar; Fixar escolhe o endereço.`
+          : "Use Sugerir para montar a lista a partir DESTE layout, ou lance pelo catálogo à esquerda."}
       </div>
+      {sel && (
+        <div style={{ display: "grid", gap: 8, background: "var(--panel-2)", border: "1px solid var(--gold)", borderRadius: 8, padding: 10 }}>
+          <CampoTexto valor={sel.nome} onSet={(v) => updateAcessorio(sel.id, { nome: v || sel.nome })} />
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+            <label style={{ display: "grid", gap: 3, fontSize: 10, color: "var(--muted)" }}>QTD
+              <CampoCm valor={sel.qtd} min={1} onSet={(v) => updateAcessorio(sel.id, { qtd: Math.max(1, Math.round(v)) })} />
+            </label>
+            <label style={{ display: "grid", gap: 3, fontSize: 10, color: "var(--muted)" }}>PREÇO UN.
+              <CampoCm valor={sel.preco_un} min={0} onSet={(v) => updateAcessorio(sel.id, { preco_un: v })} />
+            </label>
+          </div>
+          <div style={{ fontSize: 11, color: FAMILIAS_ACESSORIO[sel.familia ?? familiaDoNome(sel.nome)].cor }}>
+            {FAMILIAS_ACESSORIO[sel.familia ?? familiaDoNome(sel.nome)].label} · {rotuloDaAncora(sel.ancora, cena)}
+          </div>
+          {sel.obs && <div style={{ fontSize: 11, color: "var(--muted)", lineHeight: 1.45 }}>{sel.obs}</div>}
+          <div style={{ fontSize: 13, fontWeight: 700, color: "var(--gold)" }}>{BRL(Math.round(sel.qtd * sel.preco_un))}</div>
+          <button className="btn" onClick={() => removerAcessorio(sel.id)}>✕ Remover</button>
+        </div>
+      )}
+      {grupos.map((g) => (
+        <div key={g.chave} style={{ display: "grid", gap: 4 }}>
+          <div style={{ fontSize: 10.5, color: "var(--muted)", letterSpacing: ".06em" }}>{g.titulo.toUpperCase()}</div>
+          {g.itens.map((a) => {
+            const ativo = sel?.id === a.id;
+            const fam = a.familia ?? familiaDoNome(a.nome);
+            return (
+              <button key={a.id} onClick={() => selecionarAcessorio(a.id)} style={{
+                display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center",
+                background: ativo ? "var(--gold-soft)" : "var(--panel-2)",
+                border: `1px solid ${ativo ? "var(--gold)" : "var(--line)"}`,
+                borderRadius: 7, padding: "7px 9px", color: "#c9c9c4",
+                font: "600 12px 'DM Sans'", textAlign: "left", cursor: "pointer",
+              }}>
+                <span style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+                  <span style={{ width: 8, height: 8, borderRadius: 99, background: FAMILIAS_ACESSORIO[fam].cor, flexShrink: 0 }} />
+                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.nome}</span>
+                </span>
+                <span style={{ color: "#6e6e73", fontWeight: 400, fontSize: 10.5, whiteSpace: "nowrap" }}>{a.qtd}× {BRL(Math.round(a.qtd * a.preco_un))}</span>
+              </button>
+            );
+          })}
+        </div>
+      ))}
+      {acessorios.length > 0 && (
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+          <span style={{ fontSize: 11, color: "var(--muted)", letterSpacing: ".06em" }}>TOTAL</span>
+          <span className="brandface" style={{ fontSize: 20, color: "var(--gold)" }}>{BRL(Math.round(total))}</span>
+        </div>
+      )}
+      <AnexosOrcamento />
     </div>
   );
 }

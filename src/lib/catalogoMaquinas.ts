@@ -12,6 +12,7 @@
 
 import type { Cenario, Equipamento, Zona } from "./types";
 import { cenarioSugerido } from "./curadoria";
+import { silhuetaDaPeca, silhuetasParaAtualizar } from "./contornosMaquinas";
 
 interface Spec {
   /** Nome funcional em português — tem de casar `baseDoNome`. */
@@ -63,6 +64,7 @@ function peca(marca: string, s: Spec): Equipamento {
     dist_parede_cm: m.parede,
     dist_lateral_cm: m.usoL,
     dist_frontal_cm: m.usoF,
+    contorno: silhuetaDaPeca(s.funcao, s.cat),
     obs: "Ocupação em planta a partir da ficha técnica comercial da linha. Preço entra pela cotação do projeto.",
   };
 }
@@ -210,6 +212,11 @@ export const chaveDaMaquina = (e: Pick<Equipamento, "nome" | "marca">): string =
 export function maquinasFaltando(existentes: Equipamento[]): Equipamento[] {
   const ja = new Set(existentes.map(chaveDaMaquina));
   return BIBLIOTECA_MAQUINAS.filter((e) => !ja.has(chaveDaMaquina(e)));
+}
+
+/** Cadastro que já tem a peça, mas ainda sem a silhueta de planta. */
+export function silhuetasFaltando(existentes: Equipamento[]): Equipamento[] {
+  return silhuetasParaAtualizar(existentes, BIBLIOTECA_MAQUINAS);
 }
 
 export function csvDaBiblioteca(): string {

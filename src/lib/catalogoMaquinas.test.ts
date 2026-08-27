@@ -1,7 +1,8 @@
 // Biblioteca internacional: cada peça precisa ser reconhecida pela base
 // técnica (senão some da cobertura do Dossiê) e pela detecção de marca.
 import { describe, it, expect } from "vitest";
-import { BIBLIOTECA_MAQUINAS, MARCAS_MAQUINAS, chaveDaMaquina, csvDaBiblioteca, maquinasFaltando } from "./catalogoMaquinas";
+import { BIBLIOTECA_MAQUINAS, MARCAS_MAQUINAS, chaveDaMaquina, csvDaBiblioteca, maquinasFaltando, silhuetasFaltando } from "./catalogoMaquinas";
+import { silhuetaDaPeca } from "./contornosMaquinas";
 import { baseDoNome } from "./curadoria";
 import { marcasDaCena } from "./marcas";
 import { MARCAS_BASE } from "./marcas";
@@ -53,5 +54,33 @@ describe("biblioteca de maquinário", () => {
     const linhas = csvDaBiblioteca().trim().split("\n");
     expect(linhas[0]).toContain("marca");
     expect(linhas.length - 1).toBe(BIBLIOTECA_MAQUINAS.length);
+  });
+
+  it("toda peça tem silhueta de planta (cópia do footprint, 0..1)", () => {
+    for (const e of BIBLIOTECA_MAQUINAS) {
+      expect(e.contorno?.length, e.nome).toBeGreaterThanOrEqual(2);
+      for (const tr of e.contorno!) {
+        expect(tr.length % 2, e.nome).toBe(0);
+        expect(tr.length, e.nome).toBeGreaterThanOrEqual(4);
+        for (const n of tr) {
+          expect(n).toBeGreaterThanOrEqual(0);
+          expect(n).toBeLessThanOrEqual(1);
+        }
+      }
+    }
+  });
+
+  it("Hammer Strength plate-loaded usa chifres, não pilha de pinos", () => {
+    const hammer = silhuetaDaPeca("Supino máquina", "Peso livre");
+    const nautilus = silhuetaDaPeca("Supino máquina", "Musculação guiada");
+    expect(JSON.stringify(hammer)).not.toBe(JSON.stringify(nautilus));
+  });
+
+  it("silhuetasFaltando só pega cadastro sem contorno", () => {
+    const um = { ...BIBLIOTECA_MAQUINAS[0], id: "x1", contorno: null };
+    expect(silhuetasFaltando([um])).toHaveLength(1);
+    expect(silhuetasFaltando([BIBLIOTECA_MAQUINAS[0]])).toHaveLength(0);
+    const custom = { ...BIBLIOTECA_MAQUINAS[0], id: "x2", contorno: [[0, 0, 1, 0, 1, 1, 0, 1]] };
+    expect(silhuetasFaltando([custom])).toHaveLength(0);
   });
 });

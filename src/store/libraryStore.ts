@@ -2,6 +2,7 @@ import { create } from "zustand";
 import type { Equipamento, Acabamento, ConfigConsultor, Marca } from "../lib/types";
 import { listarEquipamentos, listarAcabamentos, listarMarcas, obterConfigConsultor } from "../lib/supabase";
 import { CATALOGO_LOCAL, ACABAMENTOS_LOCAL } from "../lib/seed";
+import { BIBLIOTECA_MAQUINAS } from "../lib/catalogoMaquinas";
 import { MARCAS_BASE } from "../lib/marcas";
 
 interface LibraryState {
@@ -30,7 +31,7 @@ const casa = (e: Equipamento, ref: string) => (e.id ? e.id === ref : e.nome === 
 const casaMarca = (m: Marca, ref: string) => (m.id ? m.id === ref : m.nome === ref);
 
 export const useLibrary = create<LibraryState>((set, get) => ({
-  equipamentos: CATALOGO_LOCAL,
+  equipamentos: [...CATALOGO_LOCAL, ...BIBLIOTECA_MAQUINAS],
   acabamentos: ACABAMENTOS_LOCAL,
   marcas: MARCAS_BASE,
   config: null,
@@ -46,7 +47,7 @@ export const useLibrary = create<LibraryState>((set, get) => ({
         listarEquipamentos(), listarAcabamentos(), listarMarcas(), obterConfigConsultor(),
       ]);
       set({
-        equipamentos: eq.length ? eq : CATALOGO_LOCAL,
+        equipamentos: eq.length ? eq : [...CATALOGO_LOCAL, ...BIBLIOTECA_MAQUINAS],
         acabamentos: ac.length ? ac : ACABAMENTOS_LOCAL,
         // Banco vazio (ou 018 ainda não aplicada) = base local; ela é o chão da
         // detecção de marcas, nunca deve ficar vazia.

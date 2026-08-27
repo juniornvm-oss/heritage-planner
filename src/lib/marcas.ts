@@ -48,6 +48,50 @@ export const MARCAS_BASE: Marca[] = [
       "Marca norte-americana especializada em simuladores de escada, criadora do StepMill — o aparelho de degraus rolantes contínuos. Pertence ao grupo Core Health & Fitness, o mesmo da Nautilus, Star Trac e Schwinn.",
     fonte: "Site oficial da marca e imprensa especializada",
   },
+  {
+    chaves: ["life fitness", "lifefitness"],
+    nome: "Life Fitness",
+    tipo: "equipamento",
+    origem: "Estados Unidos · Franklin Park/IL",
+    grupo: "Life Fitness",
+    resumo:
+      "Marca norte-americana de equipamentos de ginástica fundada em 1977, conhecida pelas esteiras e elípticos da linha Integrity e pelas máquinas de musculação Optima e Circuit. É uma das marcas mais presentes em academias comerciais no mundo, com assistência técnica e peças no Brasil.",
+    fonte: "Site oficial da marca e imprensa especializada",
+    site: "https://www.lifefitness.com",
+  },
+  {
+    chaves: ["hammer strength", "hammerstrength"],
+    nome: "Hammer Strength",
+    tipo: "equipamento",
+    origem: "Estados Unidos",
+    grupo: "Life Fitness",
+    resumo:
+      "Linha de musculação de carga livre (plate loaded) do grupo Life Fitness, criada para o treino de força com anilhas e movimento independente por lado (Iso-Lateral). É a linha que costuma acompanhar a Life Fitness em academias que separam cardio guiado e peso livre.",
+    fonte: "Site oficial da marca e imprensa especializada",
+    site: "https://www.lifefitness.com",
+  },
+  {
+    chaves: ["matrix"],
+    nome: "Matrix",
+    tipo: "equipamento",
+    origem: "Estados Unidos · Cottage Grove/WI",
+    grupo: "Johnson Health Tech",
+    resumo:
+      "Marca do grupo taiwanês Johnson Health Tech, com fabricação e sede comercial nos Estados Unidos. No segmento comercial é conhecida pelas esteiras da série T, pelo ClimbMill e pelas linhas Ultra e Versa de musculação guiada, com presença consolidada em academias e condomínios no Brasil.",
+    fonte: "Site oficial da marca e imprensa especializada",
+    site: "https://pt-br.matrixfitness.com",
+  },
+  {
+    chaves: ["technogym", "tecnogym", "techno gym"],
+    nome: "Technogym",
+    tipo: "equipamento",
+    origem: "Itália · Cesena",
+    grupo: "Technogym",
+    resumo:
+      "Fabricante italiana fundada em 1983 em Cesena, fornecedora oficial de equipamentos de várias edições dos Jogos Olímpicos. No comercial brasileiro entram as linhas Excite (cardio), Selection (carga selecionada), Pure Strength (peso livre) e Skill (Skillmill e Skillrow).",
+    fonte: "Site oficial da marca e imprensa especializada",
+    site: "https://www.technogym.com",
+  },
   // ── Acabamentos: as marcas que a biblioteca de acabamentos já usa como
   //    fornecedor (src/lib/seed.ts) e que nunca chegavam ao Dossiê ──────────
   {

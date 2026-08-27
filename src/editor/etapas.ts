@@ -67,9 +67,8 @@ export const ETAPAS: DefEtapa[] = [
   {
     id: "acessorios",
     titulo: "Acessórios",
-    entrega: "o orçamento dos complementos",
-    ajuda: "Anilhas, barras, colchonetes e puxadores — o que é orçado sem ocupar posição na planta.",
-    telaCheia: true,
+    entrega: "complementos no lugar certo",
+    ajuda: "Sugira a partir do layout, ancore cada item numa região ou aparelho, e orce só o que este projeto pede.",
   },
   {
     id: "curadoria",
@@ -130,8 +129,11 @@ export function sinalDaEtapa(id: Etapa, cena: Cena, nColisoes: number): SinalEta
       return { texto: cena.parecer?.trim() ? "com parecer" : "classificado", pronta: !!cena.parecer?.trim() };
     }
     case "acessorios": {
-      const n = cena.acessorios?.length ?? 0;
-      return { texto: n ? `${n} itens` : "", pronta: n > 0 };
+      const lista = cena.acessorios ?? [];
+      if (!lista.length) return { texto: "" };
+      const soltos = lista.filter((a) => !a.ancora && a.x_cm == null).length;
+      if (soltos) return { texto: `${soltos} sem lugar`, alerta: true };
+      return { texto: `${lista.length} itens`, pronta: true };
     }
   }
 }

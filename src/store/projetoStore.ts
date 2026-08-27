@@ -5,6 +5,7 @@ import { cenarioSugerido, normalizarExercicios } from "../lib/curadoria";
 import { gerarEstrutura, estruturaVazia } from "../lib/estrutura";
 import { bboxPoligono, retanguloParaPontos, transladar } from "../lib/geometria";
 import { salvarCena } from "../lib/supabase";
+import { mesclarSugestoes, organizarAcessorios } from "../lib/acessorios";
 
 // Garante o modelo de polígono da área e mantém o bbox (x/y/w/h) em dia.
 function normalizarArea(a: AreaAcabamento): AreaAcabamento {
@@ -155,8 +156,14 @@ interface ProjetoState {
   duplicarInfra: (id: string) => void;
 
   addAcessorio: (a: AcessorioProjeto) => void;
-  updateAcessorio: (id: string, patch: Partial<AcessorioProjeto>) => void;
+  updateAcessorio: (id: string, patch: Partial<AcessorioProjeto>, commit?: boolean) => void;
   removerAcessorio: (id: string) => void;
+  selAcessorioId: string | null;
+  selecionarAcessorio: (id: string | null) => void;
+  /** Completa a lista com o que o layout pede e ancora tudo no espaço. */
+  sugerirAcessoriosDoProjeto: () => number;
+  /** Só ancora o que já está na lista — não acrescenta item. */
+  organizarAcessoriosNoEspaco: () => void;
   addAnexo: (a: AnexoOrcamento) => void;
   removerAnexo: (id: string) => void;
 
@@ -259,6 +266,7 @@ const SEM_SELECAO = {
   selInfraId: null,
   selEstrutura: null,
   selAreaFuncId: null,
+  selAcessorioId: null,
 } as const;
 
 export const useProjeto = create<ProjetoState>((set, get) => ({
@@ -270,6 +278,7 @@ export const useProjeto = create<ProjetoState>((set, get) => ({
   selInfraId: null,
   selEstrutura: null,
   selAreaFuncId: null,
+  selAcessorioId: null,
   dirty: false,
   salvando: false,
   past: [],
@@ -330,15 +339,44 @@ export const useProjeto = create<ProjetoState>((set, get) => ({
     set((s) => ({ past: empilhar(s.past, s.cena), future: [], cena: { ...s.cena, cotas: (s.cena.cotas ?? []).filter((c) => c.id !== id) }, dirty: true }));
   },
 
-  // ── Etapa 5: acessórios (orçamento) ────────────────────────────────────────
+  // ── Etapa 5: acessórios (orçamento + lugar na planta) ──────────────────────
   addAcessorio(a) {
-    set((s) => ({ past: empilhar(s.past, s.cena), future: [], cena: { ...s.cena, acessorios: [...(s.cena.acessorios ?? []), a] }, dirty: true }));
+    set((s) => ({
+      past: empilhar(s.past, s.cena), future: [],
+      cena: { ...s.cena, acessorios: [...(s.cena.acessorios ?? []), a] },
+      ...SEM_SELECAO, selAcessorioId: a.id, dirty: true,
+    }));
   },
-  updateAcessorio(id, patch) {
-    set((s) => ({ past: empilhar(s.past, s.cena), future: [], cena: { ...s.cena, acessorios: (s.cena.acessorios ?? []).map((a) => (a.id === id ? { ...a, ...patch } : a)) }, dirty: true }));
+  updateAcessorio(id, patch, commit = true) {
+    set((s) => ({
+      past: commit ? empilhar(s.past, s.cena) : s.past, future: [],
+      cena: { ...s.cena, acessorios: (s.cena.acessorios ?? []).map((a) => (a.id === id ? { ...a, ...patch } : a)) },
+      dirty: true,
+    }));
   },
   removerAcessorio(id) {
-    set((s) => ({ past: empilhar(s.past, s.cena), future: [], cena: { ...s.cena, acessorios: (s.cena.acessorios ?? []).filter((a) => a.id !== id) }, dirty: true }));
+    set((s) => ({
+      past: empilhar(s.past, s.cena), future: [],
+      cena: { ...s.cena, acessorios: (s.cena.acessorios ?? []).filter((a) => a.id !== id) },
+      selAcessorioId: s.selAcessorioId === id ? null : s.selAcessorioId, dirty: true,
+    }));
+  },
+  selecionarAcessorio(id) {
+    set({ ...SEM_SELECAO, selAcessorioId: id });
+  },
+  sugerirAcessoriosDoProjeto() {
+    const { cena } = get();
+    const antes = new Set((cena.acessorios ?? []).map((a) => a.id));
+    const lista = mesclarSugestoes(cena.acessorios ?? [], cena, () => crypto.randomUUID());
+    set((s) => ({ past: empilhar(s.past, s.cena), future: [], cena: { ...s.cena, acessorios: lista }, dirty: true }));
+    return lista.filter((a) => !antes.has(a.id)).length;
+  },
+  organizarAcessoriosNoEspaco() {
+    set((s) => ({
+      past: empilhar(s.past, s.cena), future: [],
+      cena: { ...s.cena, acessorios: organizarAcessorios(s.cena.acessorios ?? [], s.cena) },
+      dirty: true,
+    }));
   },
 
   addAnexo(a) {

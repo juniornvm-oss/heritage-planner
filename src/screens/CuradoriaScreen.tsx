@@ -17,6 +17,7 @@ import { resumo } from "../lib/validation";
 import { BRL } from "../lib/units";
 import { useLibrary } from "../store/libraryStore";
 import { CENARIOS, taxaDe, taxaLabel, type Cenario, type Cotacao, type Fornecedor, type Orcamento, type Projeto } from "../lib/types";
+import { familiaDoNome, organizarAcessorios } from "../lib/acessorios";
 
 const Campo = ({ label, children }: { label: string; children: React.ReactNode }) => (
   <label style={{ display: "grid", gap: 5, minWidth: 0 }}>
@@ -242,9 +243,12 @@ export default function CuradoriaScreen() {
       const preco_un = c.preco_un ?? (c.valor != null ? c.valor / qtd : 0);
       const idx = atuais.findIndex((a) => a.nome.trim().toLowerCase() === c.equipamento!.trim().toLowerCase());
       if (idx >= 0) { atuais[idx] = { ...atuais[idx], qtd, preco_un }; atualizados++; }
-      else { atuais.push({ id: crypto.randomUUID(), nome: c.equipamento!, qtd, preco_un }); novos++; }
+      else {
+        atuais.push({ id: crypto.randomUUID(), nome: c.equipamento!, qtd, preco_un, familia: familiaDoNome(c.equipamento!) });
+        novos++;
+      }
     }
-    const cenaNova = { ...projeto.cena, acessorios: atuais };
+    const cenaNova = { ...projeto.cena, acessorios: organizarAcessorios(atuais, projeto.cena) };
     try {
       await salvarCena(id, cenaNova);
       setProjeto({ ...projeto, cena: cenaNova });

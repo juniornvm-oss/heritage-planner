@@ -12,7 +12,7 @@
 
 import type { Cenario, Equipamento, Zona } from "./types";
 import { cenarioSugerido } from "./curadoria";
-import { silhuetaDaPeca, silhuetasParaAtualizar } from "./contornosMaquinas";
+import { funcaoDaSilhueta, silhuetaDaPeca, silhuetaPorNome, silhuetasParaAtualizar } from "./contornosMaquinas";
 
 interface Spec {
   /** Nome funcional em português — tem de casar `baseDoNome`. */
@@ -216,7 +216,16 @@ export function maquinasFaltando(existentes: Equipamento[]): Equipamento[] {
 
 /** Cadastro que já tem a peça, mas ainda sem a silhueta de planta. */
 export function silhuetasFaltando(existentes: Equipamento[]): Equipamento[] {
-  return silhuetasParaAtualizar(existentes, BIBLIOTECA_MAQUINAS);
+  const daBib = silhuetasParaAtualizar(existentes, BIBLIOTECA_MAQUINAS);
+  const ja = new Set(daBib.map(chaveDaMaquina));
+  const extra: Equipamento[] = [];
+  for (const e of existentes) {
+    if (e.contorno && e.contorno.length > 0) continue;
+    if (ja.has(chaveDaMaquina(e))) continue;
+    if (!funcaoDaSilhueta(e.nome)) continue;
+    extra.push({ ...e, contorno: silhuetaPorNome(e.nome, e.categoria) });
+  }
+  return [...daBib, ...extra];
 }
 
 export function csvDaBiblioteca(): string {

@@ -1398,12 +1398,12 @@ function ItemView({ it, zoom, selected, problema, listening, camadas, lamina, nu
         <Rect x={-usoL} y={-usoF} width={it.w_cm + 2 * usoL} height={it.h_cm + 2 * usoF}
           cornerRadius={5} fill={CANVAS.aviso} opacity={0.08} stroke={CANVAS.aviso} strokeWidth={1 / zoom} dash={[8 / zoom, 6 / zoom]} listening={false} />
       )}
-      {/* corpo: SEM preenchimento (o piso aparece por baixo). Com desenho próprio,
-          o retângulo só aparece selecionado ou com problema; sem desenho, fica o contorno fino. */}
-      <Rect width={it.w_cm} height={it.h_cm} cornerRadius={4} fill="transparent"
-        stroke={cor} strokeWidth={(selected ? 5 : 2) / zoom}
-        opacity={temDesenho && !selected && !problema ? 0 : 1}
-        dash={problema ? [10 / zoom, 7 / zoom] : undefined} />
+      {/* caixa pontilhada do footprint (como no DWG de layout): sempre visível,
+          mesmo com silhueta — é ela que carrega a medida real em cm. */}
+      <Rect width={it.w_cm} height={it.h_cm} cornerRadius={0} fill="transparent"
+        stroke={problema ? cor : (selected ? cor : "#9A9A94")}
+        strokeWidth={(selected || problema ? 2.2 : 1.15) / zoom}
+        dash={[5 / zoom, 4 / zoom]} listening={false} />
       {/* área de toque (invisível) — sem ela o miolo transparente não seleciona */}
       <Rect width={it.w_cm} height={it.h_cm} fill="#000" opacity={0.001} />
       {/* numeração da ficha (Etapa 4) */}
@@ -1463,7 +1463,8 @@ function ItemView({ it, zoom, selected, problema, listening, camadas, lamina, nu
         scaleX={it.flipH ? -1 : 1} scaleY={it.flipV ? -1 : 1} listening={false}>
         {it.imagem && img && <KImage image={img} x={0} y={0} width={it.w_cm} height={it.h_cm} opacity={0.85} listening={false} />}
         {(it.contorno || []).map((pl, i) => (
-          <Line key={i} points={pl.map((v, j) => (j % 2 === 0 ? v * it.w_cm : v * it.h_cm))} stroke={cor} strokeWidth={2 / zoom} listening={false} />
+          <Line key={i} points={pl.map((v, j) => (j % 2 === 0 ? v * it.w_cm : v * it.h_cm))}
+            stroke={cor} strokeWidth={1.6 / zoom} lineJoin="round" lineCap="round" listening={false} />
         ))}
       </Group>
       {(() => {
@@ -1483,8 +1484,8 @@ function ItemView({ it, zoom, selected, problema, listening, camadas, lamina, nu
           <>
             {rotulos && !temDesenho && rotulo("nome", it.h_cm / 2 - (vert ? 0 : 4), vert ? it.h_cm : it.w_cm, it.nome, fsNome, "#F2F2F0", "600", vert ? -90 : 0)}
             {rotulos && temDesenho && rotulo("nomeD", it.h_cm - 10, it.w_cm, it.nome, 12, "#F2F2F0", "600", 0)}
-            {medidas && rotulo("medidas", it.h_cm / 2 + 16, it.w_cm, `${formatLength(it.w_cm)} × ${formatLength(it.h_cm)}`, 12,
-              lamina ? "#E9E9E6" : "#9A9AA0", lamina ? "700" : "400", 0, lamina || (!vert && !temDesenho))}
+            {medidas && rotulo("medidas", temDesenho ? 11 : it.h_cm / 2 + 16, it.w_cm, `${formatLength(it.w_cm)} × ${formatLength(it.h_cm)}`, temDesenho ? 11 : 12,
+              lamina ? "#E9E9E6" : "#C8C8C2", lamina ? "700" : "500", 0, true)}
           </>
         );
       })()}

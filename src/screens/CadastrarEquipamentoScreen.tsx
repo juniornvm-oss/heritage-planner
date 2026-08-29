@@ -209,7 +209,7 @@ export default function CadastrarEquipamentoScreen() {
         <div className="microlabel">Biblioteca · Equipamentos</div>
         <h1 className="brandface" style={{ fontSize: 30, color: "var(--gold)", marginTop: 6, marginBottom: 4 }}>{editando ? "Editar equipamento" : "Cadastrar equipamento"}</h1>
         <p style={{ color: "var(--muted)", fontSize: 13, marginBottom: 20, maxWidth: 620, lineHeight: 1.5 }}>
-          Suba um <b>DWG/PDF</b> (extraio o contorno) ou uma <b>imagem</b> (você informa as medidas e traça o contorno por cima). Depois é só posicionar e calibrar na planta.
+          Suba um <b>DWG, DXF ou PDF</b> em escala: extraio o contorno do equipamento (a leitura da silhueta, não o arquivo do fabricante). Sem arquivo, a biblioteca já traz a cópia de planta — console, banco, pilha e seta de entrada — para você ver frente, lateral e por onde se entra. Uma <b>imagem</b> também serve: informe as medidas em cm e trace por cima. Na planta, o topo é a frente e a base é a entrada.
         </p>
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 22, alignItems: "start" }}>
@@ -315,7 +315,9 @@ export default function CadastrarEquipamentoScreen() {
             <div>
               <input ref={fileRef} type="file" style={{ display: "none" }} onChange={(e) => onUpload(e.target.files?.[0])} />
               <button className="btn btn-blue" onClick={() => fileRef.current?.click()}>{busy || "⭱ Subir arquivo (DWG/PDF/imagem)"}</button>
-              <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 6 }}>Aceita DWG, DXF, PDF ou imagem (PNG/JPG).</div>
+              <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 6, lineHeight: 1.45 }}>
+                Aceita DWG, DXF, PDF ou imagem (PNG/JPG). O bloco CAD oficial (Life Fitness Gym Planner, Matrix, Technogym, etc.) fica na ficha desta peça — não redistribuímos o arquivo, só o contorno em cm.
+              </div>
             </div>
             {erro && <div style={{ color: "var(--red)", fontSize: 12.5 }}>{erro}</div>}
           </div>

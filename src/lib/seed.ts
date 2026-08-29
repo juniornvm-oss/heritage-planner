@@ -1,5 +1,6 @@
 import type { Equipamento, SalaConfig, ItemPosicionado, Zona, Acabamento } from "./types";
 import { cenarioSugerido } from "./curadoria";
+import { silhuetaPorNome } from "./contornosMaquinas";
 
 // Acabamentos de alto padrão (fallback local + semear na biblioteca).
 export const ACABAMENTOS_LOCAL: Acabamento[] = [
@@ -15,7 +16,7 @@ export const ACABAMENTOS_LOCAL: Acabamento[] = [
 ];
 
 // Catálogo local (fallback offline) — migrado do planner original.
-export const CATALOGO_LOCAL: Equipamento[] = [
+const PECAS_HERITAGE: Equipamento[] = [
   { nome: "Esteira", largura_cm: 90, profundidade_cm: 205, zona: "ergo", preco: 0 },
   { nome: "Escada", largura_cm: 86, profundidade_cm: 147, zona: "ergo", preco: 45000 },
   { nome: "Elíptico", largura_cm: 66, profundidade_cm: 165, zona: "ergo", preco: 15000 },
@@ -39,6 +40,11 @@ export const CATALOGO_LOCAL: Equipamento[] = [
   { nome: "Espaldar", largura_cm: 120, profundidade_cm: 20, zona: "prep", preco: 0 },
   { nome: "Colchonetes", largura_cm: 80, profundidade_cm: 35, zona: "prep", preco: 0 },
 ];
+
+export const CATALOGO_LOCAL: Equipamento[] = PECAS_HERITAGE.map((e) => ({
+  ...e,
+  contorno: silhuetaPorNome(e.nome),
+}));
 
 export const HERITAGE_CONFIG: SalaConfig = {
   pisos: [
@@ -80,6 +86,7 @@ export function heritageItens(): ItemPosicionado[] {
       // três cenários no Dossiê (antes tudo era "balanceado" e os três saíam iguais).
       cenario: cenarioSugerido(nome, c.zona as Zona),
       preco: c.preco,
+      contorno: c.contorno ?? null,
     };
   });
 }

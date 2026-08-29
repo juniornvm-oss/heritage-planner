@@ -117,6 +117,13 @@ export default function BibliotecaEquipamentosScreen() {
         {equipamentos.length} itens {status ? "· " + status : ""}
       </p>
 
+      <div style={{
+        background: "var(--panel-2)", border: "1px solid var(--line)", borderRadius: 10,
+        padding: "10px 14px", marginBottom: 16, fontSize: 12.5, color: "#b6b6b1", lineHeight: 1.55,
+      }}>
+        Na planta cada peça é a <b style={{ color: "#e9e9e6" }}>leitura do footprint em escala</b> (cm), no estilo de um DWG de layout: silhueta com console, banco, pilha e seta de entrada; caixa pontilhada; frente no topo e entrada na base. Os blocos CAD oficiais das marcas (Life Fitness Gym Planner, Matrix, Technogym, Nautilus, Hammer Strength) são proprietários — não entram no app. Se você tiver o arquivo, cole na ficha do equipamento (DWG/DXF/PDF) que extraímos só o contorno.
+      </div>
+
       {faltando.length > 0 && (
         <div style={{
           display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap",
@@ -126,7 +133,7 @@ export default function BibliotecaEquipamentosScreen() {
           <div style={{ flex: 1, minWidth: 240 }}>
             <div className="brandface" style={{ fontSize: 15, color: "var(--gold)", marginBottom: 4 }}>MAQUINÁRIO COMERCIAL</div>
             <div style={{ fontSize: 12.5, color: "#b6b6b1", lineHeight: 1.5 }}>
-              {faltando.length} peças de {MARCAS_MAQUINAS.join(", ")} ainda não estão neste cadastro — medidas de ocupação em planta a partir das fichas técnicas. Preço entra pela cotação do projeto. Cada peça traz a silhueta de planta (cópia do footprint, não o DWG do fabricante).
+              {faltando.length} peças de {MARCAS_MAQUINAS.join(", ")} ainda não estão neste cadastro — medidas de ocupação em planta a partir das fichas técnicas. Preço entra pela cotação do projeto. Cada peça traz a silhueta de planta (cópia do footprint em cm, não o DWG do fabricante). Frente no topo, entrada na base — para ver onde posicionar em relação a parede, espelho e circulação.
             </div>
           </div>
           <button className="btn btn-gold" disabled={ocupado} onClick={() => void carregarBiblioteca()}>
@@ -135,7 +142,7 @@ export default function BibliotecaEquipamentosScreen() {
         </div>
       )}
 
-      {faltando.length === 0 && semSilhueta.length > 0 && (
+      {semSilhueta.length > 0 && (
         <div style={{
           display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap",
           background: "var(--panel-2)", border: "1px solid var(--line)", borderRadius: 10,
@@ -144,7 +151,7 @@ export default function BibliotecaEquipamentosScreen() {
           <div style={{ flex: 1, minWidth: 240 }}>
             <div className="brandface" style={{ fontSize: 15, color: "var(--gold)", marginBottom: 4 }}>SILHUETAS DE PLANTA</div>
             <div style={{ fontSize: 12.5, color: "#b6b6b1", lineHeight: 1.5 }}>
-              {semSilhueta.length} peças já cadastradas ainda aparecem como retângulo. Aplica a cópia do footprint (vista de cima) — não substitui um desenho que você já colou na ficha.
+              {semSilhueta.length} peças já cadastradas ainda aparecem como retângulo. Aplica a cópia do footprint (vista de cima, com frente, lateral e entrada) — não substitui um desenho que você já colou na ficha.
             </div>
           </div>
           <button className="btn btn-gold" disabled={ocupado} onClick={() => void aplicarSilhuetas()}>
@@ -171,6 +178,7 @@ export default function BibliotecaEquipamentosScreen() {
           <Link key={(m.id || m.nome) + i} to={`/equipamentos/${encodeURIComponent(m.id || m.nome)}`}
             style={{ display: "grid", gap: 3, textDecoration: "none", color: "inherit",
             background: "var(--panel-2)", border: "1px solid var(--line)", borderRadius: 9, padding: "9px 12px" }}>
+            <MiniSilhueta eq={m} />
             <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <span style={{ width: 9, height: 9, borderRadius: 2, background: ZONAS[m.zona]?.cor || "#888", flexShrink: 0 }} />
               <span style={{ flex: 1, fontWeight: 600, fontSize: 13 }}>{m.nome}</span>
@@ -189,8 +197,31 @@ export default function BibliotecaEquipamentosScreen() {
         <div style={{ color: "var(--muted)", fontSize: 13, marginTop: 12 }}>Nenhum equipamento com esse filtro.</div>
       )}
       <p style={{ color: "#6e6e73", fontSize: 11.5, marginTop: 18, lineHeight: 1.5 }}>
-        {BIBLIOTECA_MAQUINAS.length} peças na biblioteca internacional (Nautilus Impact, Life Fitness Integrity/Optima, Hammer Strength Iso-Lateral, Matrix Ultra/Versa, Technogym Excite/Selection). O footprint vai para a planta em cm; não incluímos DWG/3D proprietários dos fabricantes — a silhueta é a cópia de uso. O CSV baixa essa lista para conferir ou reimportar.
+        {BIBLIOTECA_MAQUINAS.length} peças na biblioteca internacional (Nautilus Impact, Life Fitness Integrity/Optima, Hammer Strength Iso-Lateral, Matrix Ultra/Versa, Technogym Excite/Selection). O footprint vai para a planta em cm, no mesmo espírito de um layout DWG: silhueta com frente no topo, entrada na base, caixa pontilhada e medida. Não incluímos DWG/3D proprietários dos fabricantes — a cópia de planta já vem na peça; se você tiver o bloco CAD oficial, cole na ficha (DWG/DXF/PDF) que extraímos o contorno em escala. O CSV baixa essa lista para conferir ou reimportar.
       </p>
     </Shell>
+  );
+}
+
+function pts(pl: number[]): string {
+  const out: string[] = [];
+  for (let i = 0; i + 1 < pl.length; i += 2) out.push(`${pl[i]},${pl[i + 1]}`);
+  return out.join(" ");
+}
+
+function MiniSilhueta({ eq }: { eq: Equipamento }) {
+  const c = eq.contorno;
+  if (!c?.length) {
+    return (
+      <div style={{ height: 56, border: "1px dashed var(--line)", borderRadius: 6, background: "var(--panel)" }} />
+    );
+  }
+  return (
+    <svg viewBox="0 0 1 1" preserveAspectRatio="xMidYMid meet"
+      style={{ height: 56, width: "100%", background: "var(--panel)", border: "1px dashed var(--line)", borderRadius: 6 }}>
+      {c.map((pl, i) => (
+        <polyline key={i} points={pts(pl)} fill="none" stroke={ZONAS[eq.zona]?.cor || "#C9A227"} strokeWidth={0.018} strokeLinejoin="round" />
+      ))}
+    </svg>
   );
 }

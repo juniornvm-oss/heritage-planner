@@ -17,7 +17,7 @@ import { resumo } from "../lib/validation";
 import { BRL } from "../lib/units";
 import { useLibrary } from "../store/libraryStore";
 import { CENARIOS, taxaDe, taxaLabel, type Cenario, type Cotacao, type Fornecedor, type Orcamento, type Projeto } from "../lib/types";
-import { familiaDoNome, organizarAcessorios } from "../lib/acessorios";
+import { familiaDoNome, organizarAcessorios, reconciliarAcessorios } from "../lib/acessorios";
 
 const Campo = ({ label, children }: { label: string; children: React.ReactNode }) => (
   <label style={{ display: "grid", gap: 5, minWidth: 0 }}>
@@ -248,7 +248,7 @@ export default function CuradoriaScreen() {
         novos++;
       }
     }
-    const cenaNova = { ...projeto.cena, acessorios: organizarAcessorios(atuais, projeto.cena) };
+    const cenaNova = { ...projeto.cena, acessorios: organizarAcessorios(reconciliarAcessorios(atuais, projeto.cena), projeto.cena) };
     try {
       await salvarCena(id, cenaNova);
       setProjeto({ ...projeto, cena: cenaNova });

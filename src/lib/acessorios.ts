@@ -65,6 +65,11 @@ function contemChave(nome: string, chave: string): boolean {
   return false;
 }
 
+export { contemChave };
+
+/** O que um suporte / móvel de guarda armazena. */
+export type PapelGuarda = "anilhas" | "barras" | "halteres" | "colchonetes" | "puxadores";
+
 export function familiaDoNome(nome: string): FamiliaAcessorio {
   const n = normalizar(nome);
   if (contemChave(n, "suporte") || contemChave(n, "kit puxador")) return "guarda";
@@ -115,6 +120,15 @@ export interface SinaisAcessorio {
   itemRack: ItemPosicionado | null;
   itemPolia: ItemPosicionado | null;
   itemHalter: ItemPosicionado | null;
+  /** Pontas / ganchos já no layout (rack, smith, árvore, estante). */
+  slotsAnilha: number;
+  slotsBarra: number;
+  slotsHalterPar: number;
+  slotsColchonete: number;
+  slotsPuxador: number;
+  fontesGuarda: string[];
+  /** Acessórios reaproveitados do inventário (não comprar de novo). */
+  nomesInventario: string[];
 }
 
 const CHAVES_RACK = ["rack", "gaiola", "smith", "agachamento", "hack"];
@@ -123,6 +137,46 @@ const CHAVES_POLIA = ["puxada", "remada", "crossover", "cross over", "polia", "p
 const CHAVES_HALTER_EQ = ["estante", "dumbbell", "halter", "torre"];
 const CHAVES_FUNC_EQ = ["funcional", "kettlebell", "trx", "battle", "corda naval"];
 const CHAVES_ALONG_EQ = ["colchonete", "espaldar", "tatame"];
+const CHAVES_CARGA_PLACA = ["iso-lateral", "hammer", "leg press", "hack", "squat machine", "elevacao pelvica", "elevação pélvica"];
+
+/** Papel de guarda pelo nome — layout (estante/torre) ou acessório (suporte). */
+export function papelGuardaDoNome(nome: string): PapelGuarda | null {
+  const n = nome;
+  const temSuporte = contemChave(n, "suporte") || /c\/\s*suporte/i.test(n) || contemChave(n, "kit puxador");
+  if (contemChave(n, "anilha") && (temSuporte || contemChave(n, "arvore") || contemChave(n, "árvore") || contemChave(n, "estante"))) {
+    return "anilhas";
+  }
+  if (contemChave(n, "barra") && temSuporte) return "barras";
+  if ((contemChave(n, "dumbbell") || contemChave(n, "halter")) && (temSuporte || contemChave(n, "estante") || contemChave(n, "torre"))) {
+    return "halteres";
+  }
+  if (contemChave(n, "estante") || contemChave(n, "torre")) return "halteres";
+  if (contemChave(n, "colchonete") && (temSuporte || !contemChave(n, "emborrachado"))) return "colchonetes";
+  if (temSuporte && contemChave(n, "puxador")) return "puxadores";
+  return null;
+}
+
+function slotsDoItemLayout(it: ItemPosicionado): Partial<Record<PapelGuarda, number>> {
+  const papel = papelGuardaDoNome(it.nome);
+  const out: Partial<Record<PapelGuarda, number>> = {};
+  if (papel === "halteres") {
+    const comprido = Math.max(it.w_cm, it.h_cm) >= 180;
+    out.halteres = contemChave(it.nome, "torre") && !comprido ? 10 : comprido ? 20 : 10;
+  }
+  if (papel === "anilhas") out.anilhas = 8;
+  if (papel === "barras") out.barras = 9;
+  if (papel === "colchonetes") out.colchonetes = 10;
+  if (papel === "puxadores") out.puxadores = 8;
+  const base = baseDoNome(it.nome)?.nome ?? it.nome;
+  const eRack = CHAVES_RACK.some((c) => contemChave(it.nome, c) || contemChave(base, c));
+  if (eRack) {
+    out.anilhas = (out.anilhas ?? 0) + 8;
+    out.barras = (out.barras ?? 0) + 2;
+  } else if (CHAVES_CARGA_PLACA.some((c) => contemChave(it.nome, c) || contemChave(base, c))) {
+    out.anilhas = (out.anilhas ?? 0) + 4;
+  }
+  return out;
+}
 
 function contaItens(itens: ItemPosicionado[], chaves: string[]): { n: number; primeiro: ItemPosicionado | null } {
   let n = 0;
@@ -154,6 +208,23 @@ export function sinaisDoProjeto(cena: Cena): SinaisAcessorio {
   const func = contaItens(itens, CHAVES_FUNC_EQ);
   const along = contaItens(itens, CHAVES_ALONG_EQ);
   const paredes = cena.elementosParede ?? [];
+  let slotsAnilha = 0, slotsBarra = 0, slotsHalterPar = 0, slotsColchonete = 0, slotsPuxador = 0;
+  const fontesGuarda: string[] = [];
+  for (const it of itens) {
+    const sl = slotsDoItemLayout(it);
+    if (sl.anilhas) { slotsAnilha += sl.anilhas; fontesGuarda.push(it.nome); }
+    if (sl.barras) { slotsBarra += sl.barras; if (!fontesGuarda.includes(it.nome)) fontesGuarda.push(it.nome); }
+    if (sl.halteres) { slotsHalterPar += sl.halteres; if (!fontesGuarda.includes(it.nome)) fontesGuarda.push(it.nome); }
+    if (sl.colchonetes) { slotsColchonete += sl.colchonetes; if (!fontesGuarda.includes(it.nome)) fontesGuarda.push(it.nome); }
+    if (sl.puxadores) { slotsPuxador += sl.puxadores; if (!fontesGuarda.includes(it.nome)) fontesGuarda.push(it.nome); }
+  }
+  if (paredes.some((e) => e.tipo === "colchonetes")) {
+    slotsColchonete += 10;
+    fontesGuarda.push("suporte de colchonetes na parede");
+  }
+  const nomesInventario = (cena.inventario ?? [])
+    .filter((i) => i.destino === "reaproveitado")
+    .map((i) => i.nome);
   return {
     nRack: rack.n,
     nBancoLivre: banco.n,
@@ -165,10 +236,17 @@ export function sinaisDoProjeto(cena: Cena): SinaisAcessorio {
     areaFuncional: areaDoTipo(cena.areas, ["funcional"]),
     areaAlongamento: areaDoTipo(cena.areas, ["alongamento"]),
     jaTemEspaldarParede: paredes.some((e) => e.tipo === "espaldar"),
-    jaTemSuporteColchoneteParede: paredes.some((e) => e.tipo === "colchonetes"),
+    jaTemSuporteColchoneteParede: paredes.some((e) => e.tipo === "colchonetes") || slotsColchonete > 0,
     itemRack: rack.primeiro,
     itemPolia: polia.primeiro,
     itemHalter: halter.primeiro,
+    slotsAnilha,
+    slotsBarra,
+    slotsHalterPar,
+    slotsColchonete,
+    slotsPuxador,
+    fontesGuarda,
+    nomesInventario,
   };
 }
 
@@ -390,6 +468,14 @@ function cat(nomeParte: string): (typeof ACESSORIOS_CATALOGO)[number] | undefine
   return ACESSORIOS_CATALOGO.find((c) => normalizar(c.nome).includes(n));
 }
 
+function jaTemNoInventario(s: SinaisAcessorio, nome: string): boolean {
+  const n = normalizar(nome);
+  return s.nomesInventario.some((x) => {
+    const nx = normalizar(x);
+    return nx === n || nx.includes(n) || n.includes(nx);
+  });
+}
+
 function pushCat(out: SugestaoAcessorio[], parte: string, qtd: number, motivo: string) {
   const c = cat(parte);
   if (!c) return;
@@ -405,7 +491,8 @@ function pushCat(out: SugestaoAcessorio[], parte: string, qtd: number, motivo: s
 
 /**
  * O que ESTE projeto pede. Não é o catálogo Heritage: é a interseção do
- * catálogo com o que já está no layout e nas regiões.
+ * catálogo com o que já está no layout e nas regiões — sem duplicar a guarda
+ * que a planta já tem (estante, torre, chifres do rack, suporte de colchonete).
  */
 export function sugerirAcessorios(cena: Cena): SugestaoAcessorio[] {
   const s = sinaisDoProjeto(cena);
@@ -424,25 +511,31 @@ export function sugerirAcessorios(cena: Cena): SugestaoAcessorio[] {
     pushCat(out, "anilha olímpica bv 2,5", 4, motivo);
     if (s.nRack > 0) {
       pushCat(out, "barra olímpica cromada 2,20", Math.max(2, s.nRack), motivo);
-      pushCat(out, "suporte para 9 barras", 1, "guarda das barras do rack");
     }
     if (s.nBancoLivre > 0) pushCat(out, "barra olímpica cromada 1,20", 1, "barra curta do banco de supino");
     pushCat(out, "barra olímpica cromada tipo w", 1, motivo);
-    pushCat(out, "suporte para anilhas 8 pontas", 1, "anilhas fora do chão");
+    if (s.slotsAnilha < 8) {
+      pushCat(out, "suporte para anilhas 8 pontas", 1, "anilhas fora do chão");
+    }
+    if (s.slotsBarra < 2) {
+      pushCat(out, "suporte para 9 barras", 1, "guarda das barras");
+    }
   }
 
   if (s.nHalter > 0 || s.areaPesoLivre) {
     const motivo = s.nHalter
-      ? "já há estante/halteres no layout — falta o jogo"
+      ? "já há estante/torre no layout — falta o jogo"
       : "região de peso livre sem jogo de halteres orçado";
     pushCat(out, "dumbbell emborrachado", 1, motivo);
-    if (s.nHalter === 0) pushCat(out, "suporte de dumbbell 10 pares", 1, "guarda dos halteres");
-    pushCat(out, "conjunto halteres sextavados", 1, motivo);
+    if (s.slotsHalterPar < 10) {
+      pushCat(out, "suporte de dumbbell 10 pares", 1, "guarda dos halteres");
+      pushCat(out, "conjunto halteres sextavados", 1, motivo);
+    }
   }
 
   if (s.nPolia > 0) {
     const motivo = `${s.nPolia} ${s.nPolia === 1 ? "estação" : "estações"} de polia no layout`;
-    pushCat(out, "kit puxador ultra", 1, motivo);
+    if (s.slotsPuxador < 8) pushCat(out, "kit puxador ultra", 1, motivo);
     if (s.nPolia >= 2) {
       pushCat(out, "puxador corda", s.nPolia, motivo);
       pushCat(out, "puxador reto", s.nPolia, motivo);
@@ -466,7 +559,7 @@ export function sugerirAcessorios(cena: Cena): SugestaoAcessorio[] {
       ? `região de alongamento · ${m2.toFixed(1)} m²`
       : "colchonete/espaldar já no layout";
     pushCat(out, "colchonete emborrachado", qtd, motivo);
-    if (!s.jaTemSuporteColchoneteParede && qtd >= 6) {
+    if (!s.jaTemSuporteColchoneteParede && s.slotsColchonete < 6 && qtd >= 6) {
       pushCat(out, "suporte para 10 colchonetes", 1, "colchonetes no chão viram obstáculo");
     }
     if (!s.jaTemEspaldarParede && !s.nAlong) {
@@ -474,7 +567,57 @@ export function sugerirAcessorios(cena: Cena): SugestaoAcessorio[] {
     }
   }
 
-  return out;
+  return out.filter((x) => !jaTemNoInventario(s, x.nome));
+}
+
+export function custoAcessorio(a: AcessorioProjeto): number {
+  if (a.incluso) return 0;
+  return a.qtd * a.preco_un;
+}
+
+/**
+ * Marca como `incluso` a guarda que o layout (ou o inventário) já cobre —
+ * anilhas no chifre do rack, halteres na estante/torre, colchonetes no suporte
+ * da planta — para o orçamento não pagar duas vezes o mesmo lugar.
+ */
+export function reconciliarAcessorios(lista: AcessorioProjeto[], cena: Cena): AcessorioProjeto[] {
+  const s = sinaisDoProjeto(cena);
+  const vistos = new Set<PapelGuarda>();
+  return lista.map((a) => {
+    const chave = normalizar(a.nome);
+    if (jaTemNoInventario(s, a.nome)) {
+      const inv = (cena.inventario ?? []).find((i) => i.destino === "reaproveitado" && (
+        normalizar(i.nome) === chave || chave.includes(normalizar(i.nome)) || normalizar(i.nome).includes(chave)
+      ));
+      return {
+        ...a,
+        incluso: true,
+        origemInventarioId: inv?.id ?? a.origemInventarioId,
+        obs: a.obs || `reaproveitado do inventário${inv ? ` (${inv.nome})` : ""}`,
+      };
+    }
+    const papel = papelGuardaDoNome(a.nome);
+    if (!papel) return { ...a, incluso: false };
+    // Conjunto de carga + suporte: o jogo ainda se compra; só o móvel duplica.
+    if (contemChave(a.nome, "conjunto")) return { ...a, incluso: false };
+    if (vistos.has(papel)) {
+      return { ...a, incluso: true, obs: a.obs || "duplicata na lista — a guarda já foi lançada" };
+    }
+    vistos.add(papel);
+    const noLayout = papel === "anilhas" ? s.slotsAnilha >= 8
+      : papel === "barras" ? s.slotsBarra >= 2
+      : papel === "halteres" ? s.slotsHalterPar >= 10
+      : papel === "colchonetes" ? s.slotsColchonete >= 6
+      : papel === "puxadores" ? s.slotsPuxador >= 8
+      : false;
+    if (!noLayout) return { ...a, incluso: false };
+    const fonte = s.fontesGuarda[0];
+    return {
+      ...a,
+      incluso: true,
+      obs: a.obs || (fonte ? `incluso no layout (${fonte})` : "incluso no layout"),
+    };
+  });
 }
 
 /** Junta a lista atual com as sugestões, sem duplicar nome, e ancora no espaço. */
@@ -493,7 +636,7 @@ export function mesclarSugestoes(atuais: AcessorioProjeto[], cena: Cena, novoId:
       obs: s.motivo,
     });
   }
-  return organizarAcessorios([...atuais, ...extra], cena);
+  return organizarAcessorios(reconciliarAcessorios([...atuais, ...extra], cena), cena);
 }
 
 export function acessorioDoCatalogo(nome: string, novoId: () => string): AcessorioProjeto {

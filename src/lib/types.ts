@@ -482,6 +482,15 @@ export interface ItemInventario {
   observacao?: string | null;
   /** Valor de mercado estimado (referência para o condomínio). */
   valor_estimado?: number | null;
+  /** Equipamento de treino vs acessório/guarda (anilhas, colchonetes…). */
+  tipo?: "equipamento" | "acessorio";
+  /**
+   * Sugestão da sincronização com o layout — o consultor confirma no destino.
+   * reaproveitar = fica no projeto; vender = residual para o condomínio liquidar.
+   */
+  sugestao?: "reaproveitar" | "vender" | null;
+  /** Id do item na planta quando o reaproveitamento já está posicionado. */
+  layoutItemId?: string | null;
 }
 
 /**
@@ -512,6 +521,7 @@ export interface OpcoesDossie {
   mobiliario?: boolean;    // espelhos, parede & mobiliário
   memorial?: boolean;      // memorial dos equipamentos
   cobertura?: boolean;     // cobertura muscular & padrões de movimento
+  futuro?: boolean;        // o que comprar depois, para completar a academia
   validacao?: boolean;     // validação técnica do layout
 }
 
@@ -520,7 +530,7 @@ export const OPCOES_DOSSIE_PADRAO: Required<OpcoesDossie> = {
   acabamentos: true, capacidade: true, cenarios: true, matriz: true, inventario: true,
   acessorios: true, marcas: true, exercicios: true,
   planta: true, esquadrias: true, parecer: true, diagnostico: true, infraestrutura: true, financeiro: true,
-  categorias: true, mobiliario: true, memorial: true, cobertura: true, validacao: true,
+  categorias: true, mobiliario: true, memorial: true, cobertura: true, futuro: true, validacao: true,
 };
 
 /** Chave de uma seção do Dossiê. */
@@ -539,6 +549,7 @@ export const ROTULO_SECAO_DOSSIE: Record<SecaoDossie, string> = {
   marcas: "Marcas do projeto",
   memorial: "Memorial dos equipamentos",
   cobertura: "Cobertura muscular & movimento",
+  futuro: "Sugestões futuras",
   exercicios: "Exercícios contemplados",
   inventario: "Inventário (reaproveitado/residual)",
   acabamentos: "Revestimentos & acabamentos",
@@ -555,7 +566,7 @@ export const ROTULO_SECAO_DOSSIE: Record<SecaoDossie, string> = {
  */
 export const ORDEM_DOSSIE_PADRAO: SecaoDossie[] = [
   "planta", "esquadrias", "parecer", "diagnostico", "infraestrutura", "financeiro", "cenarios",
-  "categorias", "acessorios", "marcas", "memorial", "cobertura", "exercicios",
+  "categorias", "acessorios", "marcas", "memorial", "cobertura", "futuro", "exercicios",
   "inventario", "acabamentos", "mobiliario", "capacidade", "matriz", "validacao",
 ];
 
@@ -573,6 +584,7 @@ export const SECAO_EXIGE_DADO: Partial<Record<SecaoDossie, string>> = {
   mobiliario: "espelhos, itens de parede ou mobiliário",
   exercicios: "equipamentos com lista de exercícios",
   cobertura: "equipamentos reconhecidos pela base técnica",
+  futuro: "lacunas de treino depois do que a sala já faz",
 };
 
 /**
@@ -839,6 +851,13 @@ export interface AcessorioProjeto {
   w_cm?: number | null;
   h_cm?: number | null;
   rotacao?: number;
+  /**
+   * Guarda já existe no layout (estante, torre, chifres do rack) ou no
+   * inventário reaproveitado — some do investimento sem sair da lista.
+   */
+  incluso?: boolean;
+  /** Item do inventário do condomínio que este acessório reaproveita. */
+  origemInventarioId?: string | null;
 }
 
 export interface ItemCatalogoAcessorio {

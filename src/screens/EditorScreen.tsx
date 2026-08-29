@@ -31,13 +31,14 @@ import { BRL, formatLength, parseLength } from "../lib/units";
 import { ZONAS, CENARIOS, DESTINOS_INVENTARIO, OPCOES_DOSSIE_PADRAO, ROTULO_SECAO_DOSSIE, ORDEM_DOSSIE_PADRAO, SECAO_EXIGE_DADO, CIRCULACAO_PADRAO, TIPOS_AREA, taxaDe, MATERIAIS_PISO, ELEMENTOS_PAREDE, MOBILIARIO_CATALOGO, ACESSORIOS_CATALOGO, LADOS_PADRAO, type AcessorioProjeto, type LadoRect, type AreaFuncional, type TipoArea, type DestinoInventario, type ItemInventario, type OpcoesDossie, type SecaoDossie, type CamadasLamina, type LaminaDossie, type Cena, type MaterialPiso, type TipoElementoParede, type Zona, type Cenario, type ItemPosicionado, type Equipamento, type AreaAcabamento, type ElementoParede, type ItemInfraestrutura, type Projeto, type FamiliaAcessorio } from "../lib/types";
 import { areaPoligonoM2, perimetroCm, bboxPoligono, ehRetangulo, retanguloParaPontos, transladar, m2 } from "../lib/geometria";
 import { CAMPOS_ESPEC, CENARIO_DEF, ESPEC_ZONA, analisarCobertura, cenarioSugerido, composicaoZonas, detalheCenarios, explicarItem, normalizarExercicios } from "../lib/curadoria";
+import { sugerirFuturo, exerciciosDaCena } from "../lib/sugestoesFuturas";
 import { MUSCULOS, PADROES, REGIOES, type RegiaoCorpo } from "../lib/musculatura";
 import { marcasDaCena, presencaDaMarca, refDaMarca } from "../lib/marcas";
 import { analisarEspaco } from "../lib/analiseEspaco";
 import { gerarPromptVista } from "../lib/promptVista";
 import {
   FAMILIAS_ACESSORIO, acessorioDoCatalogo, agruparPorLugar, ancoraNoPonto, catalogoRelevante,
-  familiaDoNome, familiaServida, rotuloDaAncora,
+  custoAcessorio, familiaDoNome, familiaServida, rotuloDaAncora,
 } from "../lib/acessorios";
 import { uploadOrcamento, urlOrcamento, removerOrcamentoArquivo, listarCotacoes, online } from "../lib/supabase";
 
@@ -53,7 +54,7 @@ export default function EditorScreen() {
   const { removerElemParede, removerInfra, addInfra } = useProjeto();
   const { duplicarItem, espelharItem } = useProjeto();
   const { selAreaFuncId, selecionarAreaFunc, addAreaFuncional, updateAreaFuncional, removerAreaFuncional } = useProjeto();
-  const { addAcessorio, updateAcessorio, removerAcessorio, selecionarAcessorio, sugerirAcessoriosDoProjeto, organizarAcessoriosNoEspaco, selAcessorioId } = useProjeto();
+  const { addAcessorio, updateAcessorio, removerAcessorio, selecionarAcessorio, sugerirAcessoriosDoProjeto, sincronizarAcessoriosDoProjeto, organizarAcessoriosNoEspaco, selAcessorioId } = useProjeto();
   const equipamentos = useLibrary((s) => s.equipamentos);
   const acabamentos = useLibrary((s) => s.acabamentos);
   const marcasBiblioteca = useLibrary((s) => s.marcas);
@@ -333,6 +334,14 @@ export default function EditorScreen() {
       if (!(cena.acessorios?.length)) { setAviso("A lista está vazia — use Sugerir ou o catálogo à esquerda."); return; }
       organizarAcessoriosNoEspaco();
       setAviso("Acessórios ancorados nos aparelhos e nas regiões deste projeto.");
+      return;
+    }
+    if (id === "sincronizarAcessorios") {
+      if (!(cena.acessorios?.length)) { setAviso("A lista está vazia — use Sugerir primeiro, depois sincronize com a planta."); return; }
+      const n = sincronizarAcessoriosDoProjeto();
+      setAviso(n
+        ? `${n} item(ns) marcados como incluso — guarda já coberta pela planta ou pelo inventário.`
+        : "Nada duplicado: orçamento e planta já batem.");
       return;
     }
     // Tocar de novo na ferramenta ativa devolve o ponteiro — o mesmo idioma
@@ -2015,10 +2024,9 @@ function CuradoriaPanel({ onEmitir }: { onEmitir: () => void }) {
         <div style={{ color: "var(--muted)", fontSize: 12.5, marginTop: 16 }}>Nenhum equipamento posicionado — adicione na etapa Layout.</div>
       )}
 
-      <CoberturaPanel />
+      <CoberturaInventarioFuturo />
       <MarcasPanel />
       <ParecerPanel />
-      <InventarioPanel />
       <LaminasPanel onEditar={setLaminaEditando} />
       <SecoesDossiePanel />
       {projeto && <EmisaoDossiePanel projeto={projeto} cena={cena} onEmitir={onEmitir} compacto />}
@@ -2093,6 +2101,31 @@ function EmisaoDossiePanel({
   );
 }
 
+function CoberturaInventarioFuturo() {
+  const [aba, setAba] = useState<"cobertura" | "inventario" | "futuro">("cobertura");
+  const abas: { id: typeof aba; label: string }[] = [
+    { id: "cobertura", label: "Cobertura" },
+    { id: "inventario", label: "Inventário" },
+    { id: "futuro", label: "Sugestões futuras" },
+  ];
+  return (
+    <div style={{ marginTop: 12 }}>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+        {abas.map((a) => (
+          <button key={a.id} className="btn" onClick={() => setAba(a.id)}
+            style={{
+              borderColor: aba === a.id ? "var(--gold)" : "var(--line-2)",
+              color: aba === a.id ? "var(--gold)" : "var(--muted)",
+            }}>{a.label}</button>
+        ))}
+      </div>
+      {aba === "cobertura" && <CoberturaPanel />}
+      {aba === "inventario" && <InventarioPanel />}
+      {aba === "futuro" && <FuturoPanel />}
+    </div>
+  );
+}
+
 /**
  * COBERTURA MUSCULAR & MOVIMENTO.
  *
@@ -2119,7 +2152,7 @@ function CoberturaPanel() {
   }
 
   return (
-    <section className="card" style={{ padding: 14, marginTop: 12, display: "grid", gap: 12 }}>
+    <section className="card" style={{ padding: 14, display: "grid", gap: 12 }}>
       <div style={{ display: "flex", alignItems: "flex-end", gap: 12, flexWrap: "wrap" }}>
         <div style={{ flex: 1, minWidth: 260 }}>
           <span className="brandface" style={{ fontSize: 16, color: "var(--gold)" }}>COBERTURA MUSCULAR & MOVIMENTO</span>
@@ -2500,35 +2533,91 @@ function ParecerPanel() {
 
 // Inventário do condomínio: o que já existe, separado entre o que fica
 // (reaproveitado) e o que sai (residual). Sai numa seção própria do Dossiê.
+function FuturoPanel() {
+  const cena = useProjeto((s) => s.cena);
+  const catalogo = useLibrary((s) => s.equipamentos);
+  const futuro = useMemo(() => sugerirFuturo(cena, catalogo), [cena, catalogo]);
+  const exercicios = useMemo(() => exerciciosDaCena(cena, catalogo), [cena, catalogo]);
+  const cob = useMemo(() => analisarCobertura(cena, catalogo), [cena, catalogo]);
+
+  return (
+    <section className="card" style={{ padding: 14, display: "grid", gap: 12 }}>
+      <div>
+        <span className="brandface" style={{ fontSize: 16, color: "var(--gold)" }}>SUGESTÕES FUTURAS</span>
+        <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 2, lineHeight: 1.5 }}>
+          Com o que está na planta, esta academia já executa {exercicios.length} exercício(s) reconhecido(s)
+          e cobre {cob.resumo.cobertos} grupos. O que falta para ficar completa entra aqui — não no investimento desta fase.
+        </div>
+      </div>
+      {futuro.length === 0 ? (
+        <div style={{ fontSize: 12, color: "var(--muted)" }}>
+          O mix atual já fecha o que a base técnica consegue sugerir. Quando crescer a sala, volte nesta aba.
+        </div>
+      ) : (
+        <div style={{ display: "grid", gap: 7 }}>
+          {futuro.map((s) => (
+            <div key={s.tipo + s.nome} style={{ background: "var(--panel-2)", border: "1px solid var(--line)", borderRadius: 8, padding: "9px 12px" }}>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "baseline" }}>
+                <span style={{ fontWeight: 700, fontSize: 13 }}>{s.nome}</span>
+                <span className="chip" style={{ fontSize: 10, padding: "1px 8px" }}>{s.tipo === "acessorio" ? "acessório" : "equipamento"}</span>
+                {s.cenario && (
+                  <span className="chip" style={{ fontSize: 10, padding: "1px 8px", borderColor: CENARIOS[s.cenario].cor, color: CENARIOS[s.cenario].cor }}>
+                    {CENARIOS[s.cenario].label}
+                  </span>
+                )}
+              </div>
+              <div style={{ fontSize: 11.5, color: "var(--muted)", lineHeight: 1.45, marginTop: 4 }}>{s.motivo}</div>
+              {s.exercicios.length > 0 && (
+                <div style={{ fontSize: 11, color: "#b6b6b1", marginTop: 4 }}>Passa a permitir: {s.exercicios.join(", ")}</div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+// Inventário do condomínio: o que já existe, separado entre o que fica
+// (reaproveitado) e o que sai (residual). Sai numa seção própria do Dossiê.
 function InventarioPanel() {
   const inventario = useProjeto((s) => s.cena.inventario ?? []);
   const addInventario = useProjeto((s) => s.addInventario);
   const updateInventario = useProjeto((s) => s.updateInventario);
   const removerInventario = useProjeto((s) => s.removerInventario);
+  const sugerirInventarioDoProjeto = useProjeto((s) => s.sugerirInventarioDoProjeto);
   const porDestino = (d: DestinoInventario) => inventario.filter((i) => i.destino === d);
   const pecas = (xs: ItemInventario[]) => xs.reduce((t, i) => t + (i.qtd || 1), 0);
 
   return (
-    <section className="card" style={{ padding: 14, marginTop: 16, display: "grid", gap: 10 }}>
+    <section className="card" style={{ padding: 14, display: "grid", gap: 10 }}>
       <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
         <span className="brandface" style={{ fontSize: 16, color: "var(--gold)" }}>INVENTÁRIO DO CONDOMÍNIO</span>
         <span style={{ fontSize: 11.5, color: "var(--muted)", flex: 1, minWidth: 240, lineHeight: 1.5 }}>
-          O que já existe na sala. <b style={{ color: "var(--green)" }}>Reaproveitado</b> fica no projeto e não entra no
-          investimento; <b style={{ color: "#b6b6b1" }}>residual</b> sai. Vira uma seção do Dossiê.
+          O que já existe na sala, sincronizado com a planta. <b style={{ color: "var(--green)" }}>Reaproveitar</b> fica
+          no projeto (Heritage: esteiras, bancos, estante); <b style={{ color: "#b6b6b1" }}>vender</b> é o residual que não entra no layout novo.
         </span>
+        <button className="btn" style={{ padding: "5px 11px", fontSize: 11 }}
+          onClick={() => {
+            const n = sugerirInventarioDoProjeto();
+            // n = só os novos; a sincronização também atualiza sugestão nos já lançados
+            void n;
+          }}>
+          ⇄ Sincronizar com o layout
+        </button>
         <button className="btn btn-gold" style={{ padding: "5px 11px", fontSize: 11 }}
-          onClick={() => addInventario({ id: crypto.randomUUID(), nome: "Equipamento existente", qtd: 1, destino: "reaproveitado" })}>
+          onClick={() => addInventario({ id: crypto.randomUUID(), nome: "Equipamento existente", qtd: 1, destino: "reaproveitado", tipo: "equipamento" })}>
           ＋ Item
         </button>
       </div>
 
       {inventario.length === 0 ? (
         <div style={{ fontSize: 12, color: "var(--muted)" }}>
-          Nada levantado ainda. Some o que o condomínio já tem — inclusive o que vai ser descartado: o síndico precisa ver essa conta.
+          Nada levantado ainda. Use sincronizar para puxar o que está na planta com preço zero (reaproveitado), ou some à mão o que o condomínio já tem — inclusive o que vai ser vendido.
         </div>
       ) : (
         <>
-          <div style={{ display: "flex", gap: 14, fontSize: 11.5 }}>
+          <div style={{ display: "flex", gap: 14, fontSize: 11.5, flexWrap: "wrap" }}>
             {(Object.keys(DESTINOS_INVENTARIO) as DestinoInventario[]).map((d) => (
               <span key={d} style={{ color: DESTINOS_INVENTARIO[d].cor }}>
                 {DESTINOS_INVENTARIO[d].label}: <b>{pecas(porDestino(d))}</b> peça(s)
@@ -2548,17 +2637,23 @@ function InventarioPanel() {
                 <input className="fld" style={{ flex: 1, minWidth: 170, padding: "5px 8px", fontSize: 12 }}
                   value={i.nome} placeholder="Nome do equipamento"
                   onChange={(e) => updateInventario(i.id, { nome: e.target.value })} />
+                <select className="fld" style={{ width: 118, padding: "5px 8px", fontSize: 11.5 }}
+                  value={i.tipo ?? "equipamento"}
+                  onChange={(e) => updateInventario(i.id, { tipo: e.target.value as "equipamento" | "acessorio" })}>
+                  <option value="equipamento">equipamento</option>
+                  <option value="acessorio">acessório</option>
+                </select>
+                {i.sugestao && (
+                  <span style={{ fontSize: 10.5, color: i.sugestao === "reaproveitar" ? "var(--green)" : "var(--warn)" }}>
+                    sugerido: {i.sugestao === "reaproveitar" ? "reaproveitar no layout" : "vender"}
+                  </span>
+                )}
                 <input className="fld" style={{ width: 130, padding: "5px 8px", fontSize: 11.5 }}
                   value={i.estado ?? ""} placeholder="Estado"
                   onChange={(e) => updateInventario(i.id, { estado: e.target.value || null })} />
                 <input className="fld" style={{ flex: 1, minWidth: 190, padding: "5px 8px", fontSize: 11.5 }}
-                  value={i.observacao ?? ""} placeholder="Por que fica / por que sai"
+                  value={i.observacao ?? ""} placeholder="Por que fica / por que sai / uso no projeto"
                   onChange={(e) => updateInventario(i.id, { observacao: e.target.value || null })} />
-                {/* Valor de mercado: o Dossiê já imprimia a caixa "VALOR DE
-                    MERCADO DO QUE FOI REAPROVEITADO", mas nenhuma tela
-                    escrevia o campo — a soma era sempre zero e a caixa nunca
-                    aparecia. É o argumento comercial mais forte do inventário:
-                    o que o condomínio deixa de gastar por reaproveitar. */}
                 <input className="fld" style={{ width: 118, padding: "5px 8px", fontSize: 11.5, textAlign: "right" }}
                   value={i.valor_estimado != null ? String(i.valor_estimado) : ""}
                   placeholder="R$ mercado" inputMode="numeric"
@@ -2569,12 +2664,12 @@ function InventarioPanel() {
                   }} />
                 <div style={{ display: "flex", gap: 4 }}>
                   {(Object.keys(DESTINOS_INVENTARIO) as DestinoInventario[]).map((d) => (
-                    <button key={d} className="btn" onClick={() => updateInventario(i.id, { destino: d })}
+                    <button key={d} className="btn" onClick={() => updateInventario(i.id, { destino: d, sugestao: d === "reaproveitado" ? "reaproveitar" : "vender" })}
                       style={{
                         padding: "5px 9px", fontSize: 10.5, whiteSpace: "nowrap",
                         borderColor: i.destino === d ? DESTINOS_INVENTARIO[d].cor : "var(--line-2)",
                         color: i.destino === d ? DESTINOS_INVENTARIO[d].cor : "var(--muted)",
-                      }}>{DESTINOS_INVENTARIO[d].label}</button>
+                      }}>{d === "reaproveitado" ? "Reaproveitar" : "Vender"}</button>
                   ))}
                 </div>
                 <button className="btn" style={{ padding: "4px 8px", fontSize: 11 }} onClick={() => removerInventario(i.id)}>✕</button>
@@ -2744,6 +2839,7 @@ const INTRO_PADRAO: Partial<Record<SecaoDossie, string>> = {
   memorial: "Um verbete por equipamento, agrupado por categoria: o que é, o que trabalha, por que está neste projeto e o que exige atenção.",
   exercicios: "Exercícios de musculação executáveis nos equipamentos deste projeto. A lista cobre as máquinas de trajetória definida; bancos, racks e estações de cabo ampliam o repertório com dezenas de variações com pesos livres.",
   inventario: "Levantamento do que o condomínio já tem. O reaproveitado permanece no projeto e não entra no investimento; o residual sai da sala.",
+  futuro: "O que comprar numa segunda fase para completar a academia — depois do que o layout atual já treina.",
   matriz: "Impacto funcional · valor percebido · necessidade (1–5). Maior soma = maior prioridade — o que preservar se o orçamento apertar.",
 };
 
@@ -2763,6 +2859,7 @@ function conteudoDaSecao(cena: Cena): (id: SecaoDossie) => boolean {
       case "memorial":
       case "exercicios":
       case "cobertura":
+      case "futuro":
       case "categorias": return itens.length > 0;
       // Planta depende da captura feita no momento da exportação; diagnóstico,
       // infraestrutura, financeiro, capacidade, matriz e validação sempre saem.
@@ -2778,14 +2875,14 @@ function AcessoriosInspector({ sel }: { sel: AcessorioProjeto | null }) {
   const updateAcessorio = useProjeto((s) => s.updateAcessorio);
   const removerAcessorio = useProjeto((s) => s.removerAcessorio);
   const selecionarAcessorio = useProjeto((s) => s.selecionarAcessorio);
-  const total = acessorios.reduce((t, a) => t + a.qtd * a.preco_un, 0);
+  const total = acessorios.reduce((t, a) => t + custoAcessorio(a), 0);
   const grupos = agruparPorLugar(acessorios, cena);
   return (
     <div style={{ display: "grid", gap: 12 }}>
       <div className="brandface" style={{ fontSize: 16, color: "var(--gold)" }}>ACESSÓRIOS</div>
       <div style={{ fontSize: 11.5, color: "var(--muted)", lineHeight: 1.5 }}>
         {acessorios.length
-          ? `${acessorios.length} item(ns) agrupados pelo lugar na planta. Toque para editar; Fixar escolhe o endereço.`
+          ? `${acessorios.length} item(ns) agrupados pelo lugar na planta. Toque para editar; Sincronizar evita pagar estante/torre/suporte duas vezes.`
           : "Use Sugerir para montar a lista a partir DESTE layout, ou lance pelo catálogo à esquerda."}
       </div>
       {sel && (
@@ -2803,7 +2900,9 @@ function AcessoriosInspector({ sel }: { sel: AcessorioProjeto | null }) {
             {FAMILIAS_ACESSORIO[sel.familia ?? familiaDoNome(sel.nome)].label} · {rotuloDaAncora(sel.ancora, cena)}
           </div>
           {sel.obs && <div style={{ fontSize: 11, color: "var(--muted)", lineHeight: 1.45 }}>{sel.obs}</div>}
-          <div style={{ fontSize: 13, fontWeight: 700, color: "var(--gold)" }}>{BRL(Math.round(sel.qtd * sel.preco_un))}</div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: sel.incluso ? "#8A8A8F" : "var(--gold)" }}>
+            {sel.incluso ? "incluso (não entra no investimento)" : BRL(Math.round(sel.qtd * sel.preco_un))}
+          </div>
           <button className="btn" onClick={() => removerAcessorio(sel.id)}>✕ Remover</button>
         </div>
       )}
@@ -2825,7 +2924,9 @@ function AcessoriosInspector({ sel }: { sel: AcessorioProjeto | null }) {
                   <span style={{ width: 8, height: 8, borderRadius: 99, background: FAMILIAS_ACESSORIO[fam].cor, flexShrink: 0 }} />
                   <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.nome}</span>
                 </span>
-                <span style={{ color: "#6e6e73", fontWeight: 400, fontSize: 10.5, whiteSpace: "nowrap" }}>{a.qtd}× {BRL(Math.round(a.qtd * a.preco_un))}</span>
+                <span style={{ color: "#6e6e73", fontWeight: 400, fontSize: 10.5, whiteSpace: "nowrap" }}>
+                  {a.incluso ? "incluso" : `${a.qtd}× ${BRL(Math.round(custoAcessorio(a)))}`}
+                </span>
               </button>
             );
           })}

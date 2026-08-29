@@ -34,7 +34,7 @@ export type IdFerramenta =
   | "regiao" | "regiaoPoligono"
   | "areaRect" | "areaPoligono" | "cota" | "espelho" | "itemParede" | "apagarAcabamento"
   | "vista"
-  | "sugerirAcessorios" | "organizarAcessorios" | "fixarAcessorio" | "apagarAcessorio";
+  | "sugerirAcessorios" | "organizarAcessorios" | "sincronizarAcessorios" | "fixarAcessorio" | "apagarAcessorio";
 
 export interface Variante {
   id: string;
@@ -256,6 +256,7 @@ export function ferramentasDaEtapa(etapa: Etapa, ctx: ContextoFerramentas): Grup
         titulo: "Projeto",
         ferramentas: [
           { id: "sugerirAcessorios", label: "Sugerir", glifo: "✨", acao: true, dica: "Monta a lista a partir dos aparelhos e das regiões DESTE projeto — e ancora cada item no lugar." },
+          { id: "sincronizarAcessorios", label: "Sincronizar", glifo: "⇄", acao: true, dica: "Cruza orçamento e planta: estante/torre, chifres de anilha, suporte de barra e de colchonete não se pagam duas vezes." },
           { id: "organizarAcessorios", label: "Organizar", glifo: "▦", acao: true, dica: "Ancora os acessórios que já estão na lista: rack, polia, região. Não acrescenta item novo." },
         ],
       },

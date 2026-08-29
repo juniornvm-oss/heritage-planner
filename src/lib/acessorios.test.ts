@@ -3,8 +3,8 @@
 // `npx vitest run src/lib/acessorios.test.ts`
 import { describe, it, expect } from "vitest";
 import {
-  agruparPorLugar, ancoraNoPonto, catalogoRelevante, familiaDoNome,
-  mesclarSugestoes, organizarAcessorios, sinaisDoProjeto, sugerirAcessorios,
+  agruparPorLugar, ancoraNoPonto, catalogoRelevante, custoAcessorio, familiaDoNome,
+  mesclarSugestoes, organizarAcessorios, reconciliarAcessorios, sinaisDoProjeto, sugerirAcessorios,
 } from "./acessorios";
 import type { AreaFuncional, Cena, ItemPosicionado } from "./types";
 
@@ -45,12 +45,14 @@ describe("sugestão a partir do projeto", () => {
     expect(catalogoRelevante(c)).toEqual([]);
   });
 
-  it("rack pede anilha, barra e suporte — e não pede puxador", () => {
+  it("rack pede anilha e barra — guarda fica no próprio rack", () => {
     const c = cenaDe([item("Power Rack")]);
     const nomes = sugerirAcessorios(c).map((s) => s.nome.toLowerCase());
-    expect(nomes.some((n) => n.includes("anilha"))).toBe(true);
+    expect(nomes.some((n) => n.includes("anilha") && !n.includes("suporte"))).toBe(true);
     expect(nomes.some((n) => n.includes("2,20"))).toBe(true);
     expect(nomes.some((n) => n.includes("puxador"))).toBe(false);
+    expect(nomes.some((n) => n.includes("8 pontas"))).toBe(false);
+    expect(nomes.some((n) => n.includes("9 barras"))).toBe(false);
     expect(sinaisDoProjeto(c).nRack).toBe(1);
   });
 
@@ -119,5 +121,37 @@ describe("organização no espaço", () => {
     ], c);
     expect(grupos[0].titulo).toMatch(/Power Rack/);
     expect(grupos[grupos.length - 1].titulo).toMatch(/Sem lugar/);
+  });
+});
+
+describe("sincronizar guarda com o layout", () => {
+  it("estante e torre no layout não pedem outro suporte de dumbbell", () => {
+    const c = cenaDe([
+      item("Estante Dumbbells", { w_cm: 60, h_cm: 240 }),
+      item("Torre Halteres", { id: "t" }),
+    ]);
+    const nomes = sugerirAcessorios(c).map((s) => s.nome.toLowerCase());
+    expect(nomes.some((n) => n.includes("dumbbell"))).toBe(true);
+    expect(nomes.some((n) => n.includes("suporte de dumbbell"))).toBe(false);
+    expect(nomes.some((n) => n.includes("conjunto"))).toBe(false);
+  });
+
+  it("colchonetes na planta não pedem suporte extra", () => {
+    const c = cenaDe([item("Colchonetes", { zona: "prep" })], {
+      areas: [area("alongamento")],
+    });
+    expect(sugerirAcessorios(c).some((s) => /suporte para 10 colchonetes/i.test(s.nome))).toBe(false);
+  });
+
+  it("marca suporte de anilha como incluso quando o rack já tem chifre", () => {
+    const c = cenaDe([item("Power Rack")]);
+    const rec = reconciliarAcessorios([
+      { id: "1", nome: "Suporte para anilhas 8 pontas", qtd: 1, preco_un: 1200 },
+      { id: "2", nome: "Anilha olímpica BV 20 kg", qtd: 8, preco_un: 740 },
+    ], c);
+    expect(rec[0].incluso).toBe(true);
+    expect(rec[1].incluso).toBe(false);
+    expect(custoAcessorio(rec[0])).toBe(0);
+    expect(custoAcessorio(rec[1])).toBe(8 * 740);
   });
 });

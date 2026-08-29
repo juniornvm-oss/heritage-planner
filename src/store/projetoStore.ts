@@ -5,7 +5,8 @@ import { cenarioSugerido, normalizarExercicios } from "../lib/curadoria";
 import { gerarEstrutura, estruturaVazia } from "../lib/estrutura";
 import { bboxPoligono, retanguloParaPontos, transladar } from "../lib/geometria";
 import { salvarCena } from "../lib/supabase";
-import { mesclarSugestoes, organizarAcessorios } from "../lib/acessorios";
+import { mesclarSugestoes, organizarAcessorios, reconciliarAcessorios } from "../lib/acessorios";
+import { mesclarInventario } from "../lib/inventarioSugestoes";
 
 // Garante o modelo de polígono da área e mantém o bbox (x/y/w/h) em dia.
 function normalizarArea(a: AreaAcabamento): AreaAcabamento {
@@ -162,6 +163,8 @@ interface ProjetoState {
   selecionarAcessorio: (id: string | null) => void;
   /** Completa a lista com o que o layout pede e ancora tudo no espaço. */
   sugerirAcessoriosDoProjeto: () => number;
+  /** Marca guarda já coberta pelo layout/inventário para não duplicar no orçamento. */
+  sincronizarAcessoriosDoProjeto: () => number;
   /** Só ancora o que já está na lista — não acrescenta item. */
   organizarAcessoriosNoEspaco: () => void;
   addAnexo: (a: AnexoOrcamento) => void;
@@ -201,6 +204,8 @@ interface ProjetoState {
   addInventario: (i: ItemInventario) => void;
   updateInventario: (id: string, patch: Partial<ItemInventario>) => void;
   removerInventario: (id: string) => void;
+  /** Preenche o inventário a partir do layout (reaproveitar) e do que não entrou (vender). */
+  sugerirInventarioDoProjeto: () => number;
   /** Liga/desliga uma seção opcional do Dossiê. */
   setOpcaoDossie: (chave: keyof OpcoesDossie, ligado: boolean) => void;
   /** Parecer técnico do consultor (sai no Dossiê, depois da planta). */
@@ -370,6 +375,13 @@ export const useProjeto = create<ProjetoState>((set, get) => ({
     const lista = mesclarSugestoes(cena.acessorios ?? [], cena, () => crypto.randomUUID());
     set((s) => ({ past: empilhar(s.past, s.cena), future: [], cena: { ...s.cena, acessorios: lista }, dirty: true }));
     return lista.filter((a) => !antes.has(a.id)).length;
+  },
+  sincronizarAcessoriosDoProjeto() {
+    const { cena } = get();
+    const lista = organizarAcessorios(reconciliarAcessorios(cena.acessorios ?? [], cena), cena);
+    const n = lista.filter((a) => a.incluso).length;
+    set((s) => ({ past: empilhar(s.past, s.cena), future: [], cena: { ...s.cena, acessorios: lista }, dirty: true }));
+    return n;
   },
   organizarAcessoriosNoEspaco() {
     set((s) => ({
@@ -588,6 +600,13 @@ export const useProjeto = create<ProjetoState>((set, get) => ({
   },
   removerInventario(id) {
     set((s) => ({ past: empilhar(s.past, s.cena), future: [], cena: { ...s.cena, inventario: (s.cena.inventario ?? []).filter((i) => i.id !== id) }, dirty: true }));
+  },
+  sugerirInventarioDoProjeto() {
+    const { cena } = get();
+    const antes = new Set((cena.inventario ?? []).map((i) => i.id));
+    const lista = mesclarInventario(cena.inventario ?? [], cena, () => crypto.randomUUID());
+    set((s) => ({ past: empilhar(s.past, s.cena), future: [], cena: { ...s.cena, inventario: lista }, dirty: true }));
+    return lista.filter((i) => !antes.has(i.id)).length;
   },
 
   selecionarAreaFunc(id) {

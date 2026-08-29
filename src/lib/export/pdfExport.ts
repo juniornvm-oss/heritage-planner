@@ -12,7 +12,8 @@ import {
 import { MUSCULOS, REGIOES } from "../musculatura";
 import { analisarEspaco } from "../analiseEspaco";
 import { agruparMarcas, marcasDaCena, presencaDaMarca, refDaMarca } from "../marcas";
-import { agruparPorLugar } from "../acessorios";
+import { agruparPorLugar, custoAcessorio } from "../acessorios";
+import { sugerirFuturo } from "../sugestoesFuturas";
 import { medidaEsquadria, quadroDeEsquadrias } from "../esquadrias";
 
 /**
@@ -338,7 +339,7 @@ export async function montarDossie(
   const areaAcab = (a: NonNullable<Cena["acabamentos"]>[number]) =>
     a.pontos && a.pontos.length >= 3 ? areaPoligonoM2(a.pontos) : (a.w_cm / 100) * (a.h_cm / 100);
   const totalEquip = r.cenarios.premium;
-  const totalAcess = (cena.acessorios ?? []).reduce((t, a) => t + a.qtd * a.preco_un, 0);
+  const totalAcess = (cena.acessorios ?? []).reduce((t, a) => t + custoAcessorio(a), 0);
   const totalRevest = (cena.acabamentos ?? []).reduce((t, a) => t + areaAcab(a) * (a.preco_m2 || 0), 0);
   const totalParede =
     (cena.elementosParede ?? []).reduce((t, e) =>
@@ -763,12 +764,12 @@ export async function montarDossie(
           y -= 16;
           for (const a of g.itens) {
             ensure(16);
-            const tot = a.qtd * a.preco_un;
+            const tot = custoAcessorio(a);
             totalAc += tot;
-            at(trunc(a.nome, qCol - 40 - M, 9.5), M + 6, y, 9.5, font, DARK);
+            at(trunc(a.incluso ? `${a.nome} (incluso)` : a.nome, qCol - 40 - M, 9.5), M + 6, y, 9.5, font, DARK);
             rightAt(String(a.qtd), qCol, y, 9, font, MUTED);
-            rightAt(BRL(a.preco_un), uCol, y, 9, font, MUTED);
-            rightAt(BRL(Math.round(tot)), tCol, y, 9.5, font, DARK);
+            rightAt(a.incluso ? "—" : BRL(a.preco_un), uCol, y, 9, font, MUTED);
+            rightAt(a.incluso ? "incluso" : BRL(Math.round(tot)), tCol, y, 9.5, font, DARK);
             page.drawLine({ start: { x: M, y: y - 5 }, end: { x: A4.w - M, y: y - 5 }, thickness: 0.4, color: LINE });
             y -= 16;
           }
@@ -1207,6 +1208,26 @@ export async function montarDossie(
         y -= 16;
       }
       y -= 6;
+    },
+
+    futuro: async () => {
+      if (!mostrar.futuro || !cena.itens.length) return;
+      const lista = sugerirFuturo(cena, catalogo);
+      if (!lista.length) return;
+      secN("futuro", 50);
+      intro("futuro",
+        "O que comprar numa segunda fase para completar a academia — depois do que o layout atual já treina.");
+      y -= 4;
+      for (const s of lista) {
+        const linhas = linhasDe(s.motivo, CW - 8, 8.5);
+        ensure(linhas.length * 11 + 16);
+        at(trunc(s.nome, CW - 80, 9.5, bold), M + 6, y, 9.5, bold, DARK);
+        at(s.tipo === "acessorio" ? "acessório" : "equipamento", A4.w - M - 70, y, 8, font, MUTED);
+        y -= 13;
+        linhas.forEach((t) => { at(t, M + 6, y, 8.5, font, rgb(0.3, 0.3, 0.3)); y -= 11; });
+        y -= 4;
+      }
+      y -= 4;
     },
 
     matriz: async () => {

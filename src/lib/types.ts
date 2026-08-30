@@ -899,6 +899,7 @@ export const ACESSORIOS_CATALOGO: ItemCatalogoAcessorio[] = [
   { nome: "Barra olímpica cromada 1,50 m", qtd: 1, preco: 790, familia: "carga" },
   { nome: "Step EVA", qtd: 2, preco: 250, familia: "funcional" },
   { nome: "Bola pilates 65 cm", qtd: 1, preco: 180, familia: "funcional" },
+  { nome: "Suporte vertical para 3 bolas", qtd: 1, preco: 790, familia: "guarda" },
   { nome: "Suporte para anilhas 8 pontas", qtd: 1, preco: 1200, familia: "guarda" },
   { nome: "Suporte para 9 barras olímpicas", qtd: 1, preco: 950, familia: "guarda" },
   { nome: "Colchonete emborrachado D80", qtd: 10, preco: 190, familia: "alongamento" },
@@ -912,6 +913,7 @@ export const ACESSORIOS_CATALOGO: ItemCatalogoAcessorio[] = [
   { nome: "Kit puxador ultra anatômico 8 pçs + suporte vertical", qtd: 1, preco: 4990, familia: "guarda" },
   { nome: "Kettlebell (8, 12, 16, 20 kg)", qtd: 1, preco: 2450, familia: "funcional" },
   { nome: "Kettlebell 32 kg", qtd: 1, preco: 920, familia: "funcional" },
+  { nome: "Rack para kettlebells 2 níveis", qtd: 1, preco: 1850, familia: "guarda" },
 ];
 
 /** Item de mobiliário/infraestrutura posicionado na planta (cm, mundo). */

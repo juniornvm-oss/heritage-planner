@@ -68,7 +68,7 @@ function contemChave(nome: string, chave: string): boolean {
 export { contemChave };
 
 /** O que um suporte / móvel de guarda armazena. */
-export type PapelGuarda = "anilhas" | "barras" | "halteres" | "colchonetes" | "puxadores";
+export type PapelGuarda = "anilhas" | "barras" | "halteres" | "colchonetes" | "puxadores" | "bolas" | "kettlebells";
 
 export function familiaDoNome(nome: string): FamiliaAcessorio {
   const n = normalizar(nome);
@@ -100,6 +100,8 @@ export function ocupaDoNome(nome: string): { w_cm: number; h_cm: number } | null
   if (contemChave(n, "barra")) return { w_cm: 90, h_cm: 40 };
   if (contemChave(n, "colchonete")) return { w_cm: 80, h_cm: 45 };
   if (contemChave(n, "puxador")) return { w_cm: 45, h_cm: 45 };
+  if (contemChave(n, "bola")) return { w_cm: 75, h_cm: 45 };
+  if (contemChave(n, "kettlebell")) return { w_cm: 120, h_cm: 45 };
   return { w_cm: 60, h_cm: 40 };
 }
 
@@ -153,6 +155,8 @@ export function papelGuardaDoNome(nome: string): PapelGuarda | null {
   if (contemChave(n, "estante") || contemChave(n, "torre")) return "halteres";
   if (contemChave(n, "colchonete") && (temSuporte || !contemChave(n, "emborrachado"))) return "colchonetes";
   if (temSuporte && contemChave(n, "puxador")) return "puxadores";
+  if (temSuporte && contemChave(n, "bola")) return "bolas";
+  if ((temSuporte || contemChave(n, "rack")) && contemChave(n, "kettlebell")) return "kettlebells";
   return null;
 }
 
@@ -167,6 +171,8 @@ function slotsDoItemLayout(it: ItemPosicionado): Partial<Record<PapelGuarda, num
   if (papel === "barras") out.barras = 9;
   if (papel === "colchonetes") out.colchonetes = 10;
   if (papel === "puxadores") out.puxadores = 8;
+  if (papel === "bolas") out.bolas = 3;
+  if (papel === "kettlebells") out.kettlebells = 12;
   const base = baseDoNome(it.nome)?.nome ?? it.nome;
   const eRack = CHAVES_RACK.some((c) => contemChave(it.nome, c) || contemChave(base, c));
   if (eRack) {
@@ -272,6 +278,7 @@ export function familiaServida(nome: string, familia?: FamiliaAcessorio | null):
   if (contemChave(n, "dumbbell") || contemChave(n, "halter")) return "halteres";
   if (contemChave(n, "colchonete")) return "alongamento";
   if (contemChave(n, "puxador")) return "puxadores";
+  if (contemChave(n, "bola") || contemChave(n, "kettlebell")) return "funcional";
   return fam;
 }
 
@@ -414,8 +421,30 @@ export function agruparPorLugar(acessorios: AcessorioProjeto[], cena: Cena): Gru
 
 // ── Organizar / sugerir ─────────────────────────────────────────────────────
 
+function pesoDaAnilha(nome: string): number | null {
+  const m = normalizar(nome).match(/(?:anilha).*?(\d+(?:[.,]\d+)?)\s*kg/);
+  return m ? Number(m[1].replace(",", ".")) : null;
+}
+
+/** Distribui a carga pelo uso real: anilhas pesadas ficam nas máquinas
+ * plate-loaded; as leves permanecem no rack central de barras/pesos livres. */
+function ancoraDaAnilha(a: AcessorioProjeto, cena: Cena): AncoraAcessorio | null {
+  const peso = pesoDaAnilha(a.nome);
+  if (peso == null) return null;
+  const itens = cena.itens ?? [];
+  const pesadas = ["leg press", "hack", "iso-lateral", "articulad", "squat", "elevacao pelvica", "elevação pélvica"];
+  const centrais = ["power rack", "gaiola", "smith", "suporte de anilha", "arvore", "árvore"];
+  const chaves = peso >= 10 ? pesadas : centrais;
+  const alvo = itens.find((it) => chaves.some((c) => contemChave(it.nome, c)));
+  return alvo ? { tipo: "item", id: alvo.id } : null;
+}
+
 function ancoraDe(a: AcessorioProjeto, cena: Cena): AncoraAcessorio | null {
   const fam = a.familia ?? familiaDoNome(a.nome);
+  if (fam === "carga") {
+    const especifica = ancoraDaAnilha(a, cena);
+    if (especifica) return especifica;
+  }
   return ancoraParaFamilia(fam, cena);
 }
 
@@ -461,6 +490,39 @@ export interface SugestaoAcessorio {
   preco_un: number;
   familia: FamiliaAcessorio;
   motivo: string;
+}
+
+export interface DiagnosticoGuarda {
+  puxadores: number;
+  vagasPuxadores: number;
+  puxadoresSemLugar: number;
+  bolas: number;
+  temSuporteBolas: boolean;
+  kettlebells: number;
+  temRackKettlebells: boolean;
+}
+
+/** Contagem objetiva para o consultor decidir a guarda antes de apresentar. */
+export function diagnosticoGuarda(cena: Cena): DiagnosticoGuarda {
+  const s = sinaisDoProjeto(cena);
+  const lista = cena.acessorios ?? [];
+  const qtd = (teste: (nome: string) => boolean) => lista
+    .filter((a) => !a.incluso && teste(a.nome))
+    .reduce((t, a) => t + Math.max(1, a.qtd), 0);
+  const puxadores = qtd((n) => familiaDoNome(n) === "puxadores");
+  const suportePuxador = lista.filter((a) => papelGuardaDoNome(a.nome) === "puxadores")
+    .reduce((t, a) => t + 8 * Math.max(1, a.qtd), 0);
+  const bolas = qtd((n) => familiaDoNome(n) === "funcional" && contemChave(n, "bola"));
+  const kettlebells = qtd((n) => familiaDoNome(n) === "funcional" && contemChave(n, "kettlebell"));
+  return {
+    puxadores,
+    vagasPuxadores: s.slotsPuxador + suportePuxador,
+    puxadoresSemLugar: Math.max(0, puxadores - s.slotsPuxador - suportePuxador),
+    bolas,
+    temSuporteBolas: lista.some((a) => papelGuardaDoNome(a.nome) === "bolas"),
+    kettlebells,
+    temRackKettlebells: lista.some((a) => papelGuardaDoNome(a.nome) === "kettlebells"),
+  };
 }
 
 function cat(nomeParte: string): (typeof ACESSORIOS_CATALOGO)[number] | undefined {
@@ -550,6 +612,8 @@ export function sugerirAcessorios(cena: Cena): SugestaoAcessorio[] {
     pushCat(out, "kettlebell (8", 1, motivo);
     pushCat(out, "step eva", 2, motivo);
     pushCat(out, "bola pilates", 1, motivo);
+    pushCat(out, "suporte vertical para 3 bolas", 1, "bola suíça não pode ficar solta na sala");
+    pushCat(out, "rack para kettlebells", 1, "kettlebells organizados fora do piso");
   }
 
   if (s.nAlong > 0 || s.areaAlongamento) {
@@ -609,6 +673,8 @@ export function reconciliarAcessorios(lista: AcessorioProjeto[], cena: Cena): Ac
       : papel === "halteres" ? s.slotsHalterPar >= 10
       : papel === "colchonetes" ? s.slotsColchonete >= 6
       : papel === "puxadores" ? s.slotsPuxador >= 8
+      : papel === "bolas" ? false
+      : papel === "kettlebells" ? false
       : false;
     if (!noLayout) return { ...a, incluso: false };
     const fonte = s.fontesGuarda[0];

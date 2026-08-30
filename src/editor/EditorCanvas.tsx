@@ -24,7 +24,7 @@ import PreviewFX, { type PreviewProps } from "./PreviewFX";
 import { halo } from "./konvaMotion";
 import { FAMILIAS_ACESSORIO, familiaDoNome, posicaoDoAcessorio } from "../lib/acessorios";
 
-export type Etapa = "planta" | "acabamento" | "areas" | "layout" | "fichas" | "curadoria" | "acessorios";
+export type Etapa = "planta" | "inventario" | "acabamento" | "areas" | "layout" | "fichas" | "cobertura" | "curadoria" | "acessorios";
 export type FerramentaEstrutura = "parede" | "porta" | "janela" | "pilar" | "apagar" | null;
 export type FerramentaAcab = "rect" | "poligono" | "cota" | "espelho" | "itemParede" | "apagar" | null;
 export type FerramentaAcess = "fixar" | "apagar" | null;
@@ -91,7 +91,7 @@ function useHtmlImage(src?: string) {
 
 interface Cam { zoom: number; x: number; y: number } // x,y = posição da layer em px
 
-export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoElemParede, snapPasso, camadas, apresentacao, lamina, modoVista, onVista, onArea, modoRecorte, onRecorte, modoParede, onParede, modoMoverPlanta, stageRef, somenteLeitura, etapa, ferrEstrutura, padroes, ponteiroExternoRef, camadasLamina, enquadrarRef, ferrAcess, onFixarAcessorio }: {
+export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoElemParede, snapPasso, camadas, apresentacao, lamina, modoVista, onVista, onArea, modoRecorte, onRecorte, modoParede, onParede, modoMoverPlanta, stageRef, somenteLeitura, etapa, ferrEstrutura, padroes, ponteiroExternoRef, camadasLamina, visualizacaoLamina, enquadrarRef, ferrAcess, onFixarAcessorio }: {
   modoCalibrar: boolean;
   onCalibrar: (distanciaMundoCm: number) => void;
   ferrAcab?: FerramentaAcab; // ferramentas da Etapa 2 (área/polígono/cota/apagar)
@@ -127,6 +127,9 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoE
    * e sem nada que não esteja ligado.
    */
   camadasLamina?: CamadasLamina | null;
+  /** Filtro visual do editor: ao contrário de `camadasLamina` (captura do PDF),
+   * mantém os equipamentos selecionáveis e arrastáveis. */
+  visualizacaoLamina?: CamadasLamina | null;
   /** O export do Dossiê chama antes de fotografar: a sala inteira no quadro. */
   enquadrarRef?: React.MutableRefObject<(() => void) | null>;
   ferrAcess?: FerramentaAcess;
@@ -136,7 +139,8 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoE
   const etapaAtual: Etapa = etapa ?? "layout";
   const pad = padroes ?? PADROES_PLANTA;
   /** `null` no editor normal; em modo lâmina, o que pode aparecer. */
-  const LAM = camadasLamina ?? null;
+  const LAM = camadasLamina ?? visualizacaoLamina ?? null;
+  const capturandoLamina = !!camadasLamina;
   const ver = (c: keyof CamadasLamina) => !LAM || LAM[c];
   const cena = useProjeto((s) => s.cena);
   const selectedId = useProjeto((s) => s.selectedId);
@@ -1108,9 +1112,9 @@ export default function EditorCanvas({ modoCalibrar, onCalibrar, ferrAcab, tipoE
           {/* equipamentos */}
           {ver("equipamentos") && cena.itens.map((it, idx) => (
             <ItemView key={it.id} it={it} numero={etapaAtual === "fichas" && !LAM ? idx + 1 : undefined} zoom={cam.zoom}
-              selected={!apresentacao && !LAM && selectedId === it.id}
+              selected={!apresentacao && !capturandoLamina && selectedId === it.id}
               problema={apresentacao || LAM ? null : problemas[it.id]}
-              listening={itensAtivos && !apresentacao && !LAM}
+              listening={itensAtivos && !apresentacao && !capturandoLamina}
               camadas={LAM ? (LAM.areasUso ? "tudo" : "nada") : apresentacao || lamina ? "nada" : (camadas ?? "tudo")}
               lamina={LAM ? LAM.medidas : lamina}
               rotulos={!LAM || LAM.rotulos} medidas={!LAM || LAM.medidas} orientacao={!LAM || LAM.orientacao}
@@ -1416,7 +1420,7 @@ function ItemView({ it, zoom, selected, problema, listening, camadas, lamina, nu
       )}
       {/* faixas de orientação: banda suave em cada lado (entrada/frente/costas/
           lateral), com a cor do papel — aparecem também na planta do Dossiê */}
-      {orientacao && camadas !== "nada" && (Object.keys(geomLado) as LadoRect[]).map((k) => {
+      {orientacao && (Object.keys(geomLado) as LadoRect[]).map((k) => {
         const g = geomLado[k], papel = lados[k], info = PAPEL_LADO[papel];
         const horiz = g.ny !== 0; // topo/base → banda deitada
         const esp = Math.max(4, Math.min(10, (horiz ? it.h_cm : it.w_cm) * 0.09));

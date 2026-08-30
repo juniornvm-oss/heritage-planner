@@ -28,7 +28,7 @@ import { checarProntidaoDossie } from "../lib/prontidaoDossie";
 import { resumo, type Problema } from "../lib/validation";
 import { snapCm } from "../lib/canvas";
 import { BRL, formatLength, parseLength } from "../lib/units";
-import { ZONAS, CENARIOS, DESTINOS_INVENTARIO, OPCOES_DOSSIE_PADRAO, ROTULO_SECAO_DOSSIE, ORDEM_DOSSIE_PADRAO, SECAO_EXIGE_DADO, CIRCULACAO_PADRAO, TIPOS_AREA, taxaDe, MATERIAIS_PISO, ELEMENTOS_PAREDE, MOBILIARIO_CATALOGO, ACESSORIOS_CATALOGO, LADOS_PADRAO, type AcessorioProjeto, type LadoRect, type AreaFuncional, type TipoArea, type DestinoInventario, type ItemInventario, type OpcoesDossie, type SecaoDossie, type CamadasLamina, type LaminaDossie, type Cena, type MaterialPiso, type TipoElementoParede, type Zona, type Cenario, type ItemPosicionado, type Equipamento, type AreaAcabamento, type ElementoParede, type ItemInfraestrutura, type Projeto, type FamiliaAcessorio } from "../lib/types";
+import { ZONAS, CENARIOS, DESTINOS_INVENTARIO, OPCOES_DOSSIE_PADRAO, ROTULO_SECAO_DOSSIE, ORDEM_DOSSIE_PADRAO, SECAO_EXIGE_DADO, CIRCULACAO_PADRAO, TIPOS_AREA, taxaDe, MATERIAIS_PISO, ELEMENTOS_PAREDE, MOBILIARIO_CATALOGO, ACESSORIOS_CATALOGO, LADOS_PADRAO, PRESETS_LAMINA, type AcessorioProjeto, type LadoRect, type AreaFuncional, type TipoArea, type DestinoInventario, type ItemInventario, type OpcoesDossie, type SecaoDossie, type CamadasLamina, type LaminaDossie, type Cena, type MaterialPiso, type TipoElementoParede, type Zona, type Cenario, type ItemPosicionado, type Equipamento, type AreaAcabamento, type ElementoParede, type ItemInfraestrutura, type Projeto, type FamiliaAcessorio } from "../lib/types";
 import { areaPoligonoM2, perimetroCm, bboxPoligono, ehRetangulo, retanguloParaPontos, transladar, m2 } from "../lib/geometria";
 import { CAMPOS_ESPEC, CENARIO_DEF, ESPEC_ZONA, analisarCobertura, cenarioSugerido, composicaoZonas, detalheCenarios, explicarItem, normalizarExercicios } from "../lib/curadoria";
 import { sugerirFuturo, exerciciosDaCena } from "../lib/sugestoesFuturas";
@@ -95,6 +95,8 @@ export default function EditorScreen() {
   const ponteiroRef = useRef<EstadoPonteiro>({ x: 0, y: 0, zoom: 1, dentro: false });
   /** Camadas aplicadas ao canvas durante a captura das lâminas do Dossiê. */
   const [laminaCaptura, setLaminaCaptura] = useState<CamadasLamina | null>(null);
+  const [vistaLamina, setVistaLamina] = useState<string | null>(null);
+  const vistaCamadas = useMemo(() => PRESETS_LAMINA.find((p) => p.id === vistaLamina)?.camadas ?? null, [vistaLamina]);
   /** Enquadramento da sala — o export chama antes de fotografar. */
   const enquadrarRef = useRef<(() => void) | null>(null);
   /** Prévia do PDF gerado (blob URL + bytes para baixar). */
@@ -803,6 +805,22 @@ export default function EditorScreen() {
                   title="Alternar camadas técnicas: uso + segurança / só uso / nada">
                   👁 {camadas === "tudo" ? "Uso+Seg" : camadas === "uso" ? "Uso" : "Corpo"}
                 </button>
+                <details style={{ position: "relative" }}>
+                  <summary className="btn btn--sm" style={{ listStyle: "none", cursor: "pointer" }}>
+                    ▱ Lâminas{vistaLamina ? ` · ${PRESETS_LAMINA.find((p) => p.id === vistaLamina)?.nome}` : ""}
+                  </summary>
+                  <div className="card" style={{ position: "absolute", zIndex: 50, top: "calc(100% + 7px)", right: 0, width: 310, maxHeight: "min(62vh, 440px)", overflow: "auto", padding: 8, display: "grid", gap: 5, boxShadow: "0 14px 35px rgba(0,0,0,.55)" }}>
+                    <button className="btn" onClick={() => setVistaLamina(null)} style={{ textAlign: "left", borderColor: !vistaLamina ? "var(--gold)" : undefined }}>
+                      <b>Editor completo</b><br /><span style={{ fontSize: 10.5, color: "var(--muted)" }}>Voltar a mostrar todas as informações de trabalho.</span>
+                    </button>
+                    {PRESETS_LAMINA.map((p) => (
+                      <button key={p.id} className="btn" onClick={() => setVistaLamina(p.id)}
+                        style={{ textAlign: "left", whiteSpace: "normal", borderColor: vistaLamina === p.id ? "var(--gold)" : undefined }}>
+                        <b>{p.nome}</b><br /><span style={{ fontSize: 10.5, color: "var(--muted)", lineHeight: 1.35 }}>{p.descricao}</span>
+                      </button>
+                    ))}
+                  </div>
+                </details>
               </span>
               {lamina && (
                 <span style={{ fontSize: 11, color: "var(--info-soft)", whiteSpace: "nowrap" }}>
@@ -1012,8 +1030,13 @@ export default function EditorScreen() {
           );
         })()}
 
-        {/* Etapa Cenários: painel de tela cheia (substitui canvas + inspetor) */}
-        {etapa === "curadoria" && !somenteLeitura ? (
+        {/* Etapas de análise e decisão usam a largura toda: o inventário vem
+            logo após a planta e a cobertura fecha o planejamento antes do dossiê. */}
+        {etapa === "inventario" && !somenteLeitura ? (
+          <PainelEtapaInventario />
+        ) : etapa === "cobertura" && !somenteLeitura ? (
+          <PainelEtapaCobertura />
+        ) : etapa === "curadoria" && !somenteLeitura ? (
           <CuradoriaPanel onEmitir={exportar} />
         ) : (<>
         {/* Canvas */}
@@ -1025,7 +1048,7 @@ export default function EditorScreen() {
             modoParede={modoParede} onParede={onParede} modoMoverPlanta={modoMoverPlanta}
             etapa={etapa} ferrEstrutura={ferrEstrutura}
             ferrAcess={ferrAcess} onFixarAcessorio={onFixarAcessorio}
-            padroes={padroes} ponteiroExternoRef={ponteiroRef} camadasLamina={laminaCaptura}
+            padroes={padroes} ponteiroExternoRef={ponteiroRef} camadasLamina={laminaCaptura} visualizacaoLamina={vistaCamadas}
             stageRef={stageRef} enquadrarRef={enquadrarRef} somenteLeitura={somenteLeitura} />
 
           {/* HUD do modo, no topo-centro do canvas — onde o olho já está. */}
@@ -2123,6 +2146,27 @@ function CoberturaInventarioFuturo() {
       {aba === "inventario" && <InventarioPanel />}
       {aba === "futuro" && <FuturoPanel />}
     </div>
+  );
+}
+
+/** Tela dedicada do levantamento, mantida fora do Dossiê para que a primeira
+ * decisão do projeto seja sempre o que pode ser preservado no orçamento. */
+function PainelEtapaInventario() {
+  return (
+    <main style={{ flex: 1, overflow: "auto", padding: "16px calc(16px + var(--sar)) 24px calc(16px + var(--sal))" }}>
+      <InventarioPanel />
+    </main>
+  );
+}
+
+/** Revisão imediatamente anterior ao Dossiê: reúne a cobertura técnica e as
+ * compras de uma próxima fase, sem misturá-las ao investimento aprovado. */
+function PainelEtapaCobertura() {
+  return (
+    <main style={{ flex: 1, overflow: "auto", padding: "16px calc(16px + var(--sar)) 24px calc(16px + var(--sal))", display: "grid", gap: 12 }}>
+      <CoberturaPanel />
+      <FuturoPanel />
+    </main>
   );
 }
 

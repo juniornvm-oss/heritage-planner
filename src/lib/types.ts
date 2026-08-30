@@ -73,6 +73,7 @@ export interface Equipamento {
   descricao?: string | null; // o que é / para que serve — sai no memorial do Dossiê
   cenario_padrao?: Cenario | null; // cenário sugerido ao posicionar no projeto
   exercicios?: string[] | null; // exercícios resistidos executáveis no aparelho
+  produto_url?: string | null; // página oficial do modelo usada para conferir a ficha
   precisa_tomada?: boolean | null;
   voltagem?: "127" | "220" | "bivolt" | null;
   ponto_internet?: boolean | null;
@@ -106,6 +107,7 @@ export const CAMPOS_TECNICOS = [
   "precisa_tomada", "voltagem", "ponto_internet", "dist_parede_cm", "dist_lateral_cm",
   "dist_frontal_cm", "uso_frontal_cm", "uso_lateral_cm", "seguranca_cm", "obs", "ativo",
   "lados", "dist_entrada_cm", "descricao", "cenario_padrao", "exercicios",
+  "produto_url",
 ] as const;
 
 /** Fornecedor (planner.fornecedores) — global, reaproveitado entre projetos. */
@@ -707,6 +709,21 @@ export const PRESETS_LAMINA: { id: string; nome: string; descricao: string; cama
     id: "layout_limpo", nome: "Layout sobre o piso",
     descricao: "Piso e equipamentos, sem as regiões e sem texto. A imagem do projeto pronto.",
     camadas: { ...semNada, estrutura: true, acabamento: true, mobiliario: true, equipamentos: true },
+  },
+  {
+    id: "maquinas", nome: "Só máquinas",
+    descricao: "Somente o desenho dos equipamentos, sem nomes, medidas, piso ou informações técnicas.",
+    camadas: { ...semNada, equipamentos: true },
+  },
+  {
+    id: "entradas", nome: "Entradas das máquinas",
+    descricao: "Desenho dos equipamentos com apenas a indicação de entrada, frente e sentido de acesso.",
+    camadas: { ...semNada, equipamentos: true, orientacao: true },
+  },
+  {
+    id: "medidas", nome: "Tamanho das máquinas",
+    descricao: "Desenho dos equipamentos com largura e profundidade, sem os demais textos.",
+    camadas: { ...semNada, equipamentos: true, medidas: true },
   },
   {
     id: "distancias", nome: "Distâncias",

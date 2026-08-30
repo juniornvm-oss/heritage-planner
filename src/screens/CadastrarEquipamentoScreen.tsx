@@ -33,6 +33,7 @@ export default function CadastrarEquipamentoScreen() {
     dist_parede: "", dist_lateral: "", dist_frontal: "",
     uso_frontal: "", uso_lateral: "", seguranca: "", obs: "", ativo: true,
     descricao: "", cenario_padrao: "" as "" | Cenario, exercicios: "",
+    produto_url: "",
   });
   const setTec = (k: keyof typeof t) => (v: string | boolean) => setT((x) => ({ ...x, [k]: v }));
   // Papel de cada lado do footprint (entrada / frente / costas / lateral) + vão da entrada.
@@ -81,6 +82,7 @@ export default function CadastrarEquipamentoScreen() {
       obs: existente.obs ?? "", ativo: existente.ativo !== false,
       descricao: existente.descricao ?? "", cenario_padrao: (existente.cenario_padrao ?? "") as "" | Cenario,
       exercicios: (existente.exercicios ?? []).join("\n"),
+      produto_url: existente.produto_url ?? "",
     });
     setLados({ ...LADOS_PADRAO, ...(existente.lados ?? {}) });
     setDistEntrada(existente.dist_entrada_cm != null ? String(existente.dist_entrada_cm) : "");
@@ -180,6 +182,7 @@ export default function CadastrarEquipamentoScreen() {
       obs: t.obs || null, ativo: t.ativo,
       descricao: t.descricao.trim() || null, cenario_padrao: t.cenario_padrao || null,
       exercicios: normalizarExercicios(t.exercicios.split("\n")).length ? normalizarExercicios(t.exercicios.split("\n")) : null,
+      produto_url: t.produto_url.trim() || null,
       lados, dist_entrada_cm: num(distEntrada),
     };
     if (editando) {
@@ -280,6 +283,14 @@ export default function CadastrarEquipamentoScreen() {
             </div>
             <Campo label="Observação de instalação"><input className="fld" value={t.obs} onChange={(e) => setTec("obs")(e.target.value)} /></Campo>
 
+            <div className="hairline" />
+            <div className="microlabel" style={{ color: "var(--gold)" }}>REFERÊNCIA DO MODELO</div>
+            <div style={{ fontSize: 11.5, color: "var(--muted)", lineHeight: 1.5 }}>
+              Vincule a página oficial para conferir modelo e ficha técnica. A imagem é meramente ilustrativa; a definição comercial depende da cotação e da versão disponível para o condomínio.
+            </div>
+            <Campo label="Página oficial do produto">
+              <input className="fld" type="url" placeholder="https://fabricante.com/modelo" value={t.produto_url} onChange={(e) => setTec("produto_url")(e.target.value)} />
+            </Campo>
             <div className="hairline" />
             <div className="microlabel" style={{ color: "var(--gold)" }}>CURADORIA (sai no Dossiê)</div>
             <Campo label="O que é / para que serve — usado no memorial dos equipamentos">

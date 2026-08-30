@@ -10,6 +10,10 @@ import {
   BIBLIOTECA_MAQUINAS, MARCAS_MAQUINAS, csvDaBiblioteca, maquinasFaltando, silhuetasFaltando,
 } from "../lib/catalogoMaquinas";
 
+/** Parcerias comerciais já formalizadas pelo consultor. Elas aparecem primeiro,
+ * sem bloquear outras marcas: a escolha final continua dependente do cliente. */
+const MARCAS_PARCEIRAS = new Set(["Movement", "Nautilus"]);
+
 export default function BibliotecaEquipamentosScreen() {
   const equipamentos = useLibrary((s) => s.equipamentos);
   const addEquipamentos = useLibrary((s) => s.addEquipamentos);
@@ -23,6 +27,15 @@ export default function BibliotecaEquipamentosScreen() {
 
   const faltando = useMemo(() => maquinasFaltando(equipamentos), [equipamentos]);
   const semSilhueta = useMemo(() => silhuetasFaltando(equipamentos), [equipamentos]);
+  const qualidade = useMemo(() => {
+    const ativos = equipamentos.filter((e) => e.ativo !== false);
+    return {
+      total: ativos.length,
+      comFoto: ativos.filter((e) => !!e.imagem).length,
+      comFonte: ativos.filter((e) => !!e.produto_url).length,
+      conferidos: ativos.filter((e) => !!e.marca && !!e.modelo && e.largura_cm > 0 && e.profundidade_cm > 0).length,
+    };
+  }, [equipamentos]);
 
   const visiveis = useMemo(() => {
     const q = busca.trim().toLowerCase();
@@ -37,7 +50,10 @@ export default function BibliotecaEquipamentosScreen() {
   const marcasNaLista = useMemo(() => {
     const s = new Set<string>();
     for (const e of equipamentos) if (e.marca && e.ativo !== false) s.add(e.marca);
-    return [...s].sort((a, b) => a.localeCompare(b, "pt-BR"));
+    return [...s].sort((a, b) => {
+      const prioridade = Number(MARCAS_PARCEIRAS.has(b)) - Number(MARCAS_PARCEIRAS.has(a));
+      return prioridade || a.localeCompare(b, "pt-BR");
+    });
   }, [equipamentos]);
 
   async function persistir(rows: Equipamento[]) {
@@ -117,6 +133,18 @@ export default function BibliotecaEquipamentosScreen() {
         {equipamentos.length} itens {status ? "· " + status : ""}
       </p>
 
+      <div className="card" style={{ display: "flex", gap: 18, alignItems: "center", flexWrap: "wrap", padding: "10px 14px", marginBottom: 14 }}>
+        <span className="brandface" style={{ color: "var(--gold)", fontSize: 14 }}>QUALIDADE DO CATÁLOGO</span>
+        <span style={{ fontSize: 12, color: "#b6b6b1" }}><b>{qualidade.comFoto}/{qualidade.total}</b> com foto real</span>
+        <span style={{ fontSize: 12, color: "#b6b6b1" }}><b>{qualidade.comFonte}/{qualidade.total}</b> com página oficial</span>
+        <span style={{ fontSize: 12, color: qualidade.conferidos === qualidade.total ? "var(--green)" : "var(--warn)" }}>
+          <b>{qualidade.conferidos}/{qualidade.total}</b> com modelo e medidas
+        </span>
+        <span style={{ fontSize: 11, color: "var(--muted)", flex: 1, minWidth: 240 }}>
+          As fotos são meramente ilustrativas. A especificação final segue a cotação, a versão disponível e o poder de investimento do cliente.
+        </span>
+      </div>
+
       <div style={{
         background: "var(--panel-2)", border: "1px solid var(--line)", borderRadius: 10,
         padding: "10px 14px", marginBottom: 16, fontSize: 12.5, color: "#b6b6b1", lineHeight: 1.55,
@@ -168,7 +196,9 @@ export default function BibliotecaEquipamentosScreen() {
           style={filtroMarca === "" ? { borderColor: "var(--gold)", color: "var(--gold)" } : undefined}>Todas</button>
         {marcasNaLista.map((m) => (
           <button key={m} className="btn" onClick={() => setFiltroMarca(filtroMarca === m ? "" : m)}
-            style={filtroMarca === m ? { borderColor: "var(--gold)", color: "var(--gold)" } : undefined}>{m}</button>
+            style={filtroMarca === m ? { borderColor: "var(--gold)", color: "var(--gold)" } : undefined}>
+            {MARCAS_PARCEIRAS.has(m) ? "★ " : ""}{m}
+          </button>
         ))}
         <span style={{ fontSize: 12, color: "var(--muted)" }}>{visiveis.length} visíveis</span>
       </div>
@@ -182,6 +212,7 @@ export default function BibliotecaEquipamentosScreen() {
             <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <span style={{ width: 9, height: 9, borderRadius: 2, background: ZONAS[m.zona]?.cor || "#888", flexShrink: 0 }} />
               <span style={{ flex: 1, fontWeight: 600, fontSize: 13 }}>{m.nome}</span>
+              {m.marca && MARCAS_PARCEIRAS.has(m.marca) && <span title="Parceria comercial formalizada" style={{ color: "var(--gold)", fontSize: 11 }}>★ parceiro</span>}
               {(m.contorno || m.imagem) && <span title="tem desenho" style={{ fontSize: 11, color: "var(--gold)" }}>◱</span>}
             </span>
             <span style={{ display: "flex", justifyContent: "space-between", color: "#6e6e73", fontSize: 11.5, gap: 8 }}>
@@ -189,6 +220,10 @@ export default function BibliotecaEquipamentosScreen() {
                 {[m.marca, m.modelo].filter(Boolean).join(" · ") || ZONAS[m.zona]?.label}
               </span>
               <span>{m.largura_cm}×{m.profundidade_cm}{m.preco ? ` · ${BRL(m.preco)}` : ""}</span>
+            </span>
+            <span style={{ display: "flex", gap: 5, flexWrap: "wrap", marginTop: 3 }}>
+              {m.imagem && <span className="chip" style={{ padding: "1px 6px", fontSize: 9.5, color: "var(--muted)" }}>imagem ilustrativa</span>}
+              {m.produto_url && <span className="chip" style={{ padding: "1px 6px", fontSize: 9.5, color: "var(--info-soft)" }}>fonte oficial</span>}
             </span>
           </Link>
         ))}

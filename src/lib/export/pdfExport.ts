@@ -14,6 +14,7 @@ import { analisarEspaco } from "../analiseEspaco";
 import { agruparMarcas, marcasDaCena, presencaDaMarca, refDaMarca } from "../marcas";
 import { agruparPorLugar, custoAcessorio } from "../acessorios";
 import { sugerirFuturo } from "../sugestoesFuturas";
+import { resumoInventario } from "../inventarioSugestoes";
 import { medidaEsquadria, quadroDeEsquadrias } from "../esquadrias";
 
 /**
@@ -964,40 +965,80 @@ export async function montarDossie(
           "Levantamento do que o condomínio já tem. O reaproveitado permanece no projeto e não entra no investimento; o residual sai da sala.");
         y -= 6;
 
+        const res = resumoInventario(inventario);
+        // Faixa de fechamento da linha, já multiplicada pela quantidade.
+        // "R$ 450 a 600" em vez de "R$ 450 a R$ 600": a coluna é estreita e a
+        // segunda moeda não informa nada que a primeira já não tenha dito.
+        const faixaDe = (i: (typeof inventario)[number]): string => {
+          const qtd = Math.max(1, i.qtd || 1);
+          const mn = i.valor_fechamento_min ?? null;
+          const mx = i.valor_fechamento_max ?? null;
+          if (mn == null && mx == null) return "—";
+          const a = (mn ?? mx!) * qtd, b = (mx ?? mn!) * qtd;
+          return a === b ? BRL(a) : `${BRL(a)} a ${BRL(b).replace(/^R\$\s*/, "")}`;
+        };
+
         for (const [destino, lista] of [["reaproveitado", reap], ["residual", resi]] as const) {
           if (!lista.length) continue;
           const def = DESTINOS_INVENTARIO[destino];
+          const bloco = res[destino];
+          // Sem nenhum valor lançado, a tabela volta ao formato antigo de três
+          // colunas — projeto sem avaliação não ganha coluna de R$ vazia.
+          const comValor = bloco.valor > 0;
+          const residual = destino === "residual";
           ensure(64);
           page.drawRectangle({ x: M, y: y - 4, width: CW, height: 19, color: DARKBG });
           at(def.label.toUpperCase(), M + 9, y, 9.5, bold, hexToRgb(def.cor));
           rightAt(`${somaQtd(lista)} ${somaQtd(lista) === 1 ? "peça" : "peças"}`, A4.w - M - 9, y, 8.5, bold, rgb(0.88, 0.88, 0.88));
           y -= 24;
           campo("Critério", def.descricao);
-          const colObs = M + 210, colEst = A4.w - M - 150;
+          const colObs = M + (comValor ? 150 : 210);
+          const colEst = comValor ? A4.w - M - 200 : A4.w - M - 6;
+          const colVal = A4.w - M - 110, colTot = A4.w - M - 6;
           ensure(24);
           page.drawRectangle({ x: M, y: y - 4, width: CW, height: 16, color: CREAM });
           at("ITEM", M + 6, y, 7, bold, MUTED);
           at("OBSERVAÇÃO", colObs, y, 7, bold, MUTED);
-          rightAt("ESTADO", A4.w - M - 6, y, 7, bold, MUTED);
+          rightAt("ESTADO", colEst, y, 7, bold, MUTED);
+          if (comValor) {
+            rightAt(residual ? "ANÚNCIO" : "VALOR UN.", colVal, y, 7, bold, MUTED);
+            rightAt(residual ? "FECHAMENTO" : "TOTAL", colTot, y, 7, bold, MUTED);
+          }
           y -= 19;
           for (const i of lista) {
             ensure(17);
+            const qtd = Math.max(1, i.qtd || 1);
             const nome = `${i.qtd > 1 ? `${i.qtd}× ` : ""}${i.nome}`;
             at(trunc(nome, colObs - (M + 6) - 8, 9), M + 6, y, 9, font, DARK);
             at(trunc(i.observacao || "—", colEst - colObs - 8, 8.5), colObs, y, 8.5, font, MUTED);
-            rightAt(trunc(i.estado || "—", 140, 8.5), A4.w - M - 6, y, 8.5, font, MUTED);
+            rightAt(trunc(i.estado || "—", comValor ? 84 : 140, 8.5), colEst, y, 8.5, font, MUTED);
+            if (comValor) {
+              const un = i.valor_estimado ?? 0;
+              rightAt(un > 0 ? BRL(un) : "—", colVal, y, 8.5, font, MUTED);
+              rightAt(residual ? faixaDe(i) : (un > 0 ? BRL(un * qtd) : "—"), colTot, y, 9, font, DARK);
+            }
             page.drawLine({ start: { x: M, y: y - 5 }, end: { x: A4.w - M, y: y - 5 }, thickness: 0.35, color: LINE });
             y -= 16;
+          }
+          if (comValor) {
+            ensure(18);
+            y -= 4;
+            at(residual ? "Residual · valor de anúncio" : "Patrimônio reaproveitado", M + 6, y, 9, bold, DARK);
+            rightAt(BRL(Math.round(bloco.valor)), colTot, y, 10, bold, GOLD);
+            y -= 14;
           }
           y -= 10;
         }
 
-        const valorReap = reap.reduce((t, i) => t + (i.valor_estimado || 0) * (i.qtd || 1), 0);
-        if (valorReap > 0) {
-          ensure(20);
+        // O que o condomínio levanta vendendo o residual é o número que abre a
+        // conversa na assembleia — antes ele nem era somado.
+        if (res.residual.temFaixa && res.residual.fechamentoMax > 0) {
+          ensure(24);
           page.drawRectangle({ x: M, y: y - 5, width: CW, height: 19, color: CREAM });
-          at("VALOR DE MERCADO DO QUE FOI REAPROVEITADO", M + 9, y, 8.5, bold, GOLD);
-          rightAt(BRL(Math.round(valorReap)), A4.w - M - 9, y, 10, bold, GOLD);
+          at("RESIDUAL · FECHAMENTO ESPERADO", M + 9, y, 8.5, bold, GOLD);
+          const mn = Math.round(res.residual.fechamentoMin), mx = Math.round(res.residual.fechamentoMax);
+          rightAt(mn === mx ? BRL(mn) : `${BRL(mn)} a ${BRL(mx).replace(/^R\$\s*/, "")}`,
+            A4.w - M - 9, y, 10, bold, GOLD);
           y -= 26;
         }
       }

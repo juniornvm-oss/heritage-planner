@@ -482,8 +482,18 @@ export interface ItemInventario {
   estado?: string | null;
   /** Por que foi reaproveitado ou descartado. */
   observacao?: string | null;
-  /** Valor de mercado estimado (referência para o condomínio). */
+  /**
+   * Valor de mercado estimado POR UNIDADE (referência para o condomínio).
+   * No reaproveitado é o patrimônio que fica; no residual, o preço de anúncio.
+   */
   valor_estimado?: number | null;
+  /**
+   * Residual: faixa realista de FECHAMENTO por unidade, abaixo do anúncio.
+   * Equipamento de academia usado tem liquidez baixa — o síndico precisa da
+   * faixa, não só do preço pedido, para provisionar a venda em ata.
+   */
+  valor_fechamento_min?: number | null;
+  valor_fechamento_max?: number | null;
   /** Equipamento de treino vs acessório/guarda (anilhas, colchonetes…). */
   tipo?: "equipamento" | "acessorio";
   /**

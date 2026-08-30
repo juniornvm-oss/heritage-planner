@@ -139,6 +139,9 @@ export function mesclarInventario(atuais: ItemInventario[], cena: Cena, novoId: 
           tipo: ja.tipo ?? s.tipo,
           layoutItemId: s.layoutItemId ?? ja.layoutItemId,
           observacao: ja.observacao || s.observacao,
+          // Preenche o valor só quando a linha ainda não tem: o número
+          // digitado pelo consultor nunca é sobrescrito por re-sincronização.
+          valor_estimado: ja.valor_estimado ?? s.valor_estimado ?? null,
           destino: ja.destino === s.destino ? ja.destino : ja.destino,
         };
       }
@@ -159,4 +162,52 @@ export function mesclarInventario(atuais: ItemInventario[], cena: Cena, novoId: 
     porNome.set(k, row);
   }
   return out;
+}
+
+/** Totais de um destino do inventário — por peça, não por linha. */
+export interface ResumoDestino {
+  pecas: number;
+  /** Soma de valor_estimado × qtd. No residual é o valor de anúncio. */
+  valor: number;
+  /** Faixa de fechamento somada. Item sem faixa cai no próprio anúncio. */
+  fechamentoMin: number;
+  fechamentoMax: number;
+  /** Alguém preencheu faixa de fechamento? Decide se a coluna sai no Dossiê. */
+  temFaixa: boolean;
+}
+
+export interface ResumoInventario {
+  reaproveitado: ResumoDestino;
+  residual: ResumoDestino;
+}
+
+function somar(lista: ItemInventario[]): ResumoDestino {
+  const r: ResumoDestino = { pecas: 0, valor: 0, fechamentoMin: 0, fechamentoMax: 0, temFaixa: false };
+  for (const i of lista) {
+    const qtd = Math.max(1, i.qtd || 1);
+    const un = i.valor_estimado ?? 0;
+    const min = i.valor_fechamento_min ?? null;
+    const max = i.valor_fechamento_max ?? null;
+    r.pecas += qtd;
+    r.valor += un * qtd;
+    // Sem faixa, o item entra pelo próprio anúncio: o total continua somando
+    // o inventário inteiro em vez de só as linhas que o consultor detalhou.
+    r.fechamentoMin += (min ?? un) * qtd;
+    r.fechamentoMax += (max ?? min ?? un) * qtd;
+    if (min != null || max != null) r.temFaixa = true;
+  }
+  return r;
+}
+
+/**
+ * Fecha as contas do inventário para o Dossiê: o patrimônio que permanece e
+ * o que o condomínio levanta vendendo o residual. Até aqui o PDF só somava o
+ * reaproveitado — justamente o número que NÃO entra na negociação.
+ */
+export function resumoInventario(inventario: ItemInventario[] | undefined): ResumoInventario {
+  const lista = inventario ?? [];
+  return {
+    reaproveitado: somar(lista.filter((i) => i.destino === "reaproveitado")),
+    residual: somar(lista.filter((i) => i.destino === "residual")),
+  };
 }

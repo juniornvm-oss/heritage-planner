@@ -73,6 +73,7 @@ export interface Equipamento {
   descricao?: string | null; // o que é / para que serve — sai no memorial do Dossiê
   cenario_padrao?: Cenario | null; // cenário sugerido ao posicionar no projeto
   exercicios?: string[] | null; // exercícios resistidos executáveis no aparelho
+  produto_url?: string | null; // página oficial do modelo usada para conferir a ficha
   precisa_tomada?: boolean | null;
   voltagem?: "127" | "220" | "bivolt" | null;
   ponto_internet?: boolean | null;
@@ -106,6 +107,7 @@ export const CAMPOS_TECNICOS = [
   "precisa_tomada", "voltagem", "ponto_internet", "dist_parede_cm", "dist_lateral_cm",
   "dist_frontal_cm", "uso_frontal_cm", "uso_lateral_cm", "seguranca_cm", "obs", "ativo",
   "lados", "dist_entrada_cm", "descricao", "cenario_padrao", "exercicios",
+  "produto_url",
 ] as const;
 
 /** Fornecedor (planner.fornecedores) — global, reaproveitado entre projetos. */
@@ -709,6 +711,21 @@ export const PRESETS_LAMINA: { id: string; nome: string; descricao: string; cama
     camadas: { ...semNada, estrutura: true, acabamento: true, mobiliario: true, equipamentos: true },
   },
   {
+    id: "maquinas", nome: "Só máquinas",
+    descricao: "Somente o desenho dos equipamentos, sem nomes, medidas, piso ou informações técnicas.",
+    camadas: { ...semNada, equipamentos: true },
+  },
+  {
+    id: "entradas", nome: "Entradas das máquinas",
+    descricao: "Desenho dos equipamentos com apenas a indicação de entrada, frente e sentido de acesso.",
+    camadas: { ...semNada, equipamentos: true, orientacao: true },
+  },
+  {
+    id: "medidas", nome: "Tamanho das máquinas",
+    descricao: "Desenho dos equipamentos com largura e profundidade, sem os demais textos.",
+    camadas: { ...semNada, equipamentos: true, medidas: true },
+  },
+  {
     id: "distancias", nome: "Distâncias",
     descricao: "As folgas medidas entre um aparelho e outro, e entre aparelho e parede.",
     camadas: { ...semNada, estrutura: true, equipamentos: true, afastamentos: true, cotas: true },
@@ -882,6 +899,7 @@ export const ACESSORIOS_CATALOGO: ItemCatalogoAcessorio[] = [
   { nome: "Barra olímpica cromada 1,50 m", qtd: 1, preco: 790, familia: "carga" },
   { nome: "Step EVA", qtd: 2, preco: 250, familia: "funcional" },
   { nome: "Bola pilates 65 cm", qtd: 1, preco: 180, familia: "funcional" },
+  { nome: "Suporte vertical para 3 bolas", qtd: 1, preco: 790, familia: "guarda" },
   { nome: "Suporte para anilhas 8 pontas", qtd: 1, preco: 1200, familia: "guarda" },
   { nome: "Suporte para 9 barras olímpicas", qtd: 1, preco: 950, familia: "guarda" },
   { nome: "Colchonete emborrachado D80", qtd: 10, preco: 190, familia: "alongamento" },
@@ -895,6 +913,7 @@ export const ACESSORIOS_CATALOGO: ItemCatalogoAcessorio[] = [
   { nome: "Kit puxador ultra anatômico 8 pçs + suporte vertical", qtd: 1, preco: 4990, familia: "guarda" },
   { nome: "Kettlebell (8, 12, 16, 20 kg)", qtd: 1, preco: 2450, familia: "funcional" },
   { nome: "Kettlebell 32 kg", qtd: 1, preco: 920, familia: "funcional" },
+  { nome: "Rack para kettlebells 2 níveis", qtd: 1, preco: 1850, familia: "guarda" },
 ];
 
 /** Item de mobiliário/infraestrutura posicionado na planta (cm, mundo). */

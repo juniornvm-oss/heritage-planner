@@ -28,7 +28,7 @@ import { checarProntidaoDossie } from "../lib/prontidaoDossie";
 import { resumo, type Problema } from "../lib/validation";
 import { snapCm } from "../lib/canvas";
 import { BRL, formatLength, parseLength } from "../lib/units";
-import { ZONAS, CENARIOS, DESTINOS_INVENTARIO, OPCOES_DOSSIE_PADRAO, ROTULO_SECAO_DOSSIE, ORDEM_DOSSIE_PADRAO, SECAO_EXIGE_DADO, CIRCULACAO_PADRAO, TIPOS_AREA, taxaDe, MATERIAIS_PISO, ELEMENTOS_PAREDE, MOBILIARIO_CATALOGO, ACESSORIOS_CATALOGO, LADOS_PADRAO, type AcessorioProjeto, type LadoRect, type AreaFuncional, type TipoArea, type DestinoInventario, type ItemInventario, type OpcoesDossie, type SecaoDossie, type CamadasLamina, type LaminaDossie, type Cena, type MaterialPiso, type TipoElementoParede, type Zona, type Cenario, type ItemPosicionado, type Equipamento, type AreaAcabamento, type ElementoParede, type ItemInfraestrutura, type Projeto, type FamiliaAcessorio } from "../lib/types";
+import { ZONAS, CENARIOS, DESTINOS_INVENTARIO, OPCOES_DOSSIE_PADRAO, ROTULO_SECAO_DOSSIE, ORDEM_DOSSIE_PADRAO, SECAO_EXIGE_DADO, CIRCULACAO_PADRAO, TIPOS_AREA, taxaDe, MATERIAIS_PISO, ELEMENTOS_PAREDE, MOBILIARIO_CATALOGO, ACESSORIOS_CATALOGO, LADOS_PADRAO, PRESETS_LAMINA, type AcessorioProjeto, type LadoRect, type AreaFuncional, type TipoArea, type DestinoInventario, type ItemInventario, type OpcoesDossie, type SecaoDossie, type CamadasLamina, type LaminaDossie, type Cena, type MaterialPiso, type TipoElementoParede, type Zona, type Cenario, type ItemPosicionado, type Equipamento, type AreaAcabamento, type ElementoParede, type ItemInfraestrutura, type Projeto, type FamiliaAcessorio } from "../lib/types";
 import { areaPoligonoM2, perimetroCm, bboxPoligono, ehRetangulo, retanguloParaPontos, transladar, m2 } from "../lib/geometria";
 import { CAMPOS_ESPEC, CENARIO_DEF, ESPEC_ZONA, analisarCobertura, cenarioSugerido, composicaoZonas, detalheCenarios, explicarItem, normalizarExercicios } from "../lib/curadoria";
 import { sugerirFuturo, exerciciosDaCena } from "../lib/sugestoesFuturas";
@@ -38,7 +38,7 @@ import { analisarEspaco } from "../lib/analiseEspaco";
 import { gerarPromptVista } from "../lib/promptVista";
 import {
   FAMILIAS_ACESSORIO, acessorioDoCatalogo, agruparPorLugar, ancoraNoPonto, catalogoRelevante,
-  custoAcessorio, familiaDoNome, familiaServida, rotuloDaAncora,
+  custoAcessorio, diagnosticoGuarda, familiaDoNome, familiaServida, rotuloDaAncora,
 } from "../lib/acessorios";
 import { uploadOrcamento, urlOrcamento, removerOrcamentoArquivo, listarCotacoes, online } from "../lib/supabase";
 
@@ -95,6 +95,9 @@ export default function EditorScreen() {
   const ponteiroRef = useRef<EstadoPonteiro>({ x: 0, y: 0, zoom: 1, dentro: false });
   /** Camadas aplicadas ao canvas durante a captura das lâminas do Dossiê. */
   const [laminaCaptura, setLaminaCaptura] = useState<CamadasLamina | null>(null);
+  const [vistaLamina, setVistaLamina] = useState<string | null>(null);
+  const [laminasAbertas, setLaminasAbertas] = useState(false);
+  const vistaCamadas = useMemo(() => PRESETS_LAMINA.find((p) => p.id === vistaLamina)?.camadas ?? null, [vistaLamina]);
   /** Enquadramento da sala — o export chama antes de fotografar. */
   const enquadrarRef = useRef<(() => void) | null>(null);
   /** Prévia do PDF gerado (blob URL + bytes para baixar). */
@@ -803,6 +806,9 @@ export default function EditorScreen() {
                   title="Alternar camadas técnicas: uso + segurança / só uso / nada">
                   👁 {camadas === "tudo" ? "Uso+Seg" : camadas === "uso" ? "Uso" : "Corpo"}
                 </button>
+                <button className="btn btn--sm" onClick={() => setLaminasAbertas(true)} aria-haspopup="dialog" aria-expanded={laminasAbertas}>
+                  ▱ Lâminas{vistaLamina ? ` · ${PRESETS_LAMINA.find((p) => p.id === vistaLamina)?.nome}` : ""}
+                </button>
               </span>
               {lamina && (
                 <span style={{ fontSize: 11, color: "var(--info-soft)", whiteSpace: "nowrap" }}>
@@ -810,6 +816,34 @@ export default function EditorScreen() {
                 </span>
               )}
             </>
+          )}
+
+          {laminasAbertas && (
+            <div role="dialog" aria-modal="true" aria-label="Escolher visualização da planta"
+              style={{ position: "fixed", inset: 0, zIndex: 90, background: "rgba(0,0,0,.68)", display: "grid", placeItems: "center", padding: 18 }}
+              onClick={() => setLaminasAbertas(false)}>
+              <div className="card" style={{ width: "min(720px, 94vw)", maxHeight: "86vh", overflow: "auto", padding: 16 }} onClick={(e) => e.stopPropagation()}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+                  <div style={{ flex: 1 }}>
+                    <div className="brandface" style={{ color: "var(--gold)", fontSize: 18 }}>LÂMINAS DE VISUALIZAÇÃO</div>
+                    <div style={{ color: "var(--muted)", fontSize: 11.5 }}>Limpe a planta sem apagar nada. Você ainda pode selecionar e mover as máquinas.</div>
+                  </div>
+                  <button className="btn" onClick={() => setLaminasAbertas(false)}>✕ Fechar</button>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: 8 }}>
+                  <button className="btn" onClick={() => { setVistaLamina(null); setLaminasAbertas(false); }}
+                    style={{ textAlign: "left", whiteSpace: "normal", padding: 11, borderColor: !vistaLamina ? "var(--gold)" : undefined }}>
+                    <b>Editor completo</b><br /><span style={{ fontSize: 10.5, color: "var(--muted)" }}>Mostra novamente todas as informações de trabalho.</span>
+                  </button>
+                  {PRESETS_LAMINA.map((p) => (
+                    <button key={p.id} className="btn" onClick={() => { setVistaLamina(p.id); setLaminasAbertas(false); }}
+                      style={{ textAlign: "left", whiteSpace: "normal", padding: 11, borderColor: vistaLamina === p.id ? "var(--gold)" : undefined }}>
+                      <b>{p.nome}</b><br /><span style={{ fontSize: 10.5, color: "var(--muted)", lineHeight: 1.35 }}>{p.descricao}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
           )}
 
           {etapa === "acessorios" && (
@@ -1012,8 +1046,13 @@ export default function EditorScreen() {
           );
         })()}
 
-        {/* Etapa Cenários: painel de tela cheia (substitui canvas + inspetor) */}
-        {etapa === "curadoria" && !somenteLeitura ? (
+        {/* Etapas de análise e decisão usam a largura toda: o inventário vem
+            logo após a planta e a cobertura fecha o planejamento antes do dossiê. */}
+        {etapa === "inventario" && !somenteLeitura ? (
+          <PainelEtapaInventario />
+        ) : etapa === "cobertura" && !somenteLeitura ? (
+          <PainelEtapaCobertura />
+        ) : etapa === "curadoria" && !somenteLeitura ? (
           <CuradoriaPanel onEmitir={exportar} />
         ) : (<>
         {/* Canvas */}
@@ -1025,7 +1064,7 @@ export default function EditorScreen() {
             modoParede={modoParede} onParede={onParede} modoMoverPlanta={modoMoverPlanta}
             etapa={etapa} ferrEstrutura={ferrEstrutura}
             ferrAcess={ferrAcess} onFixarAcessorio={onFixarAcessorio}
-            padroes={padroes} ponteiroExternoRef={ponteiroRef} camadasLamina={laminaCaptura}
+            padroes={padroes} ponteiroExternoRef={ponteiroRef} camadasLamina={laminaCaptura} visualizacaoLamina={vistaCamadas}
             stageRef={stageRef} enquadrarRef={enquadrarRef} somenteLeitura={somenteLeitura} />
 
           {/* HUD do modo, no topo-centro do canvas — onde o olho já está. */}
@@ -2126,6 +2165,27 @@ function CoberturaInventarioFuturo() {
   );
 }
 
+/** Tela dedicada do levantamento, mantida fora do Dossiê para que a primeira
+ * decisão do projeto seja sempre o que pode ser preservado no orçamento. */
+function PainelEtapaInventario() {
+  return (
+    <main style={{ flex: 1, overflow: "auto", padding: "16px calc(16px + var(--sar)) 24px calc(16px + var(--sal))" }}>
+      <InventarioPanel />
+    </main>
+  );
+}
+
+/** Revisão imediatamente anterior ao Dossiê: reúne a cobertura técnica e as
+ * compras de uma próxima fase, sem misturá-las ao investimento aprovado. */
+function PainelEtapaCobertura() {
+  return (
+    <main style={{ flex: 1, overflow: "auto", padding: "16px calc(16px + var(--sar)) 24px calc(16px + var(--sal))", display: "grid", gap: 12 }}>
+      <CoberturaPanel />
+      <FuturoPanel />
+    </main>
+  );
+}
+
 /**
  * COBERTURA MUSCULAR & MOVIMENTO.
  *
@@ -2877,6 +2937,12 @@ function AcessoriosInspector({ sel }: { sel: AcessorioProjeto | null }) {
   const selecionarAcessorio = useProjeto((s) => s.selecionarAcessorio);
   const total = acessorios.reduce((t, a) => t + custoAcessorio(a), 0);
   const grupos = agruparPorLugar(acessorios, cena);
+  const guarda = diagnosticoGuarda(cena);
+  const alertasGuarda = [
+    guarda.puxadoresSemLugar > 0 ? `${guarda.puxadoresSemLugar} puxador(es) sem vaga de suporte` : null,
+    guarda.bolas > 0 && !guarda.temSuporteBolas ? `${guarda.bolas} bola(s) sem suporte` : null,
+    guarda.kettlebells > 0 && !guarda.temRackKettlebells ? `${guarda.kettlebells} kettlebell(s) sem rack` : null,
+  ].filter(Boolean) as string[];
   return (
     <div style={{ display: "grid", gap: 12 }}>
       <div className="brandface" style={{ fontSize: 16, color: "var(--gold)" }}>ACESSÓRIOS</div>
@@ -2884,6 +2950,17 @@ function AcessoriosInspector({ sel }: { sel: AcessorioProjeto | null }) {
         {acessorios.length
           ? `${acessorios.length} item(ns) agrupados pelo lugar na planta. Toque para editar; Sincronizar evita pagar estante/torre/suporte duas vezes.`
           : "Use Sugerir para montar a lista a partir DESTE layout, ou lance pelo catálogo à esquerda."}
+      </div>
+      <div style={{ display: "grid", gap: 5, background: "var(--panel-2)", border: `1px solid ${alertasGuarda.length ? "var(--warn)" : "var(--green)"}`, borderRadius: 8, padding: "8px 10px" }}>
+        <div style={{ fontSize: 10.5, fontWeight: 700, color: alertasGuarda.length ? "var(--warn)" : "var(--green)", letterSpacing: ".05em" }}>
+          GUARDA DOS ACESSÓRIOS
+        </div>
+        <div style={{ fontSize: 11, color: "#b6b6b1" }}>
+          Puxadores: {guarda.puxadores} peça(s) · {guarda.vagasPuxadores} vaga(s)
+        </div>
+        {alertasGuarda.length
+          ? alertasGuarda.map((a) => <div key={a} style={{ fontSize: 11, color: "var(--warn)" }}>⚠ {a}</div>)
+          : <div style={{ fontSize: 11, color: "var(--green)" }}>✓ Tudo tem lugar de guarda previsto.</div>}
       </div>
       {sel && (
         <div style={{ display: "grid", gap: 8, background: "var(--panel-2)", border: "1px solid var(--gold)", borderRadius: 8, padding: 10 }}>

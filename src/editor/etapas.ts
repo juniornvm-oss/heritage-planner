@@ -41,6 +41,13 @@ export const ETAPAS: DefEtapa[] = [
     ajuda: "Importe a planta baixa, calibre a escala e desenhe paredes, portas, janelas e pilares.",
   },
   {
+    id: "inventario",
+    titulo: "Inventário",
+    entrega: "o que existe e será aproveitado",
+    ajuda: "Levante os equipamentos e acessórios existentes, decida o que reaproveitar ou vender e sincronize com o projeto.",
+    telaCheia: true,
+  },
+  {
     id: "acabamento",
     titulo: "Acabamento",
     entrega: "pisos, espelhos e mobiliário",
@@ -49,8 +56,14 @@ export const ETAPAS: DefEtapa[] = [
   {
     id: "layout",
     titulo: "Layout",
-    entrega: "os equipamentos posicionados",
-    ajuda: "Arraste os equipamentos da biblioteca. As guias mostram alinhamento e folga em centímetros.",
+    entrega: "equipamentos e suportes posicionados",
+    ajuda: "Organize os equipamentos e, na etapa seguinte, fixe acessórios e suportes no mesmo espaço.",
+  },
+  {
+    id: "acessorios",
+    titulo: "Acessórios no layout",
+    entrega: "complementos no lugar certo",
+    ajuda: "Integrado ao layout: sugira, ancore cada acessório ou suporte numa região/aparelho e orce somente o necessário.",
   },
   {
     id: "areas",
@@ -65,10 +78,11 @@ export const ETAPAS: DefEtapa[] = [
     ajuda: "Para cada equipamento: função no projeto, restrições e detalhes de instalação.",
   },
   {
-    id: "acessorios",
-    titulo: "Acessórios",
-    entrega: "complementos no lugar certo",
-    ajuda: "Sugira a partir do layout, ancore cada item numa região ou aparelho, e orce só o que este projeto pede.",
+    id: "cobertura",
+    titulo: "Cobertura & Futuro",
+    entrega: "lacunas e próximas melhorias",
+    ajuda: "Revise a cobertura muscular e de movimentos e planeje evoluções futuras sem comprometer o orçamento atual.",
+    telaCheia: true,
   },
   {
     id: "curadoria",
@@ -108,6 +122,10 @@ export function sinalDaEtapa(id: Etapa, cena: Cena, nColisoes: number): SinalEta
       const n = cena.areas?.length ?? 0;
       return { texto: n ? `${n} ${n === 1 ? "região" : "regiões"}` : "", pronta: n > 0 };
     }
+    case "inventario": {
+      const lista = cena.inventario ?? [];
+      return { texto: lista.length ? `${lista.length} itens` : "", pronta: lista.length > 0 };
+    }
     case "layout": {
       if (!itens.length) return { texto: "" };
       if (nColisoes) return { texto: `${nColisoes} a resolver`, alerta: true };
@@ -127,6 +145,10 @@ export function sinalDaEtapa(id: Etapa, cena: Cena, nColisoes: number): SinalEta
       const cenarios = new Set(itens.map((i) => i.cenario));
       if (cenarios.size < 2) return { texto: "sem classificar", alerta: true };
       return { texto: cena.parecer?.trim() ? "com parecer" : "classificado", pronta: !!cena.parecer?.trim() };
+    }
+    case "cobertura": {
+      if (!itens.length) return { texto: "sem layout", alerta: true };
+      return { texto: "análise pronta", pronta: true };
     }
     case "acessorios": {
       const lista = cena.acessorios ?? [];

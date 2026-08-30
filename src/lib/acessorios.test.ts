@@ -4,7 +4,7 @@
 import { describe, it, expect } from "vitest";
 import {
   agruparPorLugar, ancoraNoPonto, catalogoRelevante, custoAcessorio, familiaDoNome,
-  mesclarSugestoes, organizarAcessorios, reconciliarAcessorios, sinaisDoProjeto, sugerirAcessorios,
+  diagnosticoGuarda, mesclarSugestoes, organizarAcessorios, reconciliarAcessorios, sinaisDoProjeto, sugerirAcessorios,
 } from "./acessorios";
 import type { AreaFuncional, Cena, ItemPosicionado } from "./types";
 
@@ -96,6 +96,19 @@ describe("organização no espaço", () => {
     expect(org[1].familia).toBe("puxadores");
   });
 
+  it("leva anilha pesada ao leg press e anilha leve ao rack central", () => {
+    const c = cenaDe([
+      item("Leg Press 45° plate loaded", { id: "leg" }),
+      item("Power Rack", { id: "rack" }),
+    ]);
+    const org = organizarAcessorios([
+      { id: "20", nome: "Anilha olímpica BV 20 kg", qtd: 4, preco_un: 1 },
+      { id: "2", nome: "Anilha olímpica BV 2,5 kg", qtd: 4, preco_un: 1 },
+    ], c);
+    expect(org[0].ancora).toEqual({ tipo: "item", id: "leg" });
+    expect(org[1].ancora).toEqual({ tipo: "item", id: "rack" });
+  });
+
   it("o toque sobre o equipamento vira âncora da peça", () => {
     const rack = item("Power Rack", { id: "r", x_cm: 100, y_cm: 100, w_cm: 120, h_cm: 80 });
     const c = cenaDe([rack]);
@@ -121,6 +134,34 @@ describe("organização no espaço", () => {
     ], c);
     expect(grupos[0].titulo).toMatch(/Power Rack/);
     expect(grupos[grupos.length - 1].titulo).toMatch(/Sem lugar/);
+  });
+});
+
+describe("capacidade de guarda", () => {
+  it("conta puxadores sem vaga e identifica bola e kettlebell soltos", () => {
+    const c = cenaDe([item("Puxada + Remada")], { acessorios: [
+      { id: "p", nome: "Puxador corda", qtd: 3, preco_un: 1 },
+      { id: "b", nome: "Bola pilates 65 cm", qtd: 2, preco_un: 1 },
+      { id: "k", nome: "Kettlebell (8, 12, 16, 20 kg)", qtd: 4, preco_un: 1 },
+    ] });
+    expect(diagnosticoGuarda(c)).toMatchObject({
+      puxadores: 3, puxadoresSemLugar: 3, bolas: 2, temSuporteBolas: false,
+      kettlebells: 4, temRackKettlebells: false,
+    });
+  });
+
+  it("zera alertas quando os suportes entram na lista", () => {
+    const c = cenaDe([item("Puxada + Remada")], { acessorios: [
+      { id: "p", nome: "Puxador corda", qtd: 3, preco_un: 1 },
+      { id: "sp", nome: "Kit puxador ultra anatômico 8 pçs + suporte vertical", qtd: 1, preco_un: 1 },
+      { id: "b", nome: "Bola pilates 65 cm", qtd: 1, preco_un: 1 },
+      { id: "sb", nome: "Suporte vertical para 3 bolas", qtd: 1, preco_un: 1 },
+      { id: "k", nome: "Kettlebell 32 kg", qtd: 1, preco_un: 1 },
+      { id: "sk", nome: "Rack para kettlebells 2 níveis", qtd: 1, preco_un: 1 },
+    ] });
+    expect(diagnosticoGuarda(c)).toMatchObject({
+      puxadoresSemLugar: 0, temSuporteBolas: true, temRackKettlebells: true,
+    });
   });
 });
 

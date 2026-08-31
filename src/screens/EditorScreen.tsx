@@ -28,6 +28,7 @@ import { checarProntidaoDossie } from "../lib/prontidaoDossie";
 import { resumo, type Problema } from "../lib/validation";
 import { snapCm } from "../lib/canvas";
 import { BRL, formatLength, parseLength } from "../lib/units";
+import { resumoInventario } from "../lib/inventarioSugestoes";
 import { ZONAS, CENARIOS, DESTINOS_INVENTARIO, OPCOES_DOSSIE_PADRAO, ROTULO_SECAO_DOSSIE, ORDEM_DOSSIE_PADRAO, SECAO_EXIGE_DADO, CIRCULACAO_PADRAO, TIPOS_AREA, taxaDe, MATERIAIS_PISO, ELEMENTOS_PAREDE, MOBILIARIO_CATALOGO, ACESSORIOS_CATALOGO, LADOS_PADRAO, PRESETS_LAMINA, type AcessorioProjeto, type LadoRect, type AreaFuncional, type TipoArea, type DestinoInventario, type ItemInventario, type OpcoesDossie, type SecaoDossie, type CamadasLamina, type LaminaDossie, type Cena, type MaterialPiso, type TipoElementoParede, type Zona, type Cenario, type ItemPosicionado, type Equipamento, type AreaAcabamento, type ElementoParede, type ItemInfraestrutura, type Projeto, type FamiliaAcessorio } from "../lib/types";
 import { areaPoligonoM2, perimetroCm, bboxPoligono, ehRetangulo, retanguloParaPontos, transladar, m2 } from "../lib/geometria";
 import { CAMPOS_ESPEC, CENARIO_DEF, ESPEC_ZONA, analisarCobertura, cenarioSugerido, composicaoZonas, detalheCenarios, explicarItem, normalizarExercicios } from "../lib/curadoria";
@@ -2648,6 +2649,7 @@ function InventarioPanel() {
   const sugerirInventarioDoProjeto = useProjeto((s) => s.sugerirInventarioDoProjeto);
   const porDestino = (d: DestinoInventario) => inventario.filter((i) => i.destino === d);
   const pecas = (xs: ItemInventario[]) => xs.reduce((t, i) => t + (i.qtd || 1), 0);
+  const resumo = useMemo(() => resumoInventario(inventario), [inventario]);
 
   return (
     <section className="card" style={{ padding: 14, display: "grid", gap: 10 }}>
@@ -2677,12 +2679,22 @@ function InventarioPanel() {
         </div>
       ) : (
         <>
+          {/* Os mesmos totais que saem no Dossiê, aqui — para o consultor
+              conferir o número antes de exportar, não depois de imprimir. */}
           <div style={{ display: "flex", gap: 14, fontSize: 11.5, flexWrap: "wrap" }}>
             {(Object.keys(DESTINOS_INVENTARIO) as DestinoInventario[]).map((d) => (
               <span key={d} style={{ color: DESTINOS_INVENTARIO[d].cor }}>
                 {DESTINOS_INVENTARIO[d].label}: <b>{pecas(porDestino(d))}</b> peça(s)
+                {resumo[d].valor > 0 && <> · <b>{BRL(Math.round(resumo[d].valor))}</b>
+                  {d === "residual" ? " de anúncio" : " de patrimônio"}</>}
               </span>
             ))}
+            {resumo.residual.temFaixa && resumo.residual.fechamentoMax > 0 && (
+              <span style={{ color: "var(--muted)" }}>
+                Fechamento esperado do residual: <b>{BRL(Math.round(resumo.residual.fechamentoMin))}</b> a{" "}
+                <b>{BRL(Math.round(resumo.residual.fechamentoMax))}</b>
+              </span>
+            )}
           </div>
           <div style={{ display: "grid", gap: 5 }}>
             {inventario.map((i) => (
@@ -2714,14 +2726,28 @@ function InventarioPanel() {
                 <input className="fld" style={{ flex: 1, minWidth: 190, padding: "5px 8px", fontSize: 11.5 }}
                   value={i.observacao ?? ""} placeholder="Por que fica / por que sai / uso no projeto"
                   onChange={(e) => updateInventario(i.id, { observacao: e.target.value || null })} />
-                <input className="fld" style={{ width: 118, padding: "5px 8px", fontSize: 11.5, textAlign: "right" }}
+                <input className="fld" style={{ width: 112, padding: "5px 8px", fontSize: 11.5, textAlign: "right" }}
                   value={i.valor_estimado != null ? String(i.valor_estimado) : ""}
-                  placeholder="R$ mercado" inputMode="numeric"
-                  title="Valor de mercado estimado por unidade — soma no Dossiê como economia do reaproveitamento"
+                  placeholder={i.destino === "residual" ? "R$ anúncio" : "R$ mercado"} inputMode="numeric"
+                  title={i.destino === "residual"
+                    ? "Preço de anúncio por unidade — soma no Dossiê como o que o condomínio pede pelo residual"
+                    : "Valor de mercado estimado por unidade — soma no Dossiê como patrimônio que permanece"}
                   onChange={(e) => {
                     const n = Number(e.target.value.replace(/[^\d]/g, ""));
                     updateInventario(i.id, { valor_estimado: n > 0 ? n : null });
                   }} />
+                {/* Usado não vende pelo preço de anúncio. A faixa de fechamento
+                    é o que o síndico provisiona — só faz sentido no residual. */}
+                {i.destino === "residual" && (["valor_fechamento_min", "valor_fechamento_max"] as const).map((campo, k) => (
+                  <input key={campo} className="fld" style={{ width: 92, padding: "5px 8px", fontSize: 11.5, textAlign: "right" }}
+                    value={i[campo] != null ? String(i[campo]) : ""}
+                    placeholder={k === 0 ? "R$ fecha mín" : "R$ fecha máx"} inputMode="numeric"
+                    title={`Faixa realista de fechamento por unidade — ${k === 0 ? "piso" : "teto"} da negociação, abaixo do anúncio`}
+                    onChange={(e) => {
+                      const n = Number(e.target.value.replace(/[^\d]/g, ""));
+                      updateInventario(i.id, { [campo]: n > 0 ? n : null });
+                    }} />
+                ))}
                 <div style={{ display: "flex", gap: 4 }}>
                   {(Object.keys(DESTINOS_INVENTARIO) as DestinoInventario[]).map((d) => (
                     <button key={d} className="btn" onClick={() => updateInventario(i.id, { destino: d, sugestao: d === "reaproveitado" ? "reaproveitar" : "vender" })}

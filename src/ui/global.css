@@ -234,9 +234,9 @@ select.fld { appearance: none; -webkit-appearance: none; }
   .btn:active, .card-btn:active, .card-btn:hover { transform: none; }
 }
 
-/* Canvas do editor: o traço do Apple Pencil / dedo vai para o desenho,
-   nunca para a rolagem da página (Safari/iPad). */
-.konvajs-content, .konvajs-content canvas {
+/* Canvas do editor e prancheta de cadastro: o traço do Apple Pencil / dedo
+   vai para o desenho, nunca para a rolagem da página (Safari/iPad). */
+.konvajs-content, .konvajs-content canvas, svg.prancheta {
   touch-action: none !important;
   -webkit-user-select: none;
   user-select: none;

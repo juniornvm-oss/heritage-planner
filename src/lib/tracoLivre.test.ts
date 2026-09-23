@@ -4,7 +4,7 @@
 import { describe, it, expect } from "vitest";
 import {
   caixaPrancheta, clamp01, distPontoSegmento, fecharSeProximo, filtrarEspacamento,
-  finalizarTraco, marcasGrade, passoGradeCm, passoMaiorCm, pontoNormalizado,
+  finalizarTraco, marcasGrade, MAX_MARCAS_GRADE, passoGradeCm, passoMaiorCm, pontoNormalizado,
   simplificarRdp, snapNorm,
 } from "./tracoLivre";
 
@@ -48,6 +48,13 @@ describe("grade em cm", () => {
   it("linha grossa cai em 50 cm quando a peça cabe", () => {
     expect(passoMaiorCm(5, 150)).toBe(50);
     expect(passoMaiorCm(5, 60)).toBe(10);
+  });
+
+  it("não explode com dimensão absurda ou não-finita", () => {
+    expect(marcasGrade(1e9, 20).length).toBeLessThanOrEqual(MAX_MARCAS_GRADE + 1);
+    expect(marcasGrade(Number.POSITIVE_INFINITY, 5)).toEqual([0]);
+    expect(marcasGrade(Number.NaN, 5)).toEqual([0]);
+    expect(passoGradeCm(Number.POSITIVE_INFINITY, 80)).toBe(5);
   });
 
   it("snap encaixa no cruzamento da grade sem sair da caixa", () => {
@@ -117,5 +124,9 @@ describe("caixa da prancheta", () => {
     const fundoAlto = caixaPrancheta(80, 200, 400, 300);
     expect(fundoAlto.h).toBe(300);
     expect(fundoAlto.w).toBe(120);
+    const inf = caixaPrancheta(Number.POSITIVE_INFINITY, 80, 400, 300);
+    expect(inf.w).toBeGreaterThan(0);
+    expect(inf.h).toBeGreaterThan(0);
+    expect(Number.isFinite(inf.w)).toBe(true);
   });
 });

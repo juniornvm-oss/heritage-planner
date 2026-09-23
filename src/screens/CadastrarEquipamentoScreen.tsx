@@ -352,10 +352,11 @@ export default function CadastrarEquipamentoScreen() {
             <BotaoLado k="esq" lados={lados} onCiclar={ciclarLado} vertical />
             <div style={{ position: "relative", width: previewW, height: previewH, background: "var(--panel-2)", border: "1px solid var(--line-2)", borderRadius: 8, overflow: "hidden" }}>
               {imagem && <img src={imagem} alt="equipamento" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "fill", opacity: 0.85 }} />}
-              <svg ref={svgRef} viewBox="0 0 1 1" preserveAspectRatio="none" className="prancheta"
+              <svg ref={svgRef} viewBox="0 0 1 1" preserveAspectRatio="none"
+                className={(tracando || modoRecorte) ? "prancheta" : undefined}
                 onClick={clicarPreview} onMouseMove={moverPreview}
                 {...(tracando && !modoRecorte ? ponteiroPreview : {})}
-                style={{ position: "absolute", inset: 0, width: "100%", height: "100%", cursor: (tracando || modoRecorte) ? "crosshair" : "default", touchAction: tracando ? "none" : undefined }}>
+                style={{ position: "absolute", inset: 0, width: "100%", height: "100%", cursor: (tracando || modoRecorte) ? "crosshair" : "default", touchAction: (tracando || modoRecorte) ? "none" : undefined }}>
                 <GradeSvg larguraCm={larg} profundidadeCm={prof} />
                 {contorno.map((pl, i) => <polyline key={i} points={pts(pl)} fill="none" stroke={ZONAS[f.zona].cor} strokeWidth={0.007} strokeLinecap="round" strokeLinejoin="round" />)}
                 {tracoAtual.length >= 2 && <polyline points={pts(tracoAtual)} fill="none" stroke="#5FC8E8" strokeWidth={0.007} strokeLinecap="round" strokeLinejoin="round" />}

@@ -40,19 +40,25 @@ export function snapNorm(v: number, tamanhoCm: number, passoCm: number): number 
  */
 export function passoGradeCm(larguraCm: number, profundidadeCm: number): number {
   const m = Math.max(larguraCm, profundidadeCm);
-  if (!(m > 0)) return 5;
+  if (!Number.isFinite(m) || m <= 0) return 5;
   if (m <= 200) return 5;
   if (m <= 400) return 10;
   return 20;
 }
 
+/** Teto de linhas da grade. Sem isso, um 10⁹ colado em Largura trava o render. */
+export const MAX_MARCAS_GRADE = 80;
+
 /** Marcas de 0 até o tamanho, inclusive — para linhas e rótulos da grade. */
 export function marcasGrade(tamanhoCm: number, passo: number): number[] {
-  if (!(tamanhoCm > 0) || !(passo > 0)) return [0];
+  if (!Number.isFinite(tamanhoCm) || tamanhoCm <= 0) return [0];
+  const passoOk = Number.isFinite(passo) && passo > 0 ? passo : 5;
+  const passoUsado = Math.max(passoOk, tamanhoCm / MAX_MARCAS_GRADE);
+  if (!Number.isFinite(passoUsado) || passoUsado <= 0) return [0];
   const out: number[] = [];
-  const n = Math.ceil(tamanhoCm / passo);
+  const n = Math.min(MAX_MARCAS_GRADE, Math.ceil(tamanhoCm / passoUsado));
   for (let i = 0; i <= n; i++) {
-    const c = Math.min(tamanhoCm, r4(i * passo));
+    const c = Math.min(tamanhoCm, r4(i * passoUsado));
     if (!out.length || out[out.length - 1] !== c) out.push(c);
   }
   if (out[out.length - 1] !== tamanhoCm) out.push(r4(tamanhoCm));
@@ -159,7 +165,9 @@ export function caixaPrancheta(
   maxW: number,
   maxH: number,
 ): { w: number; h: number } {
-  const a = (profundidadeCm || 100) / (larguraCm || 100);
+  const L = Number.isFinite(larguraCm) && larguraCm > 0 ? larguraCm : 100;
+  const P = Number.isFinite(profundidadeCm) && profundidadeCm > 0 ? profundidadeCm : 100;
+  const a = P / L;
   let w = maxW, h = w * a;
   if (h > maxH) { h = maxH; w = h / a; }
   return { w: Math.max(1, Math.round(w)), h: Math.max(1, Math.round(h)) };

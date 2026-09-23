@@ -357,7 +357,7 @@ export default function CadastrarEquipamentoScreen() {
                 {...(tracando && !modoRecorte ? ponteiroPreview : {})}
                 style={{ position: "absolute", inset: 0, width: "100%", height: "100%", cursor: (tracando || modoRecorte) ? "crosshair" : "default", touchAction: tracando ? "none" : undefined }}>
                 <GradeSvg larguraCm={larg} profundidadeCm={prof} />
-                {contorno.map((pl, i) => <polyline key={i} points={pts(pl)} fill="none" stroke="#C9A227" strokeWidth={0.007} strokeLinecap="round" strokeLinejoin="round" />)}
+                {contorno.map((pl, i) => <polyline key={i} points={pts(pl)} fill="none" stroke={ZONAS[f.zona].cor} strokeWidth={0.007} strokeLinecap="round" strokeLinejoin="round" />)}
                 {tracoAtual.length >= 2 && <polyline points={pts(tracoAtual)} fill="none" stroke="#5FC8E8" strokeWidth={0.007} strokeLinecap="round" strokeLinejoin="round" />}
                 {tracoLivre.length >= 2 && <polyline points={pts(tracoLivre)} fill="none" stroke="#5FC8E8" strokeWidth={0.007} strokeLinecap="round" strokeLinejoin="round" />}
                 {chunk(tracoAtual).map(([x, y], i) => <circle key={i} cx={x} cy={y} r={0.012} fill="#5FC8E8" />)}

@@ -5,8 +5,11 @@ import { useLibrary } from "../store/libraryStore";
 import { inserirEquipamentos, atualizarEquipamento, removerEquipamento, online } from "../lib/supabase";
 import { reduzirImagem, limparDesenho, recortarImagem } from "../lib/imagem";
 import { contornoDeArquivo } from "../lib/plantaVetorial";
+import { caixaPrancheta, passoGradeCm } from "../lib/tracoLivre";
 import { ZONAS, CENARIOS, CATEGORIAS_EQUIP, PAPEL_LADO, LADOS_PADRAO, type Cenario, type Equipamento, type Zona, type LadoRect, type PapelLado } from "../lib/types";
 import { baseDoNome, cenarioSugerido, normalizarExercicios } from "../lib/curadoria";
+import PranchetaDesenho, { GradeSvg } from "../ui/PranchetaDesenho";
+import { useTracoPonteiro } from "../ui/useTracoPonteiro";
 
 const Campo = ({ label, children }: { label: string; children: React.ReactNode }) => (
   <label style={{ display: "grid", gap: 5, minWidth: 0 }}>
@@ -48,6 +51,7 @@ export default function CadastrarEquipamentoScreen() {
   const [contorno, setContorno] = useState<number[][]>([]);
   const [tracando, setTracando] = useState(false);
   const [tracoAtual, setTracoAtual] = useState<number[]>([]);
+  const [tracoLivre, setTracoLivre] = useState<number[]>([]);
   const [modoRecorte, setModoRecorte] = useState(false);
   const [recorteA, setRecorteA] = useState<[number, number] | null>(null);
   const [recortePtr, setRecortePtr] = useState<[number, number] | null>(null);
@@ -90,7 +94,8 @@ export default function CadastrarEquipamentoScreen() {
 
   const set = (k: keyof typeof f) => (v: string) => setF((x) => ({ ...x, [k]: v }));
   const larg = Number(f.largura) || 100, prof = Number(f.profundidade) || 100;
-  const aspecto = useMemo(() => prof / larg, [prof, larg]);
+  const passo = passoGradeCm(larg, prof);
+  const acrescentarTraco = (pl: number[]) => setContorno((c) => [...c, pl]);
   // Texto da base técnica para este nome — vira o padrão do Dossiê se a descrição ficar vazia.
   const sugestaoTexto = useMemo(() => baseDoNome(f.nome), [f.nome]);
 
@@ -112,7 +117,7 @@ export default function CadastrarEquipamentoScreen() {
     } catch (e) { setErro((e as Error).message); } finally { setBusy(null); }
   }
 
-  function ponto(e: React.MouseEvent): [number, number] | null {
+  function ponto(e: React.MouseEvent | React.PointerEvent): [number, number] | null {
     if (!svgRef.current) return null;
     const r = svgRef.current.getBoundingClientRect();
     return [Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)), Math.min(1, Math.max(0, (e.clientY - r.top) / r.height))];
@@ -124,14 +129,20 @@ export default function CadastrarEquipamentoScreen() {
     if (modoRecorte) {
       if (!recorteA) { setRecorteA(p); setRecortePtr(p); }
       else { aplicarRecorte(recorteA, p); setRecorteA(null); setRecortePtr(null); setModoRecorte(false); }
-      return;
     }
-    if (tracando) setTracoAtual((t) => [...t, p[0], p[1]]);
   }
 
   function moverPreview(e: React.MouseEvent) {
     if (modoRecorte && recorteA) setRecortePtr(ponto(e));
   }
+
+  const ponteiroPreview = useTracoPonteiro({
+    habilitado: tracando && !modoRecorte,
+    larguraCm: larg, profundidadeCm: prof, snap: false, passoCm: passo,
+    onVivo: setTracoLivre,
+    onPronto: acrescentarTraco,
+    onToque: (p) => setTracoAtual((t) => [...t, p[0], p[1]]),
+  });
 
   function concluirTraco() {
     if (tracoAtual.length >= 4) setContorno((c) => [...c, tracoAtual]);
@@ -204,15 +215,15 @@ export default function CadastrarEquipamentoScreen() {
     nav("/equipamentos");
   }
 
-  const previewW = 360, previewH = Math.round(360 * aspecto);
+  const { w: previewW, h: previewH } = caixaPrancheta(larg, prof, 420, 360);
 
   return (
     <Shell actions={<button className="btn" onClick={() => nav("/equipamentos")}>← Biblioteca</button>}>
       <div style={{ maxWidth: 1280, margin: "0 auto" }}>
         <div className="microlabel">Biblioteca · Equipamentos</div>
         <h1 className="brandface" style={{ fontSize: 30, color: "var(--gold)", marginTop: 6, marginBottom: 4 }}>{editando ? "Editar equipamento" : "Cadastrar equipamento"}</h1>
-        <p style={{ color: "var(--muted)", fontSize: 13, marginBottom: 20, maxWidth: 620, lineHeight: 1.5 }}>
-          Suba um <b>DWG, DXF ou PDF</b> em escala: extraio o contorno do equipamento (a leitura da silhueta, não o arquivo do fabricante). Sem arquivo, a biblioteca já traz a cópia de planta — console, banco, pilha e seta de entrada — para você ver frente, lateral e por onde se entra. Uma <b>imagem</b> também serve: informe as medidas em cm e trace por cima. Na planta, o topo é a frente e a base é a entrada.
+        <p style={{ color: "var(--muted)", fontSize: 13, marginBottom: 20, maxWidth: 720, lineHeight: 1.5 }}>
+          Duas entradas para o desenho da peça. <b>Suba um DWG, DXF ou PDF</b> em escala: extraio o contorno (a leitura da silhueta, não o arquivo do fabricante). Sem arquivo, a biblioteca já traz a cópia de planta — console, banco, pilha e seta de entrada. Uma <b>imagem</b> também serve: informe as medidas em cm e trace por cima. E tem a <b>prancheta quadriculada</b>: o retângulo é o equipamento nas medidas em cm, a grade é em centímetros, e você desenha com a Apple Pencil — o traço não sai da caixa. Na planta, o topo é a frente e a base é a entrada.
         </p>
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 22, alignItems: "start" }}>
@@ -327,7 +338,7 @@ export default function CadastrarEquipamentoScreen() {
               <input ref={fileRef} type="file" style={{ display: "none" }} onChange={(e) => onUpload(e.target.files?.[0])} />
               <button className="btn btn-blue" onClick={() => fileRef.current?.click()}>{busy || "⭱ Subir arquivo (DWG/PDF/imagem)"}</button>
               <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 6, lineHeight: 1.45 }}>
-                Aceita DWG, DXF, PDF ou imagem (PNG/JPG). O bloco CAD oficial (Life Fitness Gym Planner, Matrix, Technogym, etc.) fica na ficha desta peça — não redistribuímos o arquivo, só o contorno em cm.
+                Aceita DWG, DXF, PDF ou imagem (PNG/JPG). O bloco CAD oficial (Life Fitness Gym Planner, Matrix, Technogym, etc.) fica na ficha desta peça — não redistribuímos o arquivo, só o contorno em cm. Sem arquivo, desenhe na prancheta quadriculada abaixo com a caneta do iPad.
               </div>
             </div>
             {erro && <div style={{ color: "var(--red)", fontSize: 12.5 }}>{erro}</div>}
@@ -341,10 +352,15 @@ export default function CadastrarEquipamentoScreen() {
             <BotaoLado k="esq" lados={lados} onCiclar={ciclarLado} vertical />
             <div style={{ position: "relative", width: previewW, height: previewH, background: "var(--panel-2)", border: "1px solid var(--line-2)", borderRadius: 8, overflow: "hidden" }}>
               {imagem && <img src={imagem} alt="equipamento" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "fill", opacity: 0.85 }} />}
-              <svg ref={svgRef} viewBox="0 0 1 1" preserveAspectRatio="none" onClick={clicarPreview} onMouseMove={moverPreview}
-                style={{ position: "absolute", inset: 0, width: "100%", height: "100%", cursor: (tracando || modoRecorte) ? "crosshair" : "default" }}>
-                {contorno.map((pl, i) => <polyline key={i} points={pts(pl)} fill="none" stroke="#C9A227" strokeWidth={0.007} />)}
-                {tracoAtual.length >= 2 && <polyline points={pts(tracoAtual)} fill="none" stroke="#5FC8E8" strokeWidth={0.007} />}
+              <svg ref={svgRef} viewBox="0 0 1 1" preserveAspectRatio="none"
+                className={(tracando || modoRecorte) ? "prancheta" : undefined}
+                onClick={clicarPreview} onMouseMove={moverPreview}
+                {...(tracando && !modoRecorte ? ponteiroPreview : {})}
+                style={{ position: "absolute", inset: 0, width: "100%", height: "100%", cursor: (tracando || modoRecorte) ? "crosshair" : "default", touchAction: (tracando || modoRecorte) ? "none" : undefined }}>
+                <GradeSvg larguraCm={larg} profundidadeCm={prof} />
+                {contorno.map((pl, i) => <polyline key={i} points={pts(pl)} fill="none" stroke={ZONAS[f.zona].cor} strokeWidth={0.007} strokeLinecap="round" strokeLinejoin="round" />)}
+                {tracoAtual.length >= 2 && <polyline points={pts(tracoAtual)} fill="none" stroke="#5FC8E8" strokeWidth={0.007} strokeLinecap="round" strokeLinejoin="round" />}
+                {tracoLivre.length >= 2 && <polyline points={pts(tracoLivre)} fill="none" stroke="#5FC8E8" strokeWidth={0.007} strokeLinecap="round" strokeLinejoin="round" />}
                 {chunk(tracoAtual).map(([x, y], i) => <circle key={i} cx={x} cy={y} r={0.012} fill="#5FC8E8" />)}
                 {recorteA && recortePtr && (
                   <rect x={Math.min(recorteA[0], recortePtr[0])} y={Math.min(recorteA[1], recortePtr[1])}
@@ -378,12 +394,23 @@ export default function CadastrarEquipamentoScreen() {
               <button className="btn" onClick={() => { setTracando((v) => !v); setModoRecorte(false); }} style={tracando ? { borderColor: "var(--gold)", color: "var(--gold)" } : undefined}>{tracando ? "Traçando…" : "✎ Traçar"}</button>
               <button className="btn" disabled={tracoAtual.length < 4} onClick={concluirTraco}>Concluir traço</button>
               <button className="btn" disabled={!tracoAtual.length} onClick={() => setTracoAtual((t) => t.slice(0, -2))}>↶ ponto</button>
-              <button className="btn" disabled={!contorno.length && !tracoAtual.length} onClick={() => { setContorno([]); setTracoAtual([]); }}>Limpar</button>
+              <button className="btn" disabled={!contorno.length && !tracoAtual.length && !tracoLivre.length} onClick={() => { setContorno([]); setTracoAtual([]); setTracoLivre([]); }}>Limpar</button>
             </div>
             <div style={{ fontSize: 11, color: "var(--muted)", textAlign: "center", maxWidth: previewW }}>
-              {contorno.length ? `${contorno.length} traço(s) no contorno.` : "DWG/PDF gera o contorno; na imagem, ligue Traçar e toque os pontos."}
+              {contorno.length ? `${contorno.length} traço(s) no contorno.` : "DWG/PDF gera o contorno; na imagem, ligue Traçar e arraste com a caneta (ou toque os pontos). Sem arquivo, use a prancheta abaixo."}
             </div>
           </div>
+        </div>
+
+        <div style={{ marginTop: 18 }}>
+          <PranchetaDesenho
+            larguraCm={larg} profundidadeCm={prof} zona={f.zona}
+            contorno={contorno}
+            onTraco={acrescentarTraco}
+            onDesfazer={() => setContorno((c) => c.slice(0, -1))}
+            onLimpar={() => { setContorno([]); setTracoAtual([]); setTracoLivre([]); }}
+            imagem={imagem}
+          />
         </div>
 
         <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
